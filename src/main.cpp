@@ -1,10 +1,25 @@
+/*
+to implement:
+add wifimanager
+add arduinoOTA
+*/
 #include <Arduino.h>
 #include <Wire.h>
 #include <MCP23017.h>
-//#include <ESPAsyncWebServer.h>
 #include <SD.h>
 #include "SPIFFS.h"
 //#include <RtcDS3231.h>
+#include <WiFi.h>
+
+//needed for library
+#include <ESPAsyncWebServer.h>
+#include <ESPAsyncWiFiManager.h>         //https://github.com/tzapu/WiFiManager
+
+//#include <Hash.h>
+#include <AsyncTCP.h>
+//#include <AsyncElegantOTA.h>
+#include <ArduinoOTA.h>
+
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
 #else
@@ -12,6 +27,9 @@
 #endif
 
 
+
+AsyncWebServer server(80);
+DNSServer dns;
 
 
 
@@ -1391,7 +1409,32 @@ void setup() {
 
   // Connect to Wi-Fi
 
+
+    //WiFiManager
+    //Local intialization. Once its business is done, there is no need to keep it around
+    AsyncWiFiManager wifiManager(&server,&dns);
+    //reset saved settings
+    //wifiManager.resetSettings();
+    //set custom ip for portal
+    //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
+    //fetches ssid and pass from eeprom and tries to connect
+    //if it does not connect it starts an access point with the specified name
+    //here  "AutoConnectAP"
+    //and goes into a blocking loop awaiting configuration
+    wifiManager.autoConnect("AutoConnectAP");
+    //or use this for auto generated name ESP + ChipID
+    //wifiManager.autoConnect();
+    //if you get here you have connected to the WiFi
+    Serial.println("connected...yeey :)");
+
+
+
+
   //start Web Server + WebSocket
+  //AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+    server.begin();
+    ArduinoOTA.begin(WiFi.localIP(), "Arduino", "password", InternalStorage);
+
 
   // attach interrupts for flow sensors
 
@@ -1401,7 +1444,16 @@ void setup() {
   // Create tasks
 
 }
+
+ 
+
+
+
+
+
   
 void loop() {
+    ArduinoOTA.poll();
+    //AsyncElegantOTA.loop();
   // disable loop watchdog - working with tasks only?
 }
