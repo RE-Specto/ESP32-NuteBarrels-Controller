@@ -1,7 +1,23 @@
 /*
 to implement:
-add wifimanager
-add arduinoOTA
+declassify
+implement webserver
+apply test code to check every part of the system
+
+rewrite:
+expander - ok
+Task 0 - Error reporting - rewrite
+storage - rewrite spiffs to use littlefs
+barrels - rewrite
+flow sensor - half-ok
+pressure sensor - leave as class? make one flow-pressure?
+ultrasonic - move to barrels?
+implement webserver
+deprecate RTC? replace with ntp + timeAlarms?
+MixingTask - declassify
+storing task - implement
+draining task -declassify
+add to setup everything
 */
 #include <Arduino.h>
 #include <Wire.h>
@@ -17,8 +33,9 @@ add arduinoOTA
 
 //#include <Hash.h>
 #include <AsyncTCP.h>
-//#include <AsyncElegantOTA.h>
 #include <ArduinoOTA.h>
+//https://github.com/jandrassy/TelnetStream
+#include "TimeAlarms.h" 
 
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
@@ -27,10 +44,68 @@ add arduinoOTA
 #endif
 
 
+//hex codes for "error_state" bit-field
+#define NOWATER_ERROR	    0x01    //1-1-water line no pressure
+#define PS1TOOHIGH_ERROR    0x08    //4-8-pump1 pressure too high - storing solenoids malfunction
+#define PS1TOOLOW_ERROR     0x10    //5-16-pump1 pressure too low - pump failure or no more liquid
+#define PS2TOOHIGH_ERROR    0x20    //6-8-pump1 pressure too high - storing solenoids malfunction
+#define PS2TOOLOW_ERROR     0x40    //7-16-pump1 pressure too low - pump failure or no more liquid
+#define FS1_NOFLOW_ERROR    0x80    //8-128-fs1 no flow
+#define FS2_NOFLOW_ERROR    0x100   //9-256-fs2 no flow
+#define NOMAINS_ERROR       0x400   //B-1024-no mains power
+#define BARRELS_ERROR       0x800   //C-2048-barrels error
 
+//hex codes for "state" bit field
+#define FILLING_STATE   0X10    // F = filling task on
+#define MIXING_STATE    0x08    // M = mixing task on
+#define STORING_STATE   0x04    // S = storing task on
+#define DRAINIG_STATE   0x02    // E = draining task on
+#define STOPPED_STATE   0x01    // X = stopped status on
+
+// RGB_LED bitmap 00000BGR
+#define LED_OFF     0x00 //000
+#define LED_RED     0x01 //001
+#define LED_GREEN   0x02 //010
+#define LED_YELLOW  0X03 //011
+#define LED_BLUE    0x04 //100
+#define LED_MAGENTA 0X05 //101
+#define LED_CYAN    0X06 //110
+#define LED_WHITE   0X07 //111
+
+#define OUT_PORT Serial //SerialAndTelnet or file
+#define SYNC_INTERVAL 600 // NTP sync - in seconds
+#define NTP_PACKET_SIZE 48
+// NTP time is in the first 48 bytes of message
+#define NTP_HOSTNAME "pool.ntp.org"
+#define NTP_PORT 123
+#define NTP_TIMEOUT 5000
+#define LOCAL_UDP_PORT 8888  // local port to listen for UDP packets
+
+// load Object from Storage to Struct
+#define NUM_OF_BARRELS 6
+
+ // in liters how much is gonna get stuck in the barrel 
+ // because you can never drain to dry
+ // !! reimplement next version to be adjustable
+#define BARREL_LOW_LIMIT 50
+
+//Flow sensor Pin declarations
+#define FLOW_1_PIN 25
+#define FLOW_2_PIN 26
+//#define FLOW_3_PIN 27
+
+//Pressure sensor Pin declarations
+#define PRESSUR_1_PIN 36
+#define PRESSUR_2_PIN 34
+//#define PRESSUR_3_PIN 35
+
+
+// Globals
+File file;
+WiFiUDP UDP;
 AsyncWebServer server(80);
 DNSServer dns;
-
+bool isTimeSync = false;
 
 
 
@@ -51,15 +126,6 @@ DNSServer dns;
 
 // declare I/O Expander ports and constants
 
-// RGB_LED bitmap 00000BGR
-#define LED_OFF     0x00 //000
-#define LED_RED     0x01 //001
-#define LED_GREEN   0x02 //010
-#define LED_YELLOW  0X03 //011
-#define LED_BLUE    0x04 //100
-#define LED_MAGENTA 0X05 //101
-#define LED_CYAN    0X06 //110
-#define LED_WHITE   0X07 //111
 
 // MCP23017 with pin settings
 MCP23017 expander1(0); // Base Address + 0: 0x20
@@ -161,27 +227,6 @@ void UnlockMUX(){
 
 // Task 0 - Error reporting task
 
-//hex codes for "error_state" bit-field
-#define NOWATER_ERROR	    0x01    //1-1-water line no pressure
-#define NOMIXERFLOW_ERROR	0x02    //2-2-no mixer input flow
-#define MIXMOTOR_ERROR      0x04    //3-4-mixer motor not starting
-#define P1TOOHIGH_ERROR     0x08    //4-8-pump1 pressure too high - storing solenoids malfunction
-#define P1TOOLOW_ERROR      0x10    //5-16-pump1 pressure too low - pump failure or no more liquid
-#define P2TOOHIGH_ERROR     0x20    //6-32-pump2 pressure too high - output solenoid did not opened
-#define P2TOOLOW_ERROR      0x40    //7-64-pump2 pressure too low - draining solenoid or pump error
-#define FS1_NOFLOW_ERROR    0x80    //8-128-fs1 no flow
-#define FS2_NOFLOW_ERROR    0x100   //9-256-fs2 no flow
-#define FS3_NOFLOW_ERROR    0x200   //A-512-fs3 no flow
-#define NOMAINS_ERROR       0x400   //B-1024-no mains power
-#define BARRELS_ERROR       0x800   //C-2048-barrels error
-
-//hex codes for "state" bit field
-#define FILLING_STATE   0X10    // F = filling task on
-#define MIXING_STATE    0x08    // M = mixing task on
-#define STORING_STATE   0x04    // S = storing task on
-#define DRAINIG_STATE   0x02    // E = draining task on
-#define STOPPED_STATE   0x01    // X = stopped status on
-
 void SendSMS(String message);
 
 class state_class{
@@ -215,20 +260,20 @@ private:
     //000CBA987654321
     //0-0-no errors
     //1-1-water line no pressure
-    //2-2-no mixer input flow
-    //3-4-mixer motor not starting
-    //4-8-pump1 overpressure
-    //5-16-pump1 underpressure
-    //6-32-pump2 overpressure (output solenoid did not opened?)
-    //7-64-pump2 underpressure
-    //8-128-fs1 no flow
-    //9-256-fs2 no flow
-    //A-512-fs3 no flow
-    //B-1024-no mains power
-    //C-2048-barrels error
-    //D-
-    //E-
-    //F-
+    //2-2-
+    //3-4-
+    //4-8-
+    //5-16-
+    //6-32-
+    //7-64-
+    //8-128-
+    //9-256-
+    //A-512-
+    //B-1024-
+    //C-2048-
+    //D-4096-
+    //E-8192-
+    //F-16384-
     uint16_t _error_state;
     uint16_t _lastError_state;
 
@@ -247,7 +292,7 @@ while (!mystate.any_new_errors()){
 // goes here if there is an error to report
 if (mystate.get_error() > 0 )
     // lock MUX
-    Serial.println("reporting task is trying to lock MUX");
+    OUT_PORT.println("reporting task is trying to lock MUX");
     while(!LockMUX()){
         delay(100); // waiting untill mux is unlocked by another task
     }
@@ -368,12 +413,16 @@ void state_class::error_reported(){
 // need to check if not getting out of scope
 void initStorage(){
     while (!SD.begin()) {
-        Serial.println(F("Failed to initialize SD library"));
+        OUT_PORT.println(F("Error: Failed to initialize SD card"));
         delay(1000);
     }
+    OUT_PORT.println(F("SD card OK"));
     if(!SPIFFS.begin(true)){
-        Serial.println("An Error has occurred while mounting SPIFFS");
+        OUT_PORT.println(F("Warning: Failed to initialize SPIFFS"));
         //return;
+    }
+    else {
+        OUT_PORT.println(F("SPIFFS OK"));
     }
 }
 
@@ -420,13 +469,7 @@ void initStorage(){
 
 
 
-// load Object from Storage to Struct
-#define NumberOfBarrels 6
 
- // in liters how much is gonna get stuck in the barrel 
- // because you can never drain to dry
- // !! reimplement next version to be adjustable
-#define BarrelLowLimit 50
 
 // my data struct should go here
 
@@ -490,7 +533,7 @@ private:
     //6 - 
     //7 - other error
     uint8_t _error_state;
-    barrel _barrel[NumberOfBarrels];
+    barrel _barrel[NUM_OF_BARRELS];
 
 public:
     barrels();
@@ -509,7 +552,7 @@ public:
 
 //barrel constructor
 barrels::barrel::barrel(){
-    Serial.println("barrel constructor");
+    OUT_PORT.println("barrel constructor");
 }
 
 //returns error state bit field
@@ -597,8 +640,8 @@ int barrels::barrel::get_combined_percentage(){
 //barrels constructor
 //assign every barrel its number
 barrels::barrels(){
-    Serial.println("barrels constructor");
-    for (uint8_t x=0;x<NumberOfBarrels;x++){
+    OUT_PORT.println("barrels constructor");
+    for (uint8_t x=0;x<NUM_OF_BARRELS;x++){
             // !!!! for test only - need to implement loading from JSON object
         _barrel[x]._error_state=0;
         _barrel[x]._current_volume=0;
@@ -611,7 +654,7 @@ barrels::barrels(){
 }
 
 barrels::barrel &barrels::getBarrel(uint8_t barrelNumber){
-  if (barrelNumber < 0 || barrelNumber >= NumberOfBarrels)
+  if (barrelNumber < 0 || barrelNumber >= NUM_OF_BARRELS)
     barrelNumber = 0; // playing safe with dummys :-)
 
   return barrels::_barrel[barrelNumber];
@@ -657,35 +700,21 @@ void test1(){
 // flow Sensors Pin Declarations
 // and Interrupt routines
 
-//Flow sensor Pin declarations
-#define FSensor1pin 25
-#define FSensor2pin 26
-#define FSensor3pin 27
 
 void IRAM_ATTR FlowSensor1Interrupt();
 void IRAM_ATTR FlowSensor2Interrupt();
-void IRAM_ATTR FlowSensor3Interrupt();
 void enableFlowInterrupts();
 
-class flow_sensor{
-public:
-    flow_sensor(uint8_t sensorPin);
-    // read only thru this function.
-    uint8_t get_multiplier();
-
-    // only from JSON data object
-    void set_multiplier(int value);
-
-private:
-    uint8_t _sensorPin;
-    uint8_t _conversion_multiplier;
-};
+struct flow_sensor{
+    uint8_t sensorPin;
+    uint8_t conversion_multiplier;
+    uint64_t counter;
+} myFlowSensor[2];
 
 
 //Flow sensor Interrupt counters
 volatile int FlowSensor1Count = 0;
 volatile int FlowSensor2Count = 0;
-volatile int FlowSensor3Count = 0;
 
 //for interrupts and xTasks
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -702,21 +731,13 @@ void IRAM_ATTR FlowSensor2Interrupt() {
   FlowSensor2Count++;
   portEXIT_CRITICAL_ISR(&mux);
 }
-//flow sensor 3 interrupt routine
-void IRAM_ATTR FlowSensor3Interrupt() {
-  portENTER_CRITICAL_ISR(&mux);
-  FlowSensor3Count++;
-  portEXIT_CRITICAL_ISR(&mux);
-}
 
 // attach interrupts function
 void enableFlowInterrupts(){
-  pinMode(FSensor1pin, INPUT_PULLUP);
-  pinMode(FSensor2pin, INPUT_PULLUP);
-  pinMode(FSensor3pin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(FSensor1pin), FlowSensor1Interrupt, RISING);
-  attachInterrupt(digitalPinToInterrupt(FSensor2pin), FlowSensor2Interrupt, RISING);
-  attachInterrupt(digitalPinToInterrupt(FSensor3pin), FlowSensor3Interrupt, RISING);
+  pinMode(FLOW_1_PIN, INPUT_PULLUP);
+  pinMode(FLOW_2_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(FLOW_2_PIN), FlowSensor2Interrupt, RISING);
 }
 
 // assign FlowSensorCounts to object
@@ -788,10 +809,6 @@ private:
 // and Analog reads
 // task pressure sensors - stops pumps on overpressure
 
-//Pressure sensor Pin declarations
-#define PSensor1 36
-#define PSensor2 34
-#define PSensor3 35
 
 class pressure_sensor{
 public:
@@ -820,8 +837,8 @@ pressure_sensor::pressure_sensor(uint8_t sensorPin, uint16_t TooLowErr, uint16_t
     _max_pressure=30;
     _min_pressure=80;
 
-    Serial.println("pressure_sensor constructor");
-    Serial.println(sensorPin);
+    OUT_PORT.println("pressure_sensor constructor");
+    OUT_PORT.println(sensorPin);
 
     // initialize analog pin for the sensor
     pinMode(sensorPin,INPUT);
@@ -848,11 +865,10 @@ uint16_t pressure_sensor::measure(){
 // initialize analog pins for sensors
 void initPressureSensors(){
     // !! need to reimplement to use error mask position instead the whole uint16_t mask
-    pressure_sensor Ps1(PSensor1,NOMIXERFLOW_ERROR,NOMIXERFLOW_ERROR);
-    pressure_sensor Ps2(PSensor2,P1TOOLOW_ERROR,P1TOOHIGH_ERROR);
-    pressure_sensor Ps3(PSensor3,P2TOOLOW_ERROR,P2TOOHIGH_ERROR);
+    pressure_sensor Ps1(PRESSUR_1_PIN,PS1TOOHIGH_ERROR,PS1TOOLOW_ERROR);
+    pressure_sensor Ps2(PRESSUR_2_PIN,PS2TOOHIGH_ERROR,PS2TOOLOW_ERROR);
     // testing
-    // Serial.println(Ps1.measure());
+    // OUT_PORT.println(Ps1.measure());
     // if error do something about it - rather not here but in the relevant task
 }
 
@@ -969,21 +985,6 @@ void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventT
   testPrintRTC(); // test - remove!!!
 }
 
-// connects to wifi, with timeout, returns success
-bool connWifi(const char *ss,const char *ps){
-  WiFi.begin(ss, ps);
-  Serial.printf("Connecting to WiFi %s\r\n",ss);
-  for (int i = 0; i < wifiTimeout; i++){
-    if (WiFi.status() == WL_CONNECTED){
-      Serial.printf("Connected after %d seconds\r\n", i);
-      Serial.println( WiFi.localIP() );       // Print ESP32 Local IP Address
-      return true; //Succesfull
-    } 
-    delay(1000);
-  }
-  Serial.printf("unable to connect to %s\r\n", ss);
-  return false;
-}
 
 
 void setupServer(){
@@ -1029,7 +1030,61 @@ void setupServer(){
 
 
 
+/*-------- NTP code ----------*/
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address, byte (&packetBuffer)[NTP_PACKET_SIZE]){
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12]  = 49;
+  packetBuffer[13]  = 0x4E;
+  packetBuffer[14]  = 49;
+  packetBuffer[15]  = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:                 
+  UDP.beginPacket(address, NTP_PORT);
+  UDP.write(packetBuffer, NTP_PACKET_SIZE);
+  UDP.endPacket();
+}
 
+time_t getNtpTime(){
+  isTimeSync = true; // prevent retrigger untill done
+  byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+  IPAddress ntpServerIP; // NTP server's ip address
+  while (UDP.parsePacket() > 0) ; // discard any previously received packets
+  WiFi.hostByName(NTP_HOSTNAME, ntpServerIP);  // get a random server from the pool
+  #ifdef DEBUG
+  OUT_PORT.print("NTP time request via ");
+  OUT_PORT.print(ntpServerIP);
+  #endif
+  sendNTPpacket(ntpServerIP, packetBuffer);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < NTP_TIMEOUT) {
+    uint8_t size = UDP.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      OUT_PORT.println(" Received NTP Response");
+      UDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      // convert four bytes starting at location 40 to a long integer
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      uint16_t DTS = 0;//mySettings.DTS?3600UL:0;
+      uint16_t timeZone = 3; // temporary
+      return secsSince1900 - 2208988800UL + DTS + timeZone * 3600UL; // added DTS
+    }
+  }
+  OUT_PORT.println("No NTP Response :-(");
+  isTimeSync = false; // if failed - set back to false
+  return 0; // return 0 if unable to get the time
+}
 
 
 
@@ -1278,7 +1333,7 @@ private:
 //constructor
 drainSystem::drainSystem(void)
 {
-    Serial.println("drainSystem constructor");
+    OUT_PORT.println("drainSystem constructor");
     _drain_requirement = 0;
     _drain_counter = 0;
 }
@@ -1337,7 +1392,7 @@ void DrainingTask(){
         int x = 5;
         // measure barrel x
         // Barrel x not empty?
-        if (mybarrels.getBarrel(x).measure_ultrasonic() > BarrelLowLimit ){
+        if (mybarrels.getBarrel(x).measure_ultrasonic() > BARREL_LOW_LIMIT ){
 
         }
         
@@ -1387,61 +1442,41 @@ void DrainingTask(){
 /* initial sequnence */
 void setup() {
 
-  //initiate expander ports - I2C wire
+    // initiate UART0 - serial output
+    OUT_PORT.begin(115200);
 
+    // initialize UART2 - serial MUX
+    Serial2.begin(9600, SERIAL_8N1);
 
-
-  // initiate SD Card - SPI bus + SPIFFS
-
-
-
-  // initiate UART0 - serial output
-  Serial.begin(115200);
-
-  // initialize UART2 - serial MUX
-  Serial2.begin(9600, SERIAL_8N1);
-
-  // initialize uart2 SIM800L modem at MUX port 7
-
-
-  // setup Real Time Clock
-
-
-  // Connect to Wi-Fi
-
-
-    //WiFiManager
-    //Local intialization. Once its business is done, there is no need to keep it around
+    //WiFiManager Local intialization. Once its business is done, there is no need to keep it around
     AsyncWiFiManager wifiManager(&server,&dns);
-    //reset saved settings
     //wifiManager.resetSettings();
-    //set custom ip for portal
-    //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
-    //fetches ssid and pass from eeprom and tries to connect
-    //if it does not connect it starts an access point with the specified name
-    //here  "AutoConnectAP"
-    //and goes into a blocking loop awaiting configuration
-    wifiManager.autoConnect("AutoConnectAP");
-    //or use this for auto generated name ESP + ChipID
-    //wifiManager.autoConnect();
-    //if you get here you have connected to the WiFi
-    Serial.println("connected...yeey :)");
+    wifiManager.autoConnect("AutoConnectAP"); // will stop here if no wifi connected
+    OUT_PORT.printf("ESSID: %s\r\n", WiFi.SSID().c_str());
+
+    //initiate expander ports - I2C wire
+    expanderInit();
+
+    // initiate SD Card - SPI bus + SPIFFS
+    initStorage();
+
+    // initialize uart2 SIM800L modem at MUX port 7?
 
 
+    // setup NTP
 
 
-  //start Web Server + WebSocket
-  //AsyncElegantOTA.begin(&server);    // Start ElegantOTA
-    server.begin();
-    ArduinoOTA.begin(WiFi.localIP(), "Arduino", "password", InternalStorage);
+    //start Web Server
+        server.begin();
+        ArduinoOTA.setHostname("barrels");
+        ArduinoOTA.begin();
+
+    // attach interrupts for flow sensors
 
 
-  // attach interrupts for flow sensors
+    // read structs from sdcard
 
-
-  // read last status "object" from sdcard
-
-  // Create tasks
+    // Create tasks
 
 }
 
@@ -1453,7 +1488,6 @@ void setup() {
 
   
 void loop() {
-    ArduinoOTA.poll();
-    //AsyncElegantOTA.loop();
-  // disable loop watchdog - working with tasks only?
+    // disable loop watchdog - working with tasks only?
+    ArduinoOTA.handle();
 }
