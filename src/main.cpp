@@ -2,12 +2,27 @@
 to implement:
 declassify
 implement webserver
-apply test code to check every part of the system
+start/stop interrupts
+    start sets canMix global boolean
+        task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
+    stop sets shouldStop global boolean
+        task or loop reads the bool - changes RGB immediately, triggers stop and save
+rgb led status (read from system status via error-reporting task?)
+apply test code to check every part of the system:
+    relays manual - on off
+    flow sensor data - counter + flow/second
+    pressure sensor data - live
+    ultrasonic data - live
+    rgb led
+    start-stop
+    sim800L - send sms
+work on system hardware 
+
 
 rewrite:
 expander - ok
 Task 0 - Error reporting - rewrite
-storage - rewrite spiffs to use littlefs
+storage - ok
 barrels - rewrite
 flow sensor - half-ok
 pressure sensor - leave as class? make one flow-pressure?
