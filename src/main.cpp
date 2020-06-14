@@ -442,10 +442,53 @@ void initStorage(){
 }
 
 
+/*-------- Filesystem code ----------*/
+// loading Structs from files
+// filename, struct pointer, struct lenght "sizeof(myStruct)"
+bool Load(const char* fname, byte* stru_p, uint16_t len){
+    uint16_t count=0;
+    OUT_PORT.printf("Loading %s\t", fname);
+    file = SD.open(fname, "r"); 
+        if (!file)
+        OUT_PORT.print(F("unable to open file\r\n\r\n"));
+        else
+        for (; count<len; count++) 
+            if ( file.available())
+            *( stru_p + count ) = file.read();
+    #ifdef DEBUG
+    OUT_PORT.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count==len?"successfully":"failed", count, len, len==file.size()?"M":"Mism");
+    #else
+    OUT_PORT.println();
+    #endif
+    file.close();
+    return count == len;
+}
 
+bool LoadSettings(){
+    return false;   //return Load(CONFFILE, (byte*)&mySettings, sizeof(mySettings));
+}
 
+bool Save(const char* fname, byte* stru_p, uint16_t len){
+    uint16_t count=0;
+    OUT_PORT.printf("Saving %s\t", fname);
+    file = SD.open(fname, "w"); // creates the file of not exist
+    //file.setTimeCallback(timeCallback);
+    if (!file)
+        OUT_PORT.print(F("unable to open file\r\n\r\n"));
+    else
+        count = file.write(stru_p, len);
+    #ifdef DEBUG
+    OUT_PORT.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count==len?"successfully":"failed", count, len, len==file.size()?"M":"Mism");
+    #else
+    OUT_PORT.println();
+    #endif
+    file.close();
+    return count == len;
+}
 
-
+bool SaveSettings(){
+    return false;   //return Save(CONFFILE, (byte*)&mySettings, sizeof(mySettings));
+}
 
 
 
