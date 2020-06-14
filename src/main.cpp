@@ -87,6 +87,8 @@ add to setup everything
 #define LED_CYAN    0X06 //110
 #define LED_WHITE   0X07 //111
 
+#define MUX_UNLOCKED 255 //valid shannels are 0-15
+
 #define OUT_PORT Serial //SerialAndTelnet or file
 #define SYNC_INTERVAL 600 // NTP sync - in seconds
 #define NTP_PACKET_SIZE 48
@@ -114,6 +116,7 @@ add to setup everything
 #define PRESSUR_2_PIN 34
 //#define PRESSUR_3_PIN 35
 
+#define DEBUG
 
 // Globals
 File file;
@@ -122,8 +125,9 @@ AsyncWebServer server(80);
 DNSServer dns;
 bool isTimeSync = false;
 
-
-
+//function declarations:
+bool Load(const char* fname, byte* stru_p, uint16_t len);
+bool Save(const char* fname, byte* stru_p, uint16_t len);
 
 
 
@@ -141,127 +145,143 @@ bool isTimeSync = false;
 
 // declare I/O Expander ports and constants
 
-
 // MCP23017 with pin settings
 MCP23017 expander1(0); // Base Address + 0: 0x20
 MCP23017 expander2(1); // Base Address + 1: 0x21
 
-void setMUX(uint8_t address);
-void setRGBLED(uint8_t address);
-
-void expanderInit(){
-
-    // initialize TwoWire communication
-    Wire.begin();
-
-    for (size_t i = 0; i < 16; i++)
-    {
-    // set GPA0-7 GPB0-7 to be an output on both expanders
-    expander1.getPin(i).setPinMode(OUTPUT);
-    expander2.getPin(i).setPinMode(OUTPUT);
-    // initialize the pins to be HIGH
-    expander1.getPin(i).setValue(1);
-    expander2.getPin(i).setValue(1);
-    }
-
-    // setup the MCP23017 expanders
-    expander1.setup();
-    expander2.setup();
-
-    // reset analog mux and RGB LED
-    setMUX(0);
-    setRGBLED(LED_WHITE);
-
-}
-
-//set analogMUX address
-void setMUX(uint8_t address){
-    for (uint8_t i = 0; i < 4; i++){
-        //checks bit 0-3 of mux Address "address"
-        //if bit set - setValue receives a positive value
-        //otherwise sets setValue with 0
-        //offset of 0 - expander 0x20 pins a0 a1 a2 a3
-        expander1.getPin(i+0).setValue( address & (1 << i) ); 
-    }
-    expander1.write();
-}
-
-void setRGBLED(uint8_t address){
-    for (uint8_t i = 0; i < 3; i++){
-        //checks bit 0-2 of color ( R G B ) in "address"
-        //offset of 4 - expander 0x20 pins a4 a5 a6
-        expander1.getPin(i+4).setValue( address & (1 << i) ); 
-    }
-    expander1.write();
-}
-
-void FillingRelay(uint8_t address, bool state){
-    //offset of 8 - expander 0x20 pins b0-b7
-    expander1.getPin( address+8 ).setValue( state ); 
-    expander1.write();
-}
-
-void StoringRelay(uint8_t address, bool state){
-    //offset of 0 - expander 0x21 pins a0-a7
-    expander2.getPin( address ).setValue( state ); 
-    expander2.write();
-}
-
-void DrainingRelay(uint8_t address, bool state){
-    //offset of 8 - expander 0x21 pins b0-b7
-    expander2.getPin( address+8 ).setValue( state ); 
-    expander2.write();
-}
-
-bool LockMUX(){
-    // code goes here
-    return true; // untill coded otherwise
-}
-
-void UnlockMUX(){
-    // code goes here
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Task 0 - Error reporting task
-
-void SendSMS(String message);
-
-class state_class{
-public:
-    state_class();
-
-    bool return_state(uint8_t mask);
-    bool mixing_state();
-    bool storing_state();
-    bool draining_state();
-    bool stopped_state();
-
-    uint16_t get_error();
-    void set_error(uint16_t error);
-    void unset_error(uint16_t error);
-    bool any_new_errors();
-    uint16_t last_error();
-    void error_reported();
-
+class exp {
 private:
+    uint8_t _muxLock = MUX_UNLOCKED; // unlocked
+
+public:
+    void Init(){
+        // initialize TwoWire communication
+        Wire.begin();
+
+        for (size_t i = 0; i < 16; i++) {
+        // set GPA0-7 GPB0-7 to be an output on both expanders
+        expander1.getPin(i).setPinMode(OUTPUT);
+        expander2.getPin(i).setPinMode(OUTPUT);
+        // initialize the pins to be HIGH
+        expander1.getPin(i).setValue(1);
+        expander2.getPin(i).setValue(1);
+        }
+
+        // setup the MCP23017 expanders
+        expander1.setup();
+        expander2.setup();
+
+        // initial LED state
+        setRGBLED(LED_WHITE);
+    }
+
+    //set analogMUX address
+    void setMUX(uint8_t address){
+
+        if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
+            OUT_PORT.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);
+        while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
+            Alarm.delay(1);
+
+        OUT_PORT.printf("MUX is free. locking to %u\r\n", address);
+        _muxLock = address;
+
+        for (uint8_t i = 0; i < 4; i++){
+            //checks bit 0-3 of mux Address "address"
+            //if bit set - setValue receives a positive value
+            //otherwise sets setValue with 0
+            //offset of 0 - expander 0x20 pins a0 a1 a2 a3
+            expander1.getPin(i+0).setValue( address & (1 << i) ); 
+        }
+        expander1.write();
+    }
+
+    // very important to run this every time you ended up business with setMUX
+    void UnlockMUX(){
+        _muxLock = MUX_UNLOCKED;
+        OUT_PORT.println(F("MUX unlocked!"));
+    }
+
+    void setRGBLED(uint8_t address){
+        for (uint8_t i = 0; i < 3; i++){
+            //checks bit 0-2 of color ( R G B ) in "address"
+            //offset of 4 - expander 0x20 pins a4 a5 a6
+            expander1.getPin(i+4).setValue( address & (1 << i) ); 
+        }
+        expander1.write();
+    }
+
+    void FillingRelay(uint8_t address, bool state){
+        //offset of 8 - expander 0x20 pins b0-b7
+        expander1.getPin( address+8 ).setValue( state ); 
+        expander1.write();
+    }
+
+    void StoringRelay(uint8_t address, bool state){
+        //offset of 0 - expander 0x21 pins a0-a7
+        expander2.getPin( address ).setValue( state ); 
+        expander2.write();
+    }
+
+    void DrainingRelay(uint8_t address, bool state){
+        //offset of 8 - expander 0x21 pins b0-b7
+        expander2.getPin( address+8 ).setValue( state ); 
+        expander2.write();
+    }
+
+} expanders; // initiated globally
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// set MUX to SIM_MUX_ADDRESS
+// send sms with error code description
+void SendSMS(String message){
+    expanders.setMUX(7); // modem is at port 7
+    Alarm.delay(10); // wait until expander + mux did their job
+    Serial2.println("AT+CMGS=\"+972524373724\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
+    Serial2.print( message ); //text content
+    Serial2.write(26); // send ctrl+z end of message
+    //Serial2.print((char)26); // if the above won't work - thy this one instead
+    expanders.UnlockMUX();
+}
+// module needs 3.4V to 4.4V (Ideal 4.1V) @ 2amp
+
+/*
+  mySerial.println("AT"); //Once the handshake test is successful, it will back to OK
+  mySerial.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
+  mySerial.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
+  mySerial.println("AT+CREG?"); //Check whether it has registered in the network
+  ATI – Get the module name and revision
+AT+COPS? – Check that you’re connected to the network, in this case BSNL
+AT+COPS=? – Return the list of operators present in the network.
+AT+CBC – will return the lipo battery state. The second number is the % full (in this case its 93%) and the third number is the actual voltage in mV (in this case, 3.877 V)
+  */
+
+void modemInit(){
+    expanders.setMUX(7); // modem is at port 7
+    Alarm.delay(10); // wait until expander + mux did their job
+    // Serial2.begin(9600, SERIAL_8N1); // already done in main
+    Serial2.println("AT"); //Once the handshake test is successful, it will back to OK
+    Serial2.println("AT+CMGF=1"); // Configuring TEXT mode
+    expanders.UnlockMUX(); // Must unlock after every use!!
+    SendSMS("System Started");
+}
+
+struct state { 
     //bit field
     //000FMSEX
     // F = filling task on
@@ -269,7 +289,7 @@ private:
     // S = storing task on
     // E = emptying task on
     // X = stopped status on
-    uint8_t _state;
+    uint8_t _state = 0;
 
     // bit field
     //000CBA987654321
@@ -289,116 +309,81 @@ private:
     //D-4096-
     //E-8192-
     //F-16384-
-    uint16_t _error_state;
-    uint16_t _lastError_state;
+    uint16_t _error_state = 0;
+    uint16_t _lastError_state = 0;
+    };
 
-};
+class state_class{
+private:
+    state myState;
+
+public:
+    bool LoadState(){
+        return Load("StateStr.uct", (byte*)&myState, sizeof(myState));
+    }
+
+    bool SaveState(){
+        return Save("StateStr.uct", (byte*)&myState, sizeof(myState));
+    }
+
+    // returns true if state have "mask-bit" state on. ex: return_state(MIXING_STATE);
+    bool return_state(uint8_t mask){
+        //return (_state & ( 1 << position )) >> position
+        //return (_state >> position) & 1 //right-shifting to position bit, and then extracting the first bit
+        return myState._state & mask;
+    }
+
+    // returns error state
+    uint16_t get_error(){
+        return myState._error_state;
+    }
+
+    void set_error(uint16_t error){
+        myState._error_state |=  error;
+    }
+
+    void unset_error(uint16_t error){
+        myState._error_state &= ~error;
+    }
+
+    // returns true if error_state changed
+    bool any_new_errors(){
+        return myState._error_state == myState._lastError_state;
+    }
+
+    //returns the difference between current and last error states
+    // !! need to reimplement to return either the new error position
+    // so I dont have to use uint16_t for return
+    // or either if two errors should be reported at once - a while loop that solves them one by one
+    uint16_t last_error(){
+        return myState._error_state ^ myState._lastError_state;
+    }
+
+    void error_reported(){
+        myState._lastError_state=myState._error_state;
+    }
+
+} SystemState;
 
 
-// create state_class instance
-state_class mystate;
-
+// Task 0 - Error reporting task
 void errorReportTask(){
 // while there is no new errors
-while (!mystate.any_new_errors()){
-    delay(1000);     //wait - endless loop untill error status changes
+while (!SystemState.any_new_errors()){
+    Alarm.delay(1000);     //wait - endless loop untill error status changes
 }
 
 // goes here if there is an error to report
-if (mystate.get_error() > 0 )
-    // lock MUX
-    OUT_PORT.println("reporting task is trying to lock MUX");
-    while(!LockMUX()){
-        delay(100); // waiting untill mux is unlocked by another task
-    }
-
+if (SystemState.get_error() > 0 )
     // need to reimplement to send error description instead of error number
-    SendSMS( "barrels error " + String(mystate.last_error()) );
-
-    // unlock mux
-    UnlockMUX();
-    // set global ErrorState = LastErrorState
-
+    SendSMS( "barrels error " + String(SystemState.last_error()) );
+    // clear error as being reported
+    SystemState.error_reported();
 }
 
-void set_error(uint16_t error){
-    mystate.set_error(error);
-}
-
-// should I need to lock MUX before?
-void modemInit(){
-    setMUX(7); // modem is at port 7
-    delay(10); // wait until expander + mux did their job
-    // Serial2.begin(9600, SERIAL_8N1); // already done in main
-    Serial2.println("AT"); //Once the handshake test is successful, it will back to OK
-    Serial2.println("AT+CMGF=1"); // Configuring TEXT mode
-    SendSMS("System Started");
-}
-
-// set MUX to SIM_MUX_ADDRESS
-// send sms with error code description
-void SendSMS(String message){
-    setMUX(7); // modem is at port 7
-    delay(10); // wait until expander + mux did their job
-    Serial2.println("AT+CMGS=\"+972524373724\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
-    Serial2.print( message ); //text content
-    Serial2.write(26); // send ctrl+z end of message
-    //Serial2.print((char)26); // if the above won't work - thy this one instead
-}
-// module needs 3.4V to 4.4V (Ideal 4.1V) @ 2amp
-
-/*
-  mySerial.println("AT"); //Once the handshake test is successful, it will back to OK
-  mySerial.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
-  mySerial.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
-  mySerial.println("AT+CREG?"); //Check whether it has registered in the network
-  ATI – Get the module name and revision
-AT+COPS? – Check that you’re connected to the network, in this case BSNL
-AT+COPS=? – Return the list of operators present in the network.
-AT+CBC – will return the lipo battery state. The second number is the % full (in this case its 93%) and the third number is the actual voltage in mV (in this case, 3.877 V)
-  */
 
 
-state_class::state_class(){
-    _state=0;
-    _error_state=0;
-}
 
-bool state_class::return_state(uint8_t mask){
-    //return (_state & ( 1 << position )) >> position
-    //return (_state >> position) & 1 //right-shifting to position bit, and then extracting the first bit
-    return _state & mask;
-}
-
-// returns error state
-uint16_t state_class::get_error(){
-    return _error_state;
-}
-
-void state_class::set_error(uint16_t error){
-    _error_state |=  error;
-}
-
-void state_class::unset_error(uint16_t error){
-    _error_state &= ~error;
-}
-
-// returns true if error_state changed
-bool state_class::any_new_errors(){
-    return _error_state == _lastError_state;
-}
-
-//returns the difference between current and last error states
-// !! need to reimplement to return either the new error position
-// so I dont have to use uint16_t for return
-// or either if two errors should be reported at once - a while loop that solves them one by one
-uint16_t state_class::last_error(){
-    return _error_state ^ _lastError_state;
-}
-
-void state_class::error_reported(){
-    _lastError_state=_error_state;
-}
 
 
 
@@ -429,7 +414,7 @@ void state_class::error_reported(){
 void initStorage(){
     while (!SD.begin()) {
         OUT_PORT.println(F("Error: Failed to initialize SD card"));
-        delay(1000);
+        Alarm.delay(1000);
     }
     OUT_PORT.println(F("SD card OK"));
     if(!SPIFFS.begin(true)){
@@ -851,29 +836,11 @@ private:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 // Pressure Sensors Pin Declarations
 // and Analog reads
 // task pressure sensors - stops pumps on overpressure
 
-
-class pressure_sensor{
-public:
-    pressure_sensor(uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr);
-    uint16_t measure(); // returns pressure in psi?
-
-private:
+struct ps {
     uint8_t _sensorPin;
     uint8_t _multiplier;
     uint8_t _offset;
@@ -883,9 +850,12 @@ private:
     uint16_t _TooHighErr;
 };
 
-
-// pressure_sensor (sensor pin, too low error bit, too high error bit)
-pressure_sensor::pressure_sensor(uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr){
+class pressure_sensor {
+private:
+    ps sensor[2];
+public:
+    // pressure_sensor (sensor pin, too low error bit, too high error bit)
+    pressure_sensor(uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr){
     _sensorPin=sensorPin;
     _TooLowErr = TooLowErr;
     _TooHighErr = TooHighErr;
@@ -902,33 +872,43 @@ pressure_sensor::pressure_sensor(uint8_t sensorPin, uint16_t TooLowErr, uint16_t
     pinMode(sensorPin,INPUT);
     
 }
+    bool LoadSD(){
+        return Load("StateStr.uct", (byte*)&myState, sizeof(myState));
+    }
 
-// read sensor
-uint16_t pressure_sensor::measure(){
+    bool SaveSD(){
+        return Save("StateStr.uct", (byte*)&myState, sizeof(myState));
+    }
+
+    // read sensor
+uint16_t measure(){
     // convert analog value to psi
     uint16_t pressure = analogRead(_sensorPin) * _multiplier - _offset; //test - needs to be replaced with acrual formula
     if (pressure < _min_pressure) {
         // set underpressure error
-        set_error(_TooLowErr);
+        SystemState.set_error(_TooLowErr);
     }
     if (pressure > _max_pressure) {
         // set overpressure error
-        set_error(_TooHighErr);
+        SystemState.set_error(_TooHighErr);
     }
 
     return pressure;
 }
 
+};
+
+
+
+
+
+
 
 // initialize analog pins for sensors
-void initPressureSensors(){
-    // !! need to reimplement to use error mask position instead the whole uint16_t mask
-    pressure_sensor Ps1(PRESSUR_1_PIN,PS1TOOHIGH_ERROR,PS1TOOLOW_ERROR);
-    pressure_sensor Ps2(PRESSUR_2_PIN,PS2TOOHIGH_ERROR,PS2TOOLOW_ERROR);
-    // testing
-    // OUT_PORT.println(Ps1.measure());
-    // if error do something about it - rather not here but in the relevant task
-}
+// !! need to reimplement to use error mask position instead the whole uint16_t mask
+pressure_sensor Ps1(PRESSUR_1_PIN,PS1TOOHIGH_ERROR,PS1TOOLOW_ERROR);
+pressure_sensor Ps2(PRESSUR_2_PIN,PS2TOOHIGH_ERROR,PS2TOOLOW_ERROR);
+
 
 
 // read sensor
@@ -977,8 +957,6 @@ void initUltrasonic(){
 
 // declare each barrel's ultrasonic sensor address in analog mux
 
-// if mux not locked - read each sensor into object - will take some time???
-// lock MUX
 // loop thru all barrels using setMUX function (from expander)
 // unlock MUX
 
@@ -1513,13 +1491,22 @@ void setup() {
     OUT_PORT.printf("ESSID: %s\r\n", WiFi.SSID().c_str());
 
     //initiate expander ports - I2C wire
-    expanderInit();
+    expanders.Init();
 
     // initiate SD Card - SPI bus + SPIFFS
     initStorage();
 
-    // initialize uart2 SIM800L modem at MUX port 7?
 
+    // load structs from SD card
+    SystemState.LoadState();
+
+
+    // testing
+    OUT_PORT.println(Ps1.measure());
+    // if error do something about it - rather not here but in the relevant task
+
+    // initialize uart2 SIM800L modem at MUX port 7?
+    modemInit();
 
     // setup NTP
 
