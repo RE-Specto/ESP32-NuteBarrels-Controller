@@ -179,11 +179,11 @@ public:
     void setMUX(uint8_t address){
 
         if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
-            OUT_PORT.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);
+            OUT_PORT.printf("-MUX! previously locked to %u, %u is waiting\r\n", _muxLock, address);
         while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
             Alarm.delay(1);
 
-        OUT_PORT.printf("MUX is free. locking to %u\r\n", address);
+        OUT_PORT.printf("-MUX! is free. locking to %u\r\n", address);
         _muxLock = address;
 
         for (uint8_t i = 0; i < 4; i++){
@@ -196,10 +196,19 @@ public:
         expander1.write();
     }
 
+    uint8_t GetMUX(){
+        return _muxLock;
+    }
+
+ 
     // very important to run this every time you ended up business with setMUX
     void UnlockMUX(){
+        if (_muxLock != MUX_UNLOCKED){
+        OUT_PORT.printf("-MUX! Unlocking %u\r\n", _muxLock);
         _muxLock = MUX_UNLOCKED;
-        OUT_PORT.println(F("MUX unlocked!"));
+        }
+        else
+        OUT_PORT.println(F("-MUX! already unlocked!"));
     }
 
     void setRGBLED(uint8_t address){
@@ -250,6 +259,8 @@ public:
 // set MUX to SIM_MUX_ADDRESS
 // send sms with error code description
 void SendSMS(String message){
+    OUT_PORT.print("*sendsms*: ");
+    OUT_PORT.println(message);
     expanders.setMUX(7); // modem is at port 7
     Alarm.delay(10); // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
@@ -272,13 +283,13 @@ AT+CBC – will return the lipo battery state. The second number is the % full (
   */
 
 void modemInit(){
+    OUT_PORT.println("modem init");
     expanders.setMUX(7); // modem is at port 7
     Alarm.delay(10); // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
     Serial2.println("AT"); //Once the handshake test is successful, it will back to OK
     Serial2.println("AT+CMGF=1"); // Configuring TEXT mode
     expanders.UnlockMUX(); // Must unlock after every use!!
-    SendSMS("System Started");
 }
 
 struct state { 
@@ -318,12 +329,12 @@ private:
     state myState;
 
 public:
-    bool LoadState(){
-        return Load("StateStr.uct", (byte*)&myState, sizeof(myState));
+    bool LoadSD(){
+        return Load("/SysState.bin", (byte*)&myState, sizeof(myState));
     }
 
-    bool SaveState(){
-        return Save("StateStr.uct", (byte*)&myState, sizeof(myState));
+    bool SaveSD(){
+        return Save("/SysState.bin", (byte*)&myState, sizeof(myState));
     }
 
     // returns true if state have "mask-bit" state on. ex: return_state(MIXING_STATE);
@@ -752,7 +763,7 @@ struct flow_sensor{
     uint8_t sensorPin;
     uint8_t conversion_multiplier;
     uint64_t counter;
-} myFlowSensor[2];
+} myFlowSensor[2]; // two sensors
 
 
 //Flow sensor Interrupt counters
@@ -841,87 +852,64 @@ private:
 // task pressure sensors - stops pumps on overpressure
 
 struct ps {
-    uint8_t _sensorPin;
-    uint8_t _multiplier;
-    uint8_t _offset;
-    uint8_t _max_pressure;
-    uint8_t _min_pressure;
-    uint16_t _TooLowErr;
-    uint16_t _TooHighErr;
+    uint8_t _sensorPin = 255; // defaults
+    uint8_t _multiplier = 1;
+    uint8_t _offset = 0;
+    uint8_t _max_pressure = 255;
+    uint8_t _min_pressure = 0;
+    uint16_t _TooLowErr = 0;
+    uint16_t _TooHighErr = 0;
 };
 
+// pressure sensors starts from 0
 class pressure_sensor {
 private:
-    ps sensor[2];
+    ps sensor[2]; // two sensor
 public:
-    // pressure_sensor (sensor pin, too low error bit, too high error bit)
-    pressure_sensor(uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr){
-    _sensorPin=sensorPin;
-    _TooLowErr = TooLowErr;
-    _TooHighErr = TooHighErr;
-    // next values shoud be set from JSON object data
-    _multiplier=2;
-    _offset=2;
-    _max_pressure=30;
-    _min_pressure=80;
+    // init the sensor
+    // !! need to reimplement to use error mask position instead the whole uint16_t mask
+    void setSensor(uint8_t num, uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr){
+        sensor[num]._sensorPin = sensorPin;
+        sensor[num]._TooLowErr = TooLowErr;
+        sensor[num]._TooHighErr = TooHighErr;
+        pinMode(sensorPin,INPUT); // initialize analog pin for the sensor
+    }
 
-    OUT_PORT.println("pressure_sensor constructor");
-    OUT_PORT.println(sensorPin);
+    // separate functions to be called dynamically
+    void setMultiplier(uint8_t num, uint8_t mult){
+        sensor[num]._multiplier = mult;}
+    void setOffset(uint8_t num, uint8_t offs){
+        sensor[num]._offset = offs;}
+    void setMax(uint8_t num, uint8_t max){
+        sensor[num]._max_pressure = max;}
+    void setMin(uint8_t num, uint8_t min){
+        sensor[num]._min_pressure = min;}
 
-    // initialize analog pin for the sensor
-    pinMode(sensorPin,INPUT);
-    
-}
     bool LoadSD(){
-        return Load("StateStr.uct", (byte*)&myState, sizeof(myState));
+        return Load("/Pressure.bin", (byte*)&sensor, sizeof(sensor));
     }
 
     bool SaveSD(){
-        return Save("StateStr.uct", (byte*)&myState, sizeof(myState));
+        return Save("/Pressure.bin", (byte*)&sensor, sizeof(sensor));
     }
 
-    // read sensor
-uint16_t measure(){
+    // read sensor - convert analog value to psi
+uint16_t measure(uint8_t num){
     // convert analog value to psi
-    uint16_t pressure = analogRead(_sensorPin) * _multiplier - _offset; //test - needs to be replaced with acrual formula
-    if (pressure < _min_pressure) {
+    uint16_t pressure = (analogRead(sensor[num]._sensorPin) * sensor[num]._multiplier - sensor[num]._offset) /1000; //test - needs to be replaced with acrual formula
+    if (pressure < sensor[num]._min_pressure) {
         // set underpressure error
-        SystemState.set_error(_TooLowErr);
+        SystemState.set_error(sensor[num]._TooLowErr);
     }
-    if (pressure > _max_pressure) {
+    if (pressure > sensor[num]._max_pressure) {
         // set overpressure error
-        SystemState.set_error(_TooHighErr);
+        SystemState.set_error(sensor[num]._TooHighErr);
     }
 
     return pressure;
 }
 
-};
-
-
-
-
-
-
-
-// initialize analog pins for sensors
-// !! need to reimplement to use error mask position instead the whole uint16_t mask
-pressure_sensor Ps1(PRESSUR_1_PIN,PS1TOOHIGH_ERROR,PS1TOOLOW_ERROR);
-pressure_sensor Ps2(PRESSUR_2_PIN,PS2TOOHIGH_ERROR,PS2TOOLOW_ERROR);
-
-
-
-// read sensor
-
-// convert analog value to psi
-// use pressSensMult and pressSensOffset
-
-
-
-
-
-
-
+} pSensor;
 
 
 
@@ -1463,7 +1451,18 @@ void DrainingTask(){
 
 
 
-
+void LoadStructs(){
+    if (SD.exists("/SysState.bin"))
+        SystemState.LoadSD();
+    else
+        OUT_PORT.println("/SysState.bin not exist");
+        
+    if (SD.exists("/Pressure.bin"))
+        pSensor.LoadSD();
+    else
+        OUT_PORT.println("/Pressure.bin not exist");
+    
+}
 
 
 
@@ -1498,31 +1497,43 @@ void setup() {
 
 
     // load structs from SD card
-    SystemState.LoadState();
 
+
+    pSensor.setSensor(0, PRESSUR_1_PIN, PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR);
+    pSensor.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
 
     // testing
-    OUT_PORT.println(Ps1.measure());
+    OUT_PORT.print("test measure sensor2 pin34: ");
+    OUT_PORT.println(pSensor.measure(2));
     // if error do something about it - rather not here but in the relevant task
 
+
+    //bug !! testing..
+    expanders.UnlockMUX();
     // initialize uart2 SIM800L modem at MUX port 7?
+
+
     modemInit();
 
     // setup NTP
 
 
     //start Web Server
-        server.begin();
-        ArduinoOTA.setHostname("barrels");
-        ArduinoOTA.begin();
+    server.begin();
+    ArduinoOTA.setHostname("barrels");
+    ArduinoOTA.begin();
 
     // attach interrupts for flow sensors
 
 
     // read structs from sdcard
+    LoadStructs();
 
     // Create tasks
 
+
+
+    SendSMS("System Started");
 }
 
  
