@@ -376,6 +376,9 @@ public:
 
 } SystemState;
 
+String barrel_error(uint16_t error){
+    return "barrels error " + String(error);     // need to reimplement to send error description instead of error number
+}
 
 // Task 0 - Error reporting task
 void errorReportTask(){
@@ -385,11 +388,21 @@ while (!SystemState.any_new_errors()){
 }
 
 // goes here if there is an error to report
-if (SystemState.get_error() > 0 )
-    // need to reimplement to send error description instead of error number
-    SendSMS( "barrels error " + String(SystemState.last_error()) );
-    // clear error as being reported
+if (SystemState.get_error() ){ // error not zero
+
+    uint16_t error = SystemState.last_error();
+    uint16_t counter = 1;
+    while(error){ // loops untill error is empty
+        if(error^counter){ // try each error state bit one by one
+            Serial.printf("barrels error %u", counter);
+            //SendSMS( barrel_error(counter) );
+            error-=counter; // substract what already reported
+            counter *=2; // next bit
+        }
+    }
+    // clear error after all being reported
     SystemState.error_reported();
+    }
 }
 
 
