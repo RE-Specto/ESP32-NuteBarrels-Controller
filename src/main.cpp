@@ -2,12 +2,6 @@
 to implement:
 declassify
 implement webserver
-start/stop interrupts
-    start sets canMix global boolean
-        task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
-    stop sets shouldStop global boolean
-        task or loop reads the bool - changes RGB immediately, triggers stop and save
-rgb led status (read from system status via error-reporting task?)
 apply test code to check every part of the system:
     relays manual - on off
     flow sensor data - counter + flow/second
@@ -16,23 +10,25 @@ apply test code to check every part of the system:
     rgb led
     start-stop
     sim800L - send sms
-work on system hardware 
-
-
-rewrite:
-expander - ok
-Task 0 - Error reporting - rewrite
-storage - ok
+make filling mixing storing draining into single Task?
+pressure sensors - "stop pump on overpressure" Task
 barrels - rewrite
-flow sensor - half-ok
-pressure sensor - leave as class? make one flow-pressure?
 ultrasonic - move to barrels?
-implement webserver
 deprecate RTC? replace with ntp + timeAlarms?
-MixingTask - declassify
-storing task - implement
-draining task -declassify
-add to setup everything
+add everything to setup 
+start/stop interrupts
+    start sets canMix global boolean
+        task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
+    stop sets shouldStop global boolean
+        task or loop reads the bool - changes RGB immediately, triggers stop and save
+rgb led status (read from system status via error-reporting task?)
+work on system hardware 
+sendSMS should return actual error names
+
+
+
+optional:
+sendSMS - rewrite String to Char Array
 */
 #include <Arduino.h>
 #include <Wire.h>
@@ -377,7 +373,7 @@ public:
 } SystemState;
 
 String barrel_error(uint16_t error){
-    return "barrels error " + String(error);     // need to reimplement to send error description instead of error number
+    return "system error " + String(error);     // need to reimplement to send error description instead of error number
 }
 
 // Task 0 - Error reporting task
@@ -1545,13 +1541,8 @@ void setup() {
     pressure.setSensor(0, PRESSUR_1_PIN, PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR);
     pressure.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
 
-    // testing
-    OUT_PORT.print("test measure sensor2 pin34: ");
-    OUT_PORT.println(pressure.measure(1));
-    // if error do something about it - rather not here but in the relevant task
 
-
-    //bug !! testing..
+    //bug? testing..
     expanders.UnlockMUX();
 
     // initialize uart2 SIM800L modem at MUX port 7?
@@ -1569,7 +1560,27 @@ void setup() {
 
 
     // Create tasks
+    /*
+    xTaskCreatePinnedToCore(myTask, "loop1", 4096, (void *)1, 1, NULL, ARDUINO_RUNNING_CORE);
+    xTaskCreatePinnedToCore(myTask, "loop2", 4096, (void *)2, 1, NULL, ARDUINO_RUNNING_CORE);
+    xTaskCreatePinnedToCore(myTask, "loop3", 4096, (void *)3, 1, NULL, ARDUINO_RUNNING_CORE);
 
+    void myTask(void *pvParameters) {
+        int taskno = (int)pvParameters;
+        int sleeptime;
+        while (1) {
+            sleeptime = (int)(esp_random()&0x0F);
+            Serial.println(String("Task ")+String(taskno)+String(" ")+String(sleeptime));
+            delay(500+sleeptime*100);
+        }
+    }
+
+    void loop() {
+    // nope, do nothing here
+    vTaskDelay(portMAX_DELAY); // wait as much as posible ...
+    }
+
+    */
 
 
     SendSMS("System Started");
