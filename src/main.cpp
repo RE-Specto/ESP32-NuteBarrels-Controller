@@ -292,7 +292,7 @@ void modemInit(){
     expanders.UnlockMUX(); // Must unlock after every use!!
 }
 
-struct state { 
+struct myST { 
     //bit field
     //000FMSEX
     // F = filling task on
@@ -324,9 +324,9 @@ struct state {
     uint16_t _lastError_state = 0;
     };
 
-class state_class{
+class STClass{
 private:
-    state myState;
+    myST myState;
 
 public:
     bool LoadSD(){
@@ -764,24 +764,12 @@ void test1(){
 
 
 
-// flow Sensors Pin Declarations
-// and Interrupt routines
-
-
-void IRAM_ATTR FlowSensor1Interrupt();
-void IRAM_ATTR FlowSensor2Interrupt();
-void enableFlowInterrupts();
-
-struct flow_sensor{
-    uint8_t sensorPin;
-    uint8_t conversion_multiplier;
-    uint64_t counter;
-} myFlowSensor[2]; // two sensors
-
+    // flow Sensors Pin Declarations
+    // and Interrupt routines
 
 //Flow sensor Interrupt counters
-volatile int FlowSensor1Count = 0;
-volatile int FlowSensor2Count = 0;
+volatile uint16_t FlowSensor1Count = 0;
+volatile uint16_t FlowSensor2Count = 0;
 
 //for interrupts and xTasks
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
@@ -807,16 +795,12 @@ void enableFlowInterrupts(){
   attachInterrupt(digitalPinToInterrupt(FLOW_2_PIN), FlowSensor2Interrupt, RISING);
 }
 
-// assign FlowSensorCounts to object
 
-// read FlowSensorCounts to object
-// decrease FlowSensorCounts
-
-// calculate flowCounts to liters
-// use flowSensCalib as a multiplier
-
-// calculate liters per hour
-
+struct myFS{
+    uint64_t counter = 0;
+    uint16_t conversion_multiplier = 450;
+    uint32_t flow = 0;
+};
 
 /*
 Pulses per Liter: 450
@@ -831,21 +815,63 @@ From the spec sheet:
 etc.  Max 30 L/min
 */
 
-/*
-class flow_sensor{
-public:
-    flow_sensor(uint8_t sensorPin);
-    // read only thru this function.
-    uint8_t get_multiplier();
-
-    // only from JSON data object
-    void set_multiplier(int value);
-
+class FSClass {
 private:
-    uint8_t _sensorPin;
-    uint8_t _conversion_multiplier;
-};
-*/
+    myFS fsensor[2]; // two sensors
+
+public:
+    uint8_t get_flow(uint8_t sens){
+        return (fsensor[sens].flow / fsensor[sens].conversion_multiplier); // in liters per second
+    }
+
+    uint64_t GetCounter(uint8_t sens){
+        return fsensor[sens].counter;
+    }
+    
+    uint16_t get_conv_mult(uint8_t sens){
+        return fsensor[sens].conversion_multiplier;
+    }
+
+    void set_conv_mult(uint8_t sens, uint16_t mult){
+        fsensor[sens].conversion_multiplier = mult;
+    }
+
+    bool LoadSD(){
+        return Load("/Flow.bin", (byte*)&fsensor, sizeof(fsensor));
+    }
+
+    bool SaveSD(){
+        return Save("/Flow.bin", (byte*)&fsensor, sizeof(fsensor));
+    }
+
+    // flow sensors task
+    void Update(){
+        uint16_t fs1 = FlowSensor1Count;
+        uint16_t fs2 = FlowSensor2Count;
+        unsigned long lastMilis = millis();
+        uint64_t tempCount1 = fsensor[0].counter;
+        uint64_t tempCount2 = fsensor[1].counter;
+    // assign FlowSensorCounts to object
+    // decrease FlowSensorCounts
+        if (FlowSensor1Count){
+            fsensor[0].counter += fs1;
+            FlowSensor1Count -= fs1;
+            fsensor[0].flow = (fsensor[0].counter-tempCount1) / ((millis()-lastMilis)/1000); // flow in pulses per second
+        }
+        if (FlowSensor2Count){
+            fsensor[1].counter+=fs2;
+            FlowSensor2Count -= fs2;
+            fsensor[1].flow = (fsensor[1].counter-tempCount2) / ((millis()-lastMilis)/1000); // flow in pulses per second
+        }
+
+    }
+
+} flow;
+
+
+
+
+
 
 
 
@@ -864,7 +890,7 @@ private:
 // and Analog reads
 // task pressure sensors - stops pumps on overpressure
 
-struct ps {
+struct myPS {
     uint8_t _sensorPin = 255; // defaults
     uint8_t _multiplier = 1;
     uint8_t _offset = 0;
@@ -877,52 +903,52 @@ struct ps {
 // pressure sensors starts from 0
 class pressure_sensor {
 private:
-    ps sensor[2]; // two sensor
+    myPS psensor[2]; // two sensor
 public:
     // init the sensor
     // !! need to reimplement to use error mask position instead the whole uint16_t mask
     void setSensor(uint8_t num, uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr){
-        sensor[num]._sensorPin = sensorPin;
-        sensor[num]._TooLowErr = TooLowErr;
-        sensor[num]._TooHighErr = TooHighErr;
+        psensor[num]._sensorPin = sensorPin;
+        psensor[num]._TooLowErr = TooLowErr;
+        psensor[num]._TooHighErr = TooHighErr;
         pinMode(sensorPin,INPUT); // initialize analog pin for the sensor
     }
 
     // separate functions to be called dynamically
     void setMultiplier(uint8_t num, uint8_t mult){
-        sensor[num]._multiplier = mult;}
+        psensor[num]._multiplier = mult;}
     void setOffset(uint8_t num, uint8_t offs){
-        sensor[num]._offset = offs;}
+        psensor[num]._offset = offs;}
     void setMax(uint8_t num, uint8_t max){
-        sensor[num]._max_pressure = max;}
+        psensor[num]._max_pressure = max;}
     void setMin(uint8_t num, uint8_t min){
-        sensor[num]._min_pressure = min;}
+        psensor[num]._min_pressure = min;}
 
     bool LoadSD(){
-        return Load("/Pressure.bin", (byte*)&sensor, sizeof(sensor));
+        return Load("/Pressure.bin", (byte*)&psensor, sizeof(psensor));
     }
 
     bool SaveSD(){
-        return Save("/Pressure.bin", (byte*)&sensor, sizeof(sensor));
+        return Save("/Pressure.bin", (byte*)&psensor, sizeof(psensor));
     }
 
     // read sensor - convert analog value to psi
 uint16_t measure(uint8_t num){
     // convert analog value to psi
-    uint16_t pressure = (analogRead(sensor[num]._sensorPin) * sensor[num]._multiplier - sensor[num]._offset) /1000; //test - needs to be replaced with acrual formula
-    if (pressure < sensor[num]._min_pressure) {
+    uint16_t pressure = (analogRead(psensor[num]._sensorPin) * psensor[num]._multiplier - psensor[num]._offset) /1000; //test - needs to be replaced with acrual formula
+    if (pressure < psensor[num]._min_pressure) {
         // set underpressure error
-        SystemState.set_error(sensor[num]._TooLowErr);
+        SystemState.set_error(psensor[num]._TooLowErr);
     }
-    if (pressure > sensor[num]._max_pressure) {
+    if (pressure > psensor[num]._max_pressure) {
         // set overpressure error
-        SystemState.set_error(sensor[num]._TooHighErr);
+        SystemState.set_error(psensor[num]._TooHighErr);
     }
 
     return pressure;
 }
 
-} pSensor;
+} pressure;
 
 
 
@@ -1471,10 +1497,14 @@ void LoadStructs(){
         OUT_PORT.println("/SysState.bin not exist");
         
     if (SD.exists("/Pressure.bin"))
-        pSensor.LoadSD();
+        pressure.LoadSD();
     else
         OUT_PORT.println("/Pressure.bin not exist");
-    
+
+    if (SD.exists("/Flow.bin"))
+        flow.LoadSD();
+    else
+        OUT_PORT.println("/Flow.bin not exist");
 }
 
 
@@ -1510,22 +1540,21 @@ void setup() {
 
 
     // load structs from SD card
+    LoadStructs();
 
-
-    pSensor.setSensor(0, PRESSUR_1_PIN, PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR);
-    pSensor.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
+    pressure.setSensor(0, PRESSUR_1_PIN, PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR);
+    pressure.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
 
     // testing
     OUT_PORT.print("test measure sensor2 pin34: ");
-    OUT_PORT.println(pSensor.measure(2));
+    OUT_PORT.println(pressure.measure(1));
     // if error do something about it - rather not here but in the relevant task
 
 
     //bug !! testing..
     expanders.UnlockMUX();
+
     // initialize uart2 SIM800L modem at MUX port 7?
-
-
     modemInit();
 
     // setup NTP
@@ -1538,9 +1567,6 @@ void setup() {
 
     // attach interrupts for flow sensors
 
-
-    // read structs from sdcard
-    LoadStructs();
 
     // Create tasks
 
@@ -1559,4 +1585,5 @@ void setup() {
 void loop() {
     // disable loop watchdog - working with tasks only?
     ArduinoOTA.handle();
+    flow.Update(); // check if not too fast for flow measurement
 }
