@@ -1,6 +1,5 @@
 /*
 to implement:
-declassify
 implement webserver
 apply test code to check every part of the system:
     relays manual - on off
@@ -11,6 +10,8 @@ apply test code to check every part of the system:
     start-stop
     sim800L - send sms
 make filling mixing storing draining into single Task?
+reimplement global save function:
+    wait STOPPED_STATE, wait untill flow stopped, save 
 pressure sensors - "stop pump on overpressure" Task
 barrels - rewrite
 ultrasonic - move to barrels?
@@ -67,6 +68,7 @@ sendSMS - rewrite String to Char Array
 #define BARRELS_ERROR       0x800   //C-2048-barrels error
 
 //hex codes for "state" bit field
+#define MANUAL_STATE    0x20    // manual mode on
 #define FILLING_STATE   0X10    // F = filling task on
 #define MIXING_STATE    0x08    // M = mixing task on
 #define STORING_STATE   0x04    // S = storing task on
@@ -99,7 +101,7 @@ sendSMS - rewrite String to Char Array
 
  // in liters how much is gonna get stuck in the barrel 
  // because you can never drain to dry
- // !! reimplement next version to be adjustable
+ // !! reimplement next version to be on per barrel limit and adjustable
 #define BARREL_LOW_LIMIT 50
 
 //Flow sensor Pin declarations
@@ -112,6 +114,9 @@ sendSMS - rewrite String to Char Array
 #define PRESSUR_2_PIN 34
 //#define PRESSUR_3_PIN 35
 
+// delay for SMS error report
+#define REPORT_DELAY 5000
+
 #define DEBUG
 
 // Globals
@@ -120,11 +125,12 @@ WiFiUDP UDP;
 AsyncWebServer server(80);
 DNSServer dns;
 bool isTimeSync = false;
+bool isSaving = false;
 
 //function declarations:
 bool Load(const char* fname, byte* stru_p, uint16_t len);
 bool Save(const char* fname, byte* stru_p, uint16_t len);
-
+void SaveStructs();
 
 
 
@@ -290,13 +296,15 @@ void modemInit(){
 
 struct myST { 
     //bit field
-    //000FMSEX
-    // F = filling task on
-    // M = mixing task on
-    // S = storing task on
-    // E = emptying task on
+    //00NFMSEX
+    // N = maNual mode on - overrides stopped
+    // F = Filling task on
+    // M = Mixing task on
+    // S = Storing task on
+    // E = Emptying task on - overrides f,m,s
     // X = stopped status on
-    uint8_t _state = 0;
+    uint8_t _state_now = 0;
+    uint8_t _state_before = 0;
 
     // bit field
     //000CBA987654321
@@ -316,8 +324,8 @@ struct myST {
     //D-4096-
     //E-8192-
     //F-16384-
-    uint16_t _error_state = 0;
-    uint16_t _lastError_state = 0;
+    uint16_t _error_now = 0;
+    uint16_t _error_before = 0;
     };
 
 class STClass{
@@ -333,72 +341,87 @@ public:
         return Save("/SysState.bin", (byte*)&myState, sizeof(myState));
     }
 
+    uint8_t state_get(){
+        return myState._state_now;
+    }
+
+    void state_set(uint8_t mask){
+        myState._state_now |= mask;
+    }
+
+    void state_unset(uint16_t mask){
+        myState._state_now &= ~mask;
+    }
+    // preserve prevoius state
+    void state_save(){
+        myState._state_before = myState._state_now;
+    }
+
+    // restore previous state
+    void state_load(){
+        myState._state_now = myState._state_before;
+    }
+
     // returns true if state have "mask-bit" state on. ex: return_state(MIXING_STATE);
-    bool return_state(uint8_t mask){
+    bool state_check(uint8_t mask){
         //return (_state & ( 1 << position )) >> position
         //return (_state >> position) & 1 //right-shifting to position bit, and then extracting the first bit
-        return myState._state & mask;
+        return myState._state_now & mask;
     }
 
     // returns error state
-    uint16_t get_error(){
-        return myState._error_state;
+    uint16_t error_get(){
+        return myState._error_now;
     }
 
-    void set_error(uint16_t error){
-        myState._error_state |=  error;
+    void error_set(uint16_t error){
+        myState._error_now |=  error;
     }
 
-    void unset_error(uint16_t error){
-        myState._error_state &= ~error;
-    }
-
-    // returns true if error_state changed
-    bool any_new_errors(){
-        return myState._error_state == myState._lastError_state;
+    void error_unset(uint16_t error){
+        myState._error_now &= ~error;
     }
 
     //returns the difference between current and last error states
     // !! need to reimplement to return either the new error position
     // so I dont have to use uint16_t for return
     // or either if two errors should be reported at once - a while loop that solves them one by one
-    uint16_t last_error(){
-        return myState._error_state ^ myState._lastError_state;
+    uint16_t error_getnew(){
+        // bitwise - diff between "before" and "now", 
+        // compare with "now" to extract new bits only
+        return (myState._error_now ^ myState._error_before) & myState._error_now ; 
     }
 
     void error_reported(){
-        myState._lastError_state=myState._error_state;
+        myState._error_before=myState._error_now;
     }
 
 } SystemState;
 
-String barrel_error(uint16_t error){
+String system_error(uint16_t error){
     return "system error " + String(error);     // need to reimplement to send error description instead of error number
 }
 
 // Task 0 - Error reporting task
 void errorReportTask(){
-// while there is no new errors
-while (!SystemState.any_new_errors()){
-    Alarm.delay(1000);     //wait - endless loop untill error status changes
-}
+    // while there is no new errors
+    while (!SystemState.error_getnew()){
+        Alarm.delay(REPORT_DELAY);     //wait - endless loop untill error status changes
+    }
 
-// goes here if there is an error to report
-if (SystemState.get_error() ){ // error not zero
-
-    uint16_t error = SystemState.last_error();
+    // goes here if there is an error to report
+    uint16_t newerrors = SystemState.error_getnew();
     uint16_t counter = 1;
-    while(error){ // loops untill error is empty
-        if(error^counter){ // try each error state bit one by one
-            Serial.printf("barrels error %u", counter);
-            //SendSMS( barrel_error(counter) );
-            error-=counter; // substract what already reported
+    while(newerrors){ // loops untill error is empty
+        if(newerrors & counter){ // try each error state bit one by one
+            Serial.printf("system error %u", counter);
+            //SendSMS( system_error(counter) );
+            newerrors-=counter; // substract what already reported
             counter *=2; // next bit
         }
     }
     // clear error after all being reported
     SystemState.error_reported();
-    }
 }
 
 
@@ -934,17 +957,262 @@ uint16_t measure(uint8_t num){
     uint16_t pressure = (analogRead(psensor[num]._sensorPin) * psensor[num]._multiplier - psensor[num]._offset) /1000; //test - needs to be replaced with acrual formula
     if (pressure < psensor[num]._min_pressure) {
         // set underpressure error
-        SystemState.set_error(psensor[num]._TooLowErr);
+        SystemState.error_set(psensor[num]._TooLowErr);
     }
     if (pressure > psensor[num]._max_pressure) {
         // set overpressure error
-        SystemState.set_error(psensor[num]._TooHighErr);
+        SystemState.error_set(psensor[num]._TooHighErr);
     }
 
     return pressure;
 }
 
 } pressure;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+struct st {
+        uint16_t prefill_requirement = 100; // initial 100 liters
+        uint16_t prefill_counter = 0;
+        uint16_t afterfill_requirement = 400; // additional 400 liters
+        uint16_t afterfill_counter = 0;
+        uint16_t mix_requirement = 30; // minutes to mix
+        uint16_t mix_counter = 0;
+        // transfer requirement calculated dynamically by barrel ammount
+        // transfer counter applied dynamically at transfer from source to destination
+        uint16_t drain_requirement = 0; //in liters - how much to drain
+        uint16_t drain_counter = 0;    //in liters - how much left to drain
+        uint8_t filling_barrel = 0; // mixer barrel
+        uint8_t mixin_barrel = 0;
+        uint8_t storing_barrel = 1; // first barrel
+        uint8_t draining_barrel = NUM_OF_BARRELS-1; // last barrel (-1 cause we start from zero)
+} Transfers;
+
+void Fill(uint16_t barrel, uint16_t requirement){
+        // if barrel ammount less than requirement
+        // open barrel filling tap
+        // fill until requirement OR barrel_high_level
+            // decrement requirement by flow counter
+            // break if stopped but not manual
+        // close mixer tap
+}
+
+// Filling task
+void FillingTask(){
+    while (true){ // endless loop Filling task
+        // stopped status off?
+        // check water level is prefill_requirement
+            // filling(filling_barrel, prefill_requirement)
+        // set stopped status on
+        // set mixing status on
+        // wait untill not stopped status
+        // if water level is afterfill_requirement
+            // filling(filling_barrel, afterfill_requirement)
+        // set filling status off
+        // init save
+    } // endless loop Filling task
+}
+
+void Mix(uint16_t barrel, uint16_t requirement){
+    // open barrel drain tap
+    // open barrel store tap
+    // open dIN tap
+    // start pump
+    // loop - while requirement > 0
+        // decrement requirement every minute
+        // break if stopped but not manual
+    // if requirement reached 0
+        // stop pump
+        // close barrel drain tap
+        // close dIN tap
+        // close barrel store tap
+        // init save 
+}
+
+// Mixing task
+void MixingTask(){
+    while(true){ // endless loop Mixing task
+        // stopped status off?
+            // Mixing(mixin_barrel, mix_requirement)
+        // Storing status on
+        // mixing status off
+        // init save 
+    } // endless loop Mixing task
+}
+
+
+void Store(uint16_t barrel, uint16_t target, uint16_t requirement){
+    // open barrel drain tap
+    // open target store tap
+    // open dIN tap
+    // start pump
+    // loop - while requirement > 0 OR barrel not empty OR target not full
+        // decrement requirement by flow counter
+        // truncate flow counter from barrel
+        // append flow counter to target
+        // break if stopped but not manual
+    // if requirement reached 0
+        // stop pump
+        // close barrel drain tap
+        // close dIN tap
+        // close target store tap
+        // init save 
+}
+
+// Storing task
+void StoringTask(){
+    while (true){ // endless loop Storing task
+        // stopped status off?
+        // measure barrel 0
+            // while barrel 0 not empty
+                // measure barrel storing_barrel
+                // if not full
+                    // Storing(0, storing_barrel, mybarrels.getBarrel(0).measure_ultrasonic() ) // store all barrel 0 amount
+                // goto next barrel set storing_barrel += 1
+                // all barrels full?
+                    // loop - let draining task to kick in when required
+            // if barrel 0 empty
+                // if drain_counter 
+                    // draining status on
+                    // keep storing status on so when dtaining finished it goes back here and do "else"
+                // else
+                    // filling status on
+                    // storing status off
+    } // endless loop Storing task
+}
+
+void Drain(uint16_t barrel, uint16_t requirement){
+        // assign flow counter to barrel x
+    // open barrel x drain tap + dOUT tap
+    // start pump
+    // loop until drain counter zero or barrel x empty
+    while ( requirement && (mybarrels.getBarrel(barrel).measure_ultrasonic() > BARREL_LOW_LIMIT ) ){ // reimplement to use low_level
+        // truncate flow counter from a barrel
+        // decrement requirement by flow counter
+
+        // check for STOPPED state change
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
+            break;  // breaks the measure loop, stops pump, not decrement the x
+                    //stays in the while STOPPED above
+        Alarm.delay(1000); 
+    }
+    // stop pump
+    // close barrel x tap
+    Alarm.delay(1000); // untill pressure released
+    // close dOUT tap
+    // init save
+    SaveStructs(); 
+}
+
+// Draining task
+void DrainingTask(){
+    while (true){ // endless loop Draining task
+
+        while (Transfers.drain_counter  && SystemState.state_check(DRAINIG_STATE)){ // have a need to drain
+            while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
+                Alarm.delay(1000); // check every second
+
+
+            // measure barrel x - Barrel x not empty?
+            if (mybarrels.getBarrel(Transfers.draining_barrel).measure_ultrasonic() > BARREL_LOW_LIMIT ){  // reimplement to use low_level
+                Drain(Transfers.draining_barrel, Transfers.drain_requirement);
+            }
+
+
+            else { // still in the draincounter > 0 loop -  barrel x is empty              
+                if (Transfers.draining_barrel > 1) // if not the first barrel (i started from last to first)
+                    Transfers.draining_barrel--; // goto next barrel
+                else { // all storage barrels empty? 
+                // unset DRAINING state temporarely so fms can kick in.
+                SystemState.state_unset(DRAINIG_STATE);
+                SystemState.state_load(); // get the last state back f? m? s? stopped or not..
+                // init save 
+                SaveStructs();
+                // set x back to last barrel
+                Transfers.draining_barrel = NUM_OF_BARRELS-1; //  -1 cause we start from zero
+                }
+
+            }        
+        } //Transfers.drain_counter  && SystemState.state_check(DRAINIG_STATE)
+        
+        // i"m here because drainCounter reached 0 - or not DRAINIG_STATE
+        // if still DRAINIG_STATE then unset DRAINIG_STATE and undo to last state before draining - back to fms
+        if (SystemState.state_check(DRAINIG_STATE)) { 
+            // set draining status off
+            SystemState.state_unset(DRAINIG_STATE);
+            // undo to last state before draining
+            SystemState.state_load();
+            // init save 
+            SaveStructs();
+        }
+        // wait untill draining state set - goes here at system start cause DRAINIG_STATE not set
+        if (!SystemState.state_check(DRAINIG_STATE))
+            OUT_PORT.println(F("draining task entering wait-mode"));
+        while ( !SystemState.state_check(DRAINIG_STATE))
+            Alarm.delay(1000);
+
+
+
+    } // endless loop Draining task
+}
+
+
+void fmsexTask(){ // Filling Mixing Storing Emptying
+// fill
+//Filling();
+// send sms?
+// wait for start - set STOPPED. 
+// mix
+//Mixing();
+// store
+//Storing();
+// repeat
+//Draining();
+
+// if drain command - all others stops
+        //remember last state (including stopped) 
+        //remove STOPPED state - drain 
+        
+        //!continue fms tasks
+
+        // what should happen if trying to drain more than available?
+        // right now drain is looping endlessly
+        // can I pause drain and continue after one fms cycle?
+
+}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1017,40 +1285,8 @@ void initUltrasonic(){
 
 //https://github.com/me-no-dev/ESPAsyncWebServer
 
-/*
-
-#define wifiTimeout 10 // in seconds
-
-//global string for sending json to web client - this one will be alive thru all sessions
-//String json = "[{\"time\":\"" + returnDateTime(now) + "\"";
-String json = "[{\"time\":\"12:00\"";
-
-// Create AsyncWebServer object on port 80
-AsyncWebServer server(80);
-AsyncWebSocket ws("/ws");
-
-//temporary websocket code - will send json string every time a beowser sends something
-void onWsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
-  if(type == WS_EVT_DATA){ 
-    for(int i=0; i < len; i++) {
-      Serial.print((char) data[i]); // data received from browser - prints out to serial
-    }
-    json += ",\"flow\":\""+String(random(500))+"\""; // test sending to web
-    json += "}]";
-    client->text(json); //sends json global variable to the client
-    json = "[{\"time\":\""+String(random(24))+":"+String(random(59))+"\""; //clean and re-use the global json string
-    //json = String();
-  }
-  testPrintRTC(); // test - remove!!!
-}
-
-
-
 void setupServer(){
 
-  // add websocket /ws on webserver
-  ws.onEvent(onWsEvent);
-  server.addHandler(&ws);
 
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -1070,7 +1306,7 @@ void setupServer(){
   server.begin();
 } // void setupServer() end
 
-*/
+
 
 
 
@@ -1226,266 +1462,6 @@ https://techtutorialsx.com/2017/02/04/esp8266-ds3231-alarm-when-seconds-match/
 
 
 
-
-
-
-
-
-
-// Task 1 - refilling and mixing task
-void MixingTask();
-
-class mixing_class {
-    public:
-        mixing_class();
-        uint8_t mixer_timer; // in minutes
-        void open_mixer_motor(bool on); // opens and closes
-        bool is_filling_open();
-        bool is_mixer_open();
-
-    private:
-        uint8_t PrefillAmmount; // initial 100 liters
-        bool _filling_on; // filling state
-        bool _mixer_on;
-
-};
-
-
-/*
-class mixing_class {
-    public:
-        mixing_class();
-        uint8_t mixer_timer; // in minutes
-        void open_mixer_motor(bool on); // opens and closes
-        bool is_filling_open();
-        bool is_mixer_open();
-
-    private:
-        uint8_t PrefillAmmount; // initial 100 liters
-        bool _filling_on; // filling state
-        bool _mixer_on;
-
-};
-*/
-
-void MixingTask(){
-    //      RefillingTask
-    // wait untill: no mixing task, no storing task
-    // set filling status on
-    // stopped status off?
-    // check water level is 100Liters
-    // if less than 100L
-    // open mixer tap
-    // fill until 100L
-    // close mixer tap
-    // set filling status off
-    // init save task
-
-
-
-    //      MixingTask
-    // wait untill  no filling task  no storing task
-    // set mixing status on
-    // mixing status off? last timer = 0 ? default last timer
-    // stopped status off?
-    // init save task
-    // open mixer tap
-    // start mixer motor
-    // loop - while barrel < 500 OR timer > 0
-    // if barrel full (500)
-        // close mixer tap
-        // init save task
-    // if timer ended (0)
-        // stop mixer motor
-        // init save task
-
-    // transfer status on
-    // mixing status off
-    // init save task
-    // init storing task
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Task 2 - storing task
-void StoringTask(){
-    // wait untill  no filling task  no mixing task
-    // set storing status on
-    // stopped status off?
-    // init save task
-    // measure barrel mix
-        // while barrel mix  not empty
-            // set x to 1
-            // measure barrel x
-            // until Barrel x not full
-                // assign flow counter  to barrel x
-                // open barrel x tap
-                // start pump1
-                // wait until  barrel x full
-                // init save task
-            // goto next barrel set x = x+1
-            // all barrels full?
-                // stop pump
-                // wait 1 minute
-                // set x to 1
-                // loop
-        // if barrel mix empty
-            // stop pump1
-            // set filling status on 
-            // set storing status off
-            // init save task + exit task
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Task 3 - draining task
-class drainSystem
-{
-public:
-    drainSystem(void);
-    uint16_t get_drain_requirement();
-    uint16_t get_drain_counter();
-    void set_drain_requirement(uint16_t liters);
-    void set_drain_counter(uint16_t liters);
-    bool start_drain(uint16_t liters);
-private:
-    uint16_t _drain_requirement; //in liters - how much to drain
-    uint16_t _drain_counter;    //in liters - how much is already drained
-
-};
-
-
-
-//constructor
-drainSystem::drainSystem(void)
-{
-    OUT_PORT.println("drainSystem constructor");
-    _drain_requirement = 0;
-    _drain_counter = 0;
-}
-
-//in liters - how much to drain
-uint16_t drainSystem::get_drain_requirement()
-{
-    return _drain_requirement;
-}
-
-//in liters - how much is already drained
-uint16_t drainSystem::get_drain_counter()
-{
-    return _drain_counter;
-}
-//in liters - how much to drain
-void drainSystem::set_drain_requirement(uint16_t liters)
-{
-    _drain_requirement = liters;
-}
-
-//in liters - how much is already drained
-void drainSystem::set_drain_counter(uint16_t liters)
-{
-    _drain_counter = liters;
-}
-
-bool drainSystem::start_drain(uint16_t liters)
-{
-    // set requirement
-    _drain_requirement = liters;
-
-    //if not error
-    return true;
-}
-
-
-void DrainingTask(){
-    // create drain class instance
-  drainSystem mydrain;
-  extern barrels mybarrels;
-
-    // set draining status on
-//    mystatus.setState(DRAINIG_STATE);
-
-    // run save task
-//    mysave.save();
-
-    // stopped status off?
-//    mystatus.getState(STOPPED_STATE);
-
-    uint16_t drainCounter = mydrain.get_drain_requirement();
-    // while drainCounter > 0
-    while (drainCounter>0){
-        // set x to 5
-        int x = 5;
-        // measure barrel x
-        // Barrel x not empty?
-        if (mybarrels.getBarrel(x).measure_ultrasonic() > BARREL_LOW_LIMIT ){
-
-        }
-        
-        // assign flow counter to barrel x
-        // open barrel x tap
-        // start pump2
-        // wait until barrel x empty
-        // stop pump2
-        // close barrel x tap
-        // init save task
-        // goto next barrel set x = x-1
-        // all storage barrels empty? 
-            // wait 1 minute - loop
-            // set x to 5
-    }
-    // drainCounter == 0
-        // set draining status off
-        // init save task
-        // exit
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 void LoadStructs(){
     if (SD.exists("/SysState.bin"))
         SystemState.LoadSD();
@@ -1504,7 +1480,18 @@ void LoadStructs(){
 }
 
 
+void SaveStructs(){
+    if (!isSaving){ // prevent concurrent saving
+    isSaving = true;
+    SystemState.SaveSD();
+    //Barrels.SaveSD(); // important! need2implement
 
+    // not required?
+    //pressure.SaveSD();
+    //flow.SaveSD();
+    isSaving = false;
+    }
+}
 
 
 
@@ -1552,7 +1539,7 @@ void setup() {
 
 
     //start Web Server
-    server.begin();
+    setupServer();
     ArduinoOTA.setHostname("barrels");
     ArduinoOTA.begin();
 
