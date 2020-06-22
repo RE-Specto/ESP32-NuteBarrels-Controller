@@ -1,14 +1,10 @@
 /*
 to implement:
-*implement webserver
 apply test code to check every part of the system:
-    relays manual - on off
     flow sensor data - counter + flow/second
     pressure sensor data - live
     ultrasonic data - live
-    rgb led
     start-stop
-    sim800L - send sms
 make filling mixing storing draining into single Task?
 reimplement global save function:
     wait STOPPED_STATE, wait untill flow stopped, save 
@@ -226,19 +222,19 @@ public:
 
     void FillingRelay(uint8_t address, bool state){
         //offset of 8 - expander 0x20 pins b0-b7
-        expander1.getPin( address+8 ).setValue( state ); 
+        expander1.getPin( address+8 ).setValue( !state ); 
         expander1.write();
     }
 
     void StoringRelay(uint8_t address, bool state){
         //offset of 0 - expander 0x21 pins a0-a7
-        expander2.getPin( address ).setValue( state ); 
+        expander2.getPin( address ).setValue( !state ); 
         expander2.write();
     }
 
     void DrainingRelay(uint8_t address, bool state){
         //offset of 8 - expander 0x21 pins b0-b7
-        expander2.getPin( address+8 ).setValue( state ); 
+        expander2.getPin( address+8 ).setValue( !state ); 
         expander2.write();
     }
 
@@ -1327,7 +1323,6 @@ void setupServer(){
     server.on("/del", HTTP_GET, [](AsyncWebServerRequest *request){
         if (request->args() > 0 ) { // Arguments were received
             if (request->hasArg("f")) {
-                //SD_file_delete(server.arg(0));
                 const char *file = request->arg("f").c_str();
                 Serial.printf("Deleting file %s ", file);
                 SD.remove(file)?Serial.println("Successfully"):Serial.println("Failed");
@@ -1342,10 +1337,8 @@ void setupServer(){
     server.on("/down", HTTP_GET, [](AsyncWebServerRequest *request){
         if (request->args() > 0 ) { // Arguments were received
             if (request->hasArg("f")) {
-                //SD_file_delete(server.arg(0));
                 const char *file = request->arg("f").c_str();
                 Serial.printf("Downloading file %s \r\n", file);
-                //SD.remove(file)?Serial.println("Successfully"):Serial.println("Failed");
                 request->send(SD, file, "text/plain");
             }
         }
@@ -1353,6 +1346,66 @@ void setupServer(){
             request->send(200, "text/plain", "file not found");
         }
     });
+
+
+    server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncResponseStream *response = request->beginResponseStream("text/html");
+        response->print("<html><body><ul>");
+        response->print("<li>Relays</li>");
+        for (uint8_t i=0;i<8;i++){
+            response->print("<li>");
+            response->printf("<button onclick=\"location=\'/man?f=%u&o=1\'\">fill %u on</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?f=%u&o=0\'\">fill %u off</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?s=%u&o=1\'\">stor %u on</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?s=%u&o=0\'\">stor %u off</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?d=%u&o=1\'\">dran %u on</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?d=%u&o=0\'\">dran %u off</button>", i, i);
+            response->print("</li>");
+        }
+        response->print("<li>RGB LED</li>");
+        response->print("<li>");
+        for (uint8_t i=0;i<8;i++){
+            response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button>", i, i);
+        }
+        response->print("</li>");
+        response->print("</body></html>");
+        request->send(response);
+    });
+
+
+
+    server.on("/man", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (request->args() > 0 ) { // Arguments were received
+            if (request->hasArg("f")) {
+                int f = request->arg("f").toInt();
+                int o = request->arg("o").toInt();
+                Serial.printf("setting FillingRelay %i to %i\r\n", f, o);
+                expanders.FillingRelay(f,o);
+            }
+            if (request->hasArg("s")) {
+                int s = request->arg("s").toInt();
+                int o = request->arg("o").toInt();
+                Serial.printf("setting StoringRelay %i to %i\r\n", s, o);
+                expanders.StoringRelay(s,o);
+            }
+            if (request->hasArg("d")) {
+                int d = request->arg("d").toInt();
+                int o = request->arg("o").toInt();
+                Serial.printf("setting DrainingRelay %i to %i\r\n", d, o);
+                expanders.DrainingRelay(d,o);
+            }
+            if (request->hasArg("rgb")) {
+                int rgb = request->arg("rgb").toInt();
+                Serial.printf("setting setRGBLED to %i\r\n", rgb);
+                expanders.setRGBLED(rgb);
+            }
+        }
+        else {
+            request->send(200, "text/plain", "no args!");
+        }
+        request->redirect("/manual");
+    });
+
 
     server.on("/test", HTTP_GET, [](AsyncWebServerRequest *request) {
         AsyncResponseStream *response = request->beginResponseStream("text/html");
