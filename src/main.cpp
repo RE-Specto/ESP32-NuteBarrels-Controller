@@ -1,6 +1,6 @@
 /*
 to implement:
-implement webserver
+*implement webserver
 apply test code to check every part of the system:
     relays manual - on off
     flow sensor data - counter + flow/second
@@ -126,12 +126,14 @@ AsyncWebServer server(80);
 DNSServer dns;
 bool isTimeSync = false;
 bool isSaving = false;
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED; // for interrupts and xTasks
 
 //function declarations:
 bool Load(const char* fname, byte* stru_p, uint16_t len);
 bool Save(const char* fname, byte* stru_p, uint16_t len);
 void SaveStructs();
-
+void IRAM_ATTR FlowSensor1Interrupt();
+void IRAM_ATTR FlowSensor2Interrupt();
 
 
 
@@ -786,39 +788,12 @@ void test1(){
     // flow Sensors Pin Declarations
     // and Interrupt routines
 
-//Flow sensor Interrupt counters
-volatile uint16_t FlowSensor1Count = 0;
-volatile uint16_t FlowSensor2Count = 0;
-
-//for interrupts and xTasks
-portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-
-//flow sensor 1 interrupt routine
-void IRAM_ATTR FlowSensor1Interrupt() {
-  portENTER_CRITICAL_ISR(&mux);
-  FlowSensor1Count++;
-  portEXIT_CRITICAL_ISR(&mux);
-}
-//flow sensor 2 interrupt routine
-void IRAM_ATTR FlowSensor2Interrupt() {
-  portENTER_CRITICAL_ISR(&mux);
-  FlowSensor2Count++;
-  portEXIT_CRITICAL_ISR(&mux);
-}
-
-// attach interrupts function
-void enableFlowInterrupts(){
-  pinMode(FLOW_1_PIN, INPUT_PULLUP);
-  pinMode(FLOW_2_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, RISING);
-  attachInterrupt(digitalPinToInterrupt(FLOW_2_PIN), FlowSensor2Interrupt, RISING);
-}
-
 
 struct myFS{
-    uint64_t counter = 0;
+    volatile uint32_t counter = 0;
     uint16_t conversion_multiplier = 450;
-    uint32_t flow = 0;
+    volatile uint32_t flow = 0;
+    volatile uint32_t lastMilis = 0;
 };
 
 /*
@@ -837,21 +812,30 @@ etc.  Max 30 L/min
 class FSClass {
 private:
     myFS fsensor[2]; // two sensors
-
 public:
-    uint8_t get_flow(uint8_t sens){
-        return (fsensor[sens].flow / fsensor[sens].conversion_multiplier); // in liters per second
+    uint16_t FlowGet(uint8_t sens){
+        return (fsensor[sens].flow * 1000 / fsensor[sens].conversion_multiplier); // in mililiters per second
     }
 
-    uint64_t GetCounter(uint8_t sens){
+    void IRAM_ATTR CounterInc(uint8_t sens){
+        fsensor[sens].counter++;
+        fsensor[sens].flow = millis()-fsensor[sens].lastMilis ; // interval in miliseconds from the last call
+        fsensor[sens].lastMilis = millis();
+    }
+
+    uint64_t CounterGet(uint8_t sens){
         return fsensor[sens].counter;
     }
+
+    void CounterReset(uint_fast8_t sens){
+        fsensor[sens].counter=0;
+    }
     
-    uint16_t get_conv_mult(uint8_t sens){
+    uint16_t MultGet(uint8_t sens){
         return fsensor[sens].conversion_multiplier;
     }
 
-    void set_conv_mult(uint8_t sens, uint16_t mult){
+    void MultSet(uint8_t sens, uint16_t mult){
         fsensor[sens].conversion_multiplier = mult;
     }
 
@@ -863,29 +847,27 @@ public:
         return Save("/Flow.bin", (byte*)&fsensor, sizeof(fsensor));
     }
 
-    // flow sensors task
-    void Update(){
-        uint16_t fs1 = FlowSensor1Count;
-        uint16_t fs2 = FlowSensor2Count;
-        unsigned long lastMilis = millis();
-        uint64_t tempCount1 = fsensor[0].counter;
-        uint64_t tempCount2 = fsensor[1].counter;
-    // assign FlowSensorCounts to object
-    // decrease FlowSensorCounts
-        if (FlowSensor1Count){
-            fsensor[0].counter += fs1;
-            FlowSensor1Count -= fs1;
-            fsensor[0].flow = (fsensor[0].counter-tempCount1) / ((millis()-lastMilis)/1000); // flow in pulses per second
-        }
-        if (FlowSensor2Count){
-            fsensor[1].counter+=fs2;
-            FlowSensor2Count -= fs2;
-            fsensor[1].flow = (fsensor[1].counter-tempCount2) / ((millis()-lastMilis)/1000); // flow in pulses per second
-        }
-
+    void begin(){ // attach interrupts
+        pinMode(FLOW_1_PIN, INPUT_PULLUP);
+        pinMode(FLOW_2_PIN, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, FALLING);
+        attachInterrupt(digitalPinToInterrupt(FLOW_2_PIN), FlowSensor2Interrupt, FALLING);
     }
 
 } flow;
+
+//flow sensor 1 interrupt routine
+void IRAM_ATTR FlowSensor1Interrupt() {
+    portENTER_CRITICAL_ISR(&mux);
+    flow.CounterInc(0);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+//flow sensor 2 interrupt routine
+void IRAM_ATTR FlowSensor2Interrupt() {
+    portENTER_CRITICAL_ISR(&mux);
+    flow.CounterInc(1);
+    portEXIT_CRITICAL_ISR(&mux);
+}
 
 
 
@@ -1288,21 +1270,82 @@ void initUltrasonic(){
 void setupServer(){
 
 
-  // Route for root / web page
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    // Route for root / web page
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     Serial.println("Requested: " + request->url() );
     if(!SD.exists("/index2.html")){
-      SD.end();
-      Serial.println("trying to restart SD");
-      if(!SD.begin(22)){
+        SD.end();
+        Serial.println("trying to restart SD");
+        if(!SD.begin(22)){
         Serial.println("unable to read form SD card");
         request->send(200, "text/html", "<html><body><center><h1>check SD Card please</h1></center></body></html>");
         }
-      }
+        }
     request->send(SD, "/index2.html", String(), false);
+    });
+
+
+    server.on("/upload", HTTP_GET, [](AsyncWebServerRequest *request) {
+    const char* serverIndex = "<form method='POST' action='/upload' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Upload'></form>";
+    request->send(200, "text/html", serverIndex);
+    });
+
+
+    server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request) {
+        //request->send(200);
+        //request->send(200, "text/plain", "OK");
+        }, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+            if(!index){
+                Serial.printf("\r\nUpload Started: %s\r\n", filename.c_str());
+                // open the file on first call and store the file handle in the request object
+                request->_tempFile = SD.open("/"+filename, "w");
+            }
+            if(len) {
+                Serial.printf("received chunk [from %u to %u]\r\n", index, len);
+                // stream the incoming chunk to the opened file
+                request->_tempFile.write(data,len);
+            }       
+            if(final){
+                Serial.printf("\r\nUpload Ended: %s, %u Bytes\r\n", filename.c_str(), index+len);
+                request->_tempFile.close();
+                request->send(200, "text/plain", "File Uploaded !");
+            }
+        }
+    );
+
+/*
+  server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request){
+    if(request->hasArg("file")){
+      char buff[32]; // next implementation add leading "/"
+      request->arg("file").toCharArray(buff, sizeof(buff), 0);
+      if (fileSystem->exists(buff)){
+        OUT_PORT.printf("\rDownloading file: %s\r\n", buff);
+        File file = fileSystem->open(buff, "r");
+        if (file){
+          //request->sendHeader("filename", buff); // not working
+          size_t sentsize = request->streamFile(file, "application/octet-stream");
+          OUT_PORT.printf( "Sent %u out of %u Bytes\r\n",sentsize, file.size() );
+        }
+        else
+          request->send(200, "text/plain", "error opening file");
+        file.close();
+      }
+      else {// exist returned false
+        request->send(200, "text/plain", "file not exist");
+        OUT_PORT.printf("\rfile %s not exist\t~\r\n", buff);
+      }
+    }
+    else {// no argumet "file" supplied
+      request->send(200, "text/plain", "missing parameter \"file\"");
+      OUT_PORT.print(F("\rDownload - missing parameter \"file\"\r\n"));
+    }
   });
 
+*/
+
+
   // Start server
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   server.begin();
 } // void setupServer() end
 
@@ -1583,5 +1626,4 @@ void setup() {
 void loop() {
     // disable loop watchdog - working with tasks only?
     ArduinoOTA.handle();
-    flow.Update(); // check if not too fast for flow measurement
 }
