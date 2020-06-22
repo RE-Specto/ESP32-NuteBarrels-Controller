@@ -1284,13 +1284,6 @@ void setupServer(){
     request->send(SD, "/index2.html", String(), false);
     });
 
-
-    server.on("/upload", HTTP_GET, [](AsyncWebServerRequest *request) {
-    const char* serverIndex = "<form method='POST' action='/upload' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Upload'></form>";
-    request->send(200, "text/html", serverIndex);
-    });
-
-
     server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request) {
         //request->send(200);
         //request->send(200, "text/plain", "OK");
@@ -1308,11 +1301,107 @@ void setupServer(){
             if(final){
                 Serial.printf("\r\nUpload Ended: %s, %u Bytes\r\n", filename.c_str(), index+len);
                 request->_tempFile.close();
-                request->send(200, "text/plain", "File Uploaded !");
+                request->redirect("/list");
+                //request->send(200, "text/plain", "File Uploaded !");
             }
         }
     );
 
+
+    server.on("/list", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncResponseStream *response = request->beginResponseStream("text/html");
+        File dir = SD.open("/");
+        File file = dir.openNextFile();
+        response->print("<html><body><ul>");
+        while(file){
+            response->print("<li>");
+            response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button>", file.name());
+            response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes </li>", file.name(), file.name(), file.size());
+            file = dir.openNextFile();
+        }
+        response->print("</ul><form method='POST' action='/upload' enctype='multipart/form-data'>");
+        response->print("<input type='file' name='update'><input type='submit' value='Upload'></form></body></html>");
+        request->send(response);
+    });
+
+    server.on("/del", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (request->args() > 0 ) { // Arguments were received
+            if (request->hasArg("f")) {
+                //SD_file_delete(server.arg(0));
+                const char *file = request->arg("f").c_str();
+                Serial.printf("Deleting file %s ", file);
+                SD.remove(file)?Serial.println("Successfully"):Serial.println("Failed");
+            }
+        }
+        else {
+            Serial.println("*server: del received no args");
+        }
+        request->redirect("/list");
+    });
+
+    server.on("/down", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (request->args() > 0 ) { // Arguments were received
+            if (request->hasArg("f")) {
+                //SD_file_delete(server.arg(0));
+                const char *file = request->arg("f").c_str();
+                Serial.printf("Downloading file %s \r\n", file);
+                //SD.remove(file)?Serial.println("Successfully"):Serial.println("Failed");
+                request->send(SD, file, "text/plain");
+            }
+        }
+        else {
+            request->send(200, "text/plain", "file not found");
+        }
+    });
+
+    server.on("/test", HTTP_GET, [](AsyncWebServerRequest *request) {
+        AsyncResponseStream *response = request->beginResponseStream("text/html");
+        response->addHeader("Server","ESP Async Web Server");
+        response->printf("<!DOCTYPE html><html><head><title>Webpage at %s</title></head><body>", request->url().c_str());
+
+        response->print("<h2>Hello ");
+        response->print(request->client()->remoteIP());
+        response->print("</h2>");
+
+        response->print("<h3>General</h3>");
+        response->print("<ul>");
+        response->printf("<li>Version: HTTP/1.%u</li>", request->version());
+        response->printf("<li>Method: %s</li>", request->methodToString());
+        response->printf("<li>URL: %s</li>", request->url().c_str());
+        response->printf("<li>Host: %s</li>", request->host().c_str());
+        response->printf("<li>ContentType: %s</li>", request->contentType().c_str());
+        response->printf("<li>ContentLength: %u</li>", request->contentLength());
+        response->printf("<li>Multipart: %s</li>", request->multipart()?"true":"false");
+        response->print("</ul>");
+
+        response->print("<h3>Headers</h3>");
+        response->print("<ul>");
+        int headers = request->headers();
+        for(int i=0;i<headers;i++){
+        AsyncWebHeader* h = request->getHeader(i);
+        response->printf("<li>%s: %s</li>", h->name().c_str(), h->value().c_str());
+        }
+        response->print("</ul>");
+
+        response->print("<h3>Parameters</h3>");
+        response->print("<ul>");
+        int params = request->params();
+        for(int i=0;i<params;i++){
+        AsyncWebParameter* p = request->getParam(i);
+        if(p->isFile()){
+            response->printf("<li>FILE[%s]: %s, size: %u</li>", p->name().c_str(), p->value().c_str(), p->size());
+        } else if(p->isPost()){
+            response->printf("<li>POST[%s]: %s</li>", p->name().c_str(), p->value().c_str());
+        } else {
+            response->printf("<li>GET[%s]: %s</li>", p->name().c_str(), p->value().c_str());
+        }
+        }
+        response->print("</ul>");
+
+        response->print("</body></html>");
+        //send the response last
+        request->send(response);
+    });
 /*
   server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request){
     if(request->hasArg("file")){
