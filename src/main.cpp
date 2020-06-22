@@ -1,7 +1,7 @@
 /*
 to implement:
+server response on notfound with url() and method
 apply test code to check every part of the system:
-    flow sensor data - counter + flow/second
     pressure sensor data - live
     ultrasonic data - live
     start-stop
@@ -259,7 +259,7 @@ public:
 // set MUX to SIM_MUX_ADDRESS
 // send sms with error code description
 void SendSMS(String message){
-    OUT_PORT.print("*sendsms*: ");
+    OUT_PORT.print("-sendsms: ");
     OUT_PORT.println(message);
     expanders.setMUX(7); // modem is at port 7
     Alarm.delay(10); // wait until expander + mux did their job
@@ -283,7 +283,7 @@ AT+CBC – will return the lipo battery state. The second number is the % full (
   */
 
 void modemInit(){
-    OUT_PORT.println("modem init");
+    OUT_PORT.println("-modem init");
     expanders.setMUX(7); // modem is at port 7
     Alarm.delay(10); // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
@@ -844,6 +844,7 @@ public:
     }
 
     void begin(){ // attach interrupts
+        Serial.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
         pinMode(FLOW_1_PIN, INPUT_PULLUP);
         pinMode(FLOW_2_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, FALLING);
@@ -1268,16 +1269,17 @@ void setupServer(){
 
     // Route for root / web page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    Serial.println("Requested: " + request->url() );
-    if(!SD.exists("/index2.html")){
-        SD.end();
-        Serial.println("trying to restart SD");
-        if(!SD.begin(22)){
-        Serial.println("unable to read form SD card");
-        request->send(200, "text/html", "<html><body><center><h1>check SD Card please</h1></center></body></html>");
-        }
-        }
-    request->send(SD, "/index2.html", String(), false);
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
+        if(!SD.exists("/index.html")){
+            SD.end();
+            Serial.println("trying to restart SD");
+            if(!SD.begin(22)){
+            Serial.println("unable to read form SD card");
+            request->send(200, "text/html", "<html><body><center><h1>check SD Card please</h1></center></body></html>");
+            }
+            }
+        request->send(SD, "/index2.html", String(), false);
     });
 
     server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request) {
@@ -1305,6 +1307,8 @@ void setupServer(){
 
 
     server.on("/list", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         File dir = SD.open("/");
         File file = dir.openNextFile();
@@ -1321,6 +1325,8 @@ void setupServer(){
     });
 
     server.on("/del", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         if (request->args() > 0 ) { // Arguments were received
             if (request->hasArg("f")) {
                 const char *file = request->arg("f").c_str();
@@ -1335,6 +1341,8 @@ void setupServer(){
     });
 
     server.on("/down", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         if (request->args() > 0 ) { // Arguments were received
             if (request->hasArg("f")) {
                 const char *file = request->arg("f").c_str();
@@ -1349,6 +1357,8 @@ void setupServer(){
 
 
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->print("<html><body><ul>");
         response->print("<li>Relays</li>");
@@ -1367,7 +1377,11 @@ void setupServer(){
         for (uint8_t i=0;i<8;i++){
             response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button>", i, i);
         }
-        response->print("</li>");
+        response->print("<li>Flow Sensors</li>");
+        response->printf("<li>FS1 counter %llu flow %u mult %u</li>", flow.CounterGet(0), flow.FlowGet(0), flow.MultGet(0));
+        response->printf("<li>FS2 counter %llu flow %u mult %u</li>", flow.CounterGet(1), flow.FlowGet(1), flow.MultGet(1));
+        response->print("</ul>");
+        response->print("<button onclick=\"location=location\">reload</button>");
         response->print("</body></html>");
         request->send(response);
     });
@@ -1375,6 +1389,8 @@ void setupServer(){
 
 
     server.on("/man", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         if (request->args() > 0 ) { // Arguments were received
             if (request->hasArg("f")) {
                 int f = request->arg("f").toInt();
@@ -1408,6 +1424,8 @@ void setupServer(){
 
 
     server.on("/test", HTTP_GET, [](AsyncWebServerRequest *request) {
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->addHeader("Server","ESP Async Web Server");
         response->printf("<!DOCTYPE html><html><head><title>Webpage at %s</title></head><body>", request->url().c_str());
@@ -1489,6 +1507,7 @@ void setupServer(){
   // Start server
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   server.begin();
+  Serial.println(F("-Server init"));
 } // void setupServer() end
 
 
@@ -1713,6 +1732,7 @@ void setup() {
     pressure.setSensor(0, PRESSUR_1_PIN, PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR);
     pressure.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
 
+    flow.begin();
 
     //bug? testing..
     expanders.UnlockMUX();
