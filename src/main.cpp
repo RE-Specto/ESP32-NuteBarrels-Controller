@@ -1,10 +1,9 @@
 /*
 to implement:
-server response on notfound with url() and method
 apply test code to check every part of the system:
-    pressure sensor data - live
     ultrasonic data - live
     start-stop
+    ntp sync
 make filling mixing storing draining into single Task?
 reimplement global save function:
     wait STOPPED_STATE, wait untill flow stopped, save 
@@ -18,6 +17,7 @@ start/stop interrupts
         task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
     stop sets shouldStop global boolean
         task or loop reads the bool - changes RGB immediately, triggers stop and save
+    on stop:     pressure.SaveSD(); flow.SaveSD();
 rgb led status (read from system status via error-reporting task?)
 work on system hardware 
 sendSMS should return actual error names
@@ -810,8 +810,10 @@ private:
     myFS fsensor[2]; // two sensors
 public:
     uint16_t FlowGet(uint8_t sens){
-        return (fsensor[sens].flow * 1000 / fsensor[sens].conversion_multiplier); // in mililiters per second
-    }
+        if ((millis()-fsensor[sens].lastMilis)>1000){ // measurement older than 1 second means no flow
+            return 0;}
+        return ( (1000000 / (fsensor[sens].flow?fsensor[sens].flow:1) ) / fsensor[sens].conversion_multiplier ); // in mililiters per second
+    } // Guru Meditation Error: Core  1 panic'ed (IntegerDivideByZero). Exception was unhandled.
 
     void IRAM_ATTR CounterInc(uint8_t sens){
         fsensor[sens].counter++;
@@ -912,15 +914,14 @@ public:
         pinMode(sensorPin,INPUT); // initialize analog pin for the sensor
     }
 
-    // separate functions to be called dynamically
-    void setMultiplier(uint8_t num, uint8_t mult){
-        psensor[num]._multiplier = mult;}
-    void setOffset(uint8_t num, uint8_t offs){
-        psensor[num]._offset = offs;}
-    void setMax(uint8_t num, uint8_t max){
-        psensor[num]._max_pressure = max;}
-    void setMin(uint8_t num, uint8_t min){
-        psensor[num]._min_pressure = min;}
+    uint8_t MultiplierGet(uint8_t num) { return psensor[num]._multiplier; }
+    void MultiplierSet(uint8_t num, uint8_t mult){ psensor[num]._multiplier = mult; }
+    uint8_t OffsetGet(uint8_t num) { return psensor[num]._offset; }
+    void OffsetSet(uint8_t num, uint8_t offs){ psensor[num]._offset = offs; }
+    uint8_t MaxGet(uint8_t num) { return psensor[num]._max_pressure; }
+    void MaxSet(uint8_t num, uint8_t max){ psensor[num]._max_pressure = max; }
+    uint8_t MinGet(uint8_t num) { return psensor[num]._min_pressure; }
+    void MinSet(uint8_t num, uint8_t min){ psensor[num]._min_pressure = min; }
 
     bool LoadSD(){
         return Load("/Pressure.bin", (byte*)&psensor, sizeof(psensor));
@@ -931,16 +932,16 @@ public:
     }
 
     // read sensor - convert analog value to psi
-uint16_t measure(uint8_t num){
+uint16_t measure(uint8_t sens){
     // convert analog value to psi
-    uint16_t pressure = (analogRead(psensor[num]._sensorPin) * psensor[num]._multiplier - psensor[num]._offset) /1000; //test - needs to be replaced with acrual formula
-    if (pressure < psensor[num]._min_pressure) {
+    uint16_t pressure = (analogRead(psensor[sens]._sensorPin) * psensor[sens]._multiplier - psensor[sens]._offset) /1000; //test - needs to be replaced with acrual formula
+    if (pressure < psensor[sens]._min_pressure) {
         // set underpressure error
-        SystemState.error_set(psensor[num]._TooLowErr);
+        SystemState.error_set(psensor[sens]._TooLowErr);
     }
-    if (pressure > psensor[num]._max_pressure) {
+    if (pressure > psensor[sens]._max_pressure) {
         // set overpressure error
-        SystemState.error_set(psensor[num]._TooHighErr);
+        SystemState.error_set(psensor[sens]._TooHighErr);
     }
 
     return pressure;
@@ -1378,10 +1379,14 @@ void setupServer(){
             response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button>", i, i);
         }
         response->print("<li>Flow Sensors</li>");
-        response->printf("<li>FS1 counter %llu flow %u mult %u</li>", flow.CounterGet(0), flow.FlowGet(0), flow.MultGet(0));
-        response->printf("<li>FS2 counter %llu flow %u mult %u</li>", flow.CounterGet(1), flow.FlowGet(1), flow.MultGet(1));
+        response->printf("<li>FS1: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", flow.CounterGet(0), flow.CounterGet(0)/flow.MultGet(0), flow.FlowGet(0), flow.MultGet(0));
+        response->printf("<li>FS2: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", flow.CounterGet(1), flow.CounterGet(1)/flow.MultGet(1), flow.FlowGet(1), flow.MultGet(1));
+        response->print("<li>Pressure Sensors</li>");
+        response->printf("<li>PS1: %u Psi %u multiplier %u offset</li>", pressure.measure(0), pressure.MultiplierGet(0), pressure.OffsetGet(0));
+        response->printf("<li>PS2: %u Psi %u multiplier %u offset</li>", pressure.measure(1), pressure.MultiplierGet(1), pressure.OffsetGet(1));
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button>");
+        response->print("<button onclick=\"location=\'/reset\'\">reset</button>");
         response->print("</body></html>");
         request->send(response);
     });
@@ -1422,8 +1427,13 @@ void setupServer(){
         request->redirect("/manual");
     });
 
+    server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->redirect("/manual");
+        ESP.restart();
+    });
 
-    server.on("/test", HTTP_GET, [](AsyncWebServerRequest *request) {
+
+    server.onNotFound([](AsyncWebServerRequest *request) {
         Serial.print("Requested: ");
         Serial.println( request->url().c_str() );
         AsyncResponseStream *response = request->beginResponseStream("text/html");
@@ -1473,36 +1483,6 @@ void setupServer(){
         //send the response last
         request->send(response);
     });
-/*
-  server.on("/download", HTTP_GET, [](AsyncWebServerRequest *request){
-    if(request->hasArg("file")){
-      char buff[32]; // next implementation add leading "/"
-      request->arg("file").toCharArray(buff, sizeof(buff), 0);
-      if (fileSystem->exists(buff)){
-        OUT_PORT.printf("\rDownloading file: %s\r\n", buff);
-        File file = fileSystem->open(buff, "r");
-        if (file){
-          //request->sendHeader("filename", buff); // not working
-          size_t sentsize = request->streamFile(file, "application/octet-stream");
-          OUT_PORT.printf( "Sent %u out of %u Bytes\r\n",sentsize, file.size() );
-        }
-        else
-          request->send(200, "text/plain", "error opening file");
-        file.close();
-      }
-      else {// exist returned false
-        request->send(200, "text/plain", "file not exist");
-        OUT_PORT.printf("\rfile %s not exist\t~\r\n", buff);
-      }
-    }
-    else {// no argumet "file" supplied
-      request->send(200, "text/plain", "missing parameter \"file\"");
-      OUT_PORT.print(F("\rDownload - missing parameter \"file\"\r\n"));
-    }
-  });
-
-*/
-
 
   // Start server
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
@@ -1733,6 +1713,8 @@ void setup() {
     pressure.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
 
     flow.begin();
+    flow.CounterReset(0);
+    flow.CounterReset(1);
 
     //bug? testing..
     expanders.UnlockMUX();
