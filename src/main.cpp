@@ -1,7 +1,9 @@
 /*
 to implement:
+add barrel struct load, save
 barrels - rewrite
 ultrasonic - move to barrels?
+make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure - task loop inside other cpu core?
 apply test code to check every part of the system:
     ultrasonic data - after barrels done - at manual page
     start-stop via serial.print
@@ -101,11 +103,6 @@ sendSMS - rewrite String to Char Array
 
 // load Object from Storage to Struct
 #define NUM_OF_BARRELS 6
-
- // in liters how much is gonna get stuck in the barrel 
- // because you can never drain to dry
- // !! reimplement next version to be on per barrel limit and adjustable
-#define BARREL_LOW_LIMIT 50
 
 //Flow sensor Pin declarations
 #define FLOW_1_PIN 25
@@ -363,54 +360,29 @@ private:
     myST myState;
 
 public:
-    bool LoadSD(){
-        return Load("/SysState.bin", (byte*)&myState, sizeof(myState));
-    }
+    bool LoadSD(){ return Load("/SysState.bin", (byte*)&myState, sizeof(myState)); }
 
-    bool SaveSD(){
-        return Save("/SysState.bin", (byte*)&myState, sizeof(myState));
-    }
+    bool SaveSD(){ return Save("/SysState.bin", (byte*)&myState, sizeof(myState)); }
 
-    uint8_t state_get(){
-        return myState._state_now;
-    }
+    uint8_t state_get(){ return myState._state_now; }
 
-    void state_set(uint8_t mask){
-        myState._state_now |= mask;
-    }
+    void state_set(uint8_t mask){ myState._state_now |= mask; }
 
-    void state_unset(uint16_t mask){
-        myState._state_now &= ~mask;
-    }
-    // preserve prevoius state
-    void state_save(){
-        myState._state_before = myState._state_now;
-    }
+    void state_unset(uint16_t mask){ myState._state_now &= ~mask; }
 
-    // restore previous state
-    void state_load(){
-        myState._state_now = myState._state_before;
-    }
+    void state_save(){ myState._state_before = myState._state_now; } // preserve prevoius state
+
+    void state_load(){ myState._state_now = myState._state_before; } // restore previous state
 
     // returns true if state have "mask-bit" state on. ex: return_state(MIXING_STATE);
-    bool state_check(uint8_t mask){
-        //return (_state & ( 1 << position )) >> position
-        //return (_state >> position) & 1 //right-shifting to position bit, and then extracting the first bit
-        return myState._state_now & mask;
-    }
+    bool state_check(uint8_t mask){ return myState._state_now & mask; }
 
     // returns error state
-    uint16_t error_get(){
-        return myState._error_now;
-    }
+    uint16_t error_get(){ return myState._error_now; }
 
-    void error_set(uint16_t error){
-        myState._error_now |=  error;
-    }
+    void error_set(uint16_t error){ myState._error_now |=  error; }
 
-    void error_unset(uint16_t error){
-        myState._error_now &= ~error;
-    }
+    void error_unset(uint16_t error){ myState._error_now &= ~error; }
 
     //returns the difference between current and last error states
     // !! need to reimplement to return either the new error position
@@ -422,9 +394,7 @@ public:
         return (myState._error_now ^ myState._error_before) & myState._error_now ; 
     }
 
-    void error_reported(){
-        myState._error_before=myState._error_now;
-    }
+    void error_reported(){ myState._error_before=myState._error_now; }
 
 } SystemState;
 
@@ -572,6 +542,91 @@ bool SaveSettings(){
 
 
 
+struct myBR {
+    //bit field
+    //76543210
+    //0 - flush solenoid error
+    //1 - store solenoid error
+    //2 - drain solenoid error
+    //3 - Ultrasonic sensor error
+    //4 - 
+    //5 - 
+    //6 - disabled manually
+    //7 - other error
+    uint8_t _ErrorState;
+    uint8_t _BarrelNumber;      // important for mux selection // really needed?
+    uint8_t _VolumeFreshwater;  // data from flow sensor
+    uint8_t _VolumeNutrients;   // data from flow sensor
+    uint8_t _VolumeEmpty;       // set once at calibration - for sonic sensors
+    uint8_t _VolumeMin;         // set once at calibration - for flow and sonic sensors
+    uint8_t _VolumeMax;         // set once at calibration - for flow and sonic sensors
+    uint8_t _SonicCoefficient;  // set once at calibration - cm to Liters - for sonic sensor
+    uint8_t _SonicOffset;       // set once at calibration - for sonic sensor
+};
+
+
+class BARRClass{
+private:
+    myBR myBarrel[8];
+
+public:
+    bool LoadSD(){ return Load("/SysState.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
+
+    bool SaveSD(){ return Save("/SysState.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
+
+    // error get
+
+    // error set
+
+    // fresh get
+
+    // fresh set
+
+    // nutri get
+
+    // nutri set
+
+    uint16_t VolumeMax(byte barrel){
+        return myBarrel[barrel]._VolumeMax;
+    }
+
+    uint16_t VolumeMin(byte barrel){
+        return myBarrel[barrel]._VolumeMin;
+    }
+
+    // totally empty
+    bool isDry(byte barrel){
+        return sonic(barrel) <= myBarrel[barrel]._VolumeEmpty;
+    }
+
+    // reached min level
+    bool isEmpty(byte barrel){
+        return sonic(barrel) <= myBarrel[barrel]._VolumeMin;
+    }
+
+    // reached max level
+    bool isFull(byte barrel){
+        return sonic(barrel) >= myBarrel[barrel]._VolumeMax;
+    }
+
+    // sonic measure
+    // setMUX
+    // sonic() - _SonicOffset = full barrel point 0
+    // volumeFull - ("point zero" * _SonicCoefficient) = current volume in liters from sonic
+
+    uint16_t sonic(byte barrel){
+        //
+    }
+
+    // concentration in persents
+    // 100 * myBarrel[8]._VolumeNutrients / myBarrel[8]._VolumeFreshwater
+
+    void Init(){ // really needed?
+        for (byte x=0;x<8;x++)
+            myBarrel[x]._BarrelNumber=x; // sets each barrel's number
+    }
+
+} barrels;
 
 
 
@@ -581,11 +636,7 @@ bool SaveSettings(){
 
 
 
-
-
-
-
-
+/*
 
 // my data struct should go here
 
@@ -657,7 +708,7 @@ public:
 }; // class barrels
 
 
-
+/*
 // create class instances
 
 // load JSON Object from storage
@@ -719,11 +770,11 @@ int barrels::barrel::get_flow_volume(){
     return 0;
 }
 
-/*
-barrels calculations:
-(barrelsEmptyHeight - ultrasonicValue) * barrelsCoefficent = value in liters
-(barrelsEmptyHeight - barrelsFullHeight) / ultrasonicValue = barrels percent 
-*/
+
+//barrels calculations:
+//(barrelsEmptyHeight - ultrasonicValue) * barrelsCoefficent = value in liters
+//(barrelsEmptyHeight - barrelsFullHeight) / ultrasonicValue = barrels percent 
+
 
 
 
@@ -782,7 +833,7 @@ void test1(){
     mybarrels.getBarrel(1).measure_ultrasonic();
 }
 
-
+*/
 
 
 
@@ -853,29 +904,17 @@ public:
         fsensor[sens].lastMilis = millis();
     }
 
-    uint64_t CounterGet(uint8_t sens){
-        return fsensor[sens].counter;
-    }
+    uint64_t CounterGet(uint8_t sens){ return fsensor[sens].counter; }
 
-    void CounterReset(uint_fast8_t sens){
-        fsensor[sens].counter=0;
-    }
+    void CounterReset(uint_fast8_t sens){ fsensor[sens].counter=0; }
     
-    uint16_t MultGet(uint8_t sens){
-        return fsensor[sens].conversion_multiplier;
-    }
+    uint16_t MultGet(uint8_t sens){ return fsensor[sens].conversion_multiplier; }
 
-    void MultSet(uint8_t sens, uint16_t mult){
-        fsensor[sens].conversion_multiplier = mult;
-    }
+    void MultSet(uint8_t sens, uint16_t mult){ fsensor[sens].conversion_multiplier = mult; }
 
-    bool LoadSD(){
-        return Load("/Flow.bin", (byte*)&fsensor, sizeof(fsensor));
-    }
+    bool LoadSD(){ return Load("/Flow.bin", (byte*)&fsensor, sizeof(fsensor)); }
 
-    bool SaveSD(){
-        return Save("/Flow.bin", (byte*)&fsensor, sizeof(fsensor));
-    }
+    bool SaveSD(){ return Save("/Flow.bin", (byte*)&fsensor, sizeof(fsensor)); }
 
     void begin(){ // attach interrupts
         Serial.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
@@ -955,13 +994,9 @@ public:
     uint8_t MinGet(uint8_t num) { return psensor[num]._min_pressure; }
     void MinSet(uint8_t num, uint8_t min){ psensor[num]._min_pressure = min; }
 
-    bool LoadSD(){
-        return Load("/Pressure.bin", (byte*)&psensor, sizeof(psensor));
-    }
+    bool LoadSD(){ return Load("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
 
-    bool SaveSD(){
-        return Save("/Pressure.bin", (byte*)&psensor, sizeof(psensor));
-    }
+    bool SaveSD(){ return Save("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
 
     // read sensor - convert analog value to psi
 uint16_t measure(uint8_t sens){
@@ -974,6 +1009,7 @@ uint16_t measure(uint8_t sens){
     if (pressure > psensor[sens]._max_pressure) {
         // set overpressure error
         SystemState.error_set(psensor[sens]._TooHighErr);
+        // !! implement - stop the pump !!!
     }
 
     return pressure;
@@ -1121,8 +1157,8 @@ void Drain(uint16_t barrel, uint16_t requirement){
         // assign flow counter to barrel x
     // open barrel x drain tap + dOUT tap
     // start pump
-    // loop until drain counter zero or barrel x empty
-    while ( requirement && (mybarrels.getBarrel(barrel).measure_ultrasonic() > BARREL_LOW_LIMIT ) ){ // reimplement to use low_level
+    // loop while drain counter > 0 and barrel x not empty
+    while ( requirement && !barrels.isEmpty(barrel) ){ 
         // truncate flow counter from a barrel
         // decrement requirement by flow counter
 
@@ -1150,7 +1186,7 @@ void DrainingTask(){
 
 
             // measure barrel x - Barrel x not empty?
-            if (mybarrels.getBarrel(Transfers.draining_barrel).measure_ultrasonic() > BARREL_LOW_LIMIT ){  // reimplement to use low_level
+            if ( !barrels.isEmpty(Transfers.draining_barrel) ){ 
                 Drain(Transfers.draining_barrel, Transfers.drain_requirement);
             }
 
