@@ -1,15 +1,16 @@
 /*
 to implement:
+expander pump dIN dOUT
+barrels - rewrite
+ultrasonic - move to barrels?
 apply test code to check every part of the system:
-    ultrasonic data - live
-    start-stop
+    ultrasonic data - after barrels done - at manual page
+    start-stop via serial.print
     ntp sync
 make filling mixing storing draining into single Task?
 reimplement global save function:
     wait STOPPED_STATE, wait untill flow stopped, save 
 pressure sensors - "stop pump on overpressure" Task
-barrels - rewrite
-ultrasonic - move to barrels?
 deprecate RTC? replace with ntp + timeAlarms?
 add everything to setup 
 start/stop interrupts
@@ -21,6 +22,13 @@ start/stop interrupts
 rgb led status (read from system status via error-reporting task?)
 work on system hardware 
 sendSMS should return actual error names
+
+add to schematic:
+sim800 4v 2a power line
+rj45 colors to pin numbers
+LED, start/stop pin numbers rj45 socket
+rtc module
+12v to 5v to 3.3v power line
 
 
 
@@ -218,6 +226,15 @@ public:
             expander1.getPin(i+4).setValue( address & (1 << i) ); 
         }
         expander1.write();
+    }
+
+    void Protect(bool state){
+        // triggers last relay in each relay board to disconnect 12v line
+        expander1.getPin(15).setValue( !state ); // filling relay protect pin
+        expander2.getPin( 7).setValue( !state ); // storing relay protect pin
+        expander2.getPin(15).setValue( !state ); // draining relay protect pin
+        expander1.write();
+        expander2.write();
     }
 
     void FillingRelay(uint8_t address, bool state){
@@ -1663,16 +1680,19 @@ void LoadStructs(){
         OUT_PORT.println("/Flow.bin not exist");
 }
 
-
+// reimplement later to save on demand only what 
+// this one will be used on system stop? save all...?
 void SaveStructs(){
     if (!isSaving){ // prevent concurrent saving
     isSaving = true;
+    while(flow.FlowGet(0)); // wait untill no flow
+    while(flow.FlowGet(1));
     SystemState.SaveSD();
     //Barrels.SaveSD(); // important! need2implement
 
     // not required?
-    //pressure.SaveSD();
-    //flow.SaveSD();
+    pressure.SaveSD();
+    flow.SaveSD();
     isSaving = false;
     }
 }
