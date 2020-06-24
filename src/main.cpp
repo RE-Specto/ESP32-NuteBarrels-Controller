@@ -1,6 +1,5 @@
 /*
 to implement:
-expander pump dIN dOUT
 barrels - rewrite
 ultrasonic - move to barrels?
 apply test code to check every part of the system:
@@ -235,6 +234,22 @@ public:
         expander2.getPin(15).setValue( !state ); // draining relay protect pin
         expander1.write();
         expander2.write();
+    }
+
+    void PumpIn(bool state){
+        // triggers dIN solenoid and then the pump
+        expander2.getPin( 6).setValue( !state ); // storing relay dIN pin
+        expander2.write();
+        expander1.getPin(14).setValue( !state ); // filling relay pump pin
+        expander1.write();
+    }
+
+    void PumpOut(bool state){
+        // triggers dOUT solenoid and then the pump
+        expander2.getPin(14).setValue( !state ); // draining relay dOUT pin
+        expander2.write();
+        expander1.getPin(14).setValue( !state ); // filling relay pump pin
+        expander1.write();
     }
 
     void FillingRelay(uint8_t address, bool state){
