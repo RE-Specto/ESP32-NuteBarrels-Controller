@@ -20,6 +20,7 @@ start/stop interrupts
     stop sets shouldStop global boolean
         task or loop reads the bool - changes RGB immediately, triggers stop and save
     on stop:     pressure.SaveSD(); flow.SaveSD();
+    // can set the bool to !bool to check if pressed twice - for reset and other system tasks
 rgb led status (read from system status via error-reporting task?)
 work on system hardware 
 sendSMS should return actual error names
