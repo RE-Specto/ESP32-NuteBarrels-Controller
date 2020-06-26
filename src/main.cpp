@@ -1,6 +1,5 @@
 /*
 to implement:
-add barrel struct load, save
 barrels - rewrite
 ultrasonic - move to barrels?
 make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure - task loop inside other cpu core?
@@ -1730,6 +1729,11 @@ void LoadStructs(){
         flow.LoadSD();
     else
         OUT_PORT.println("/Flow.bin not exist");
+
+    if (SD.exists("/Barrels.bin"))
+        barrels.LoadSD();
+    else
+        OUT_PORT.println("/Barrels.bin not exist");
 }
 
 // reimplement later to save on demand only what 
@@ -1740,9 +1744,9 @@ void SaveStructs(){
     while(flow.FlowGet(0)); // wait untill no flow
     while(flow.FlowGet(1));
     SystemState.SaveSD();
-    //Barrels.SaveSD(); // important! need2implement
-
-    // not required?
+    
+    // reimplement to save ondemand?
+    barrels.SaveSD();
     pressure.SaveSD();
     flow.SaveSD();
     isSaving = false;
@@ -1768,6 +1772,7 @@ void setup() {
     //WiFiManager Local intialization. Once its business is done, there is no need to keep it around
     AsyncWiFiManager wifiManager(&server,&dns);
     //wifiManager.resetSettings();
+    wifiManager.setConfigPortalTimeout(180); // 3 minutes
     wifiManager.autoConnect("AutoConnectAP"); // will stop here if no wifi connected
     OUT_PORT.printf("ESSID: %s\r\n", WiFi.SSID().c_str());
 
