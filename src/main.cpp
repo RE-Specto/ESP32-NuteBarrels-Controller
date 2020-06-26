@@ -1,7 +1,7 @@
 /*
 to implement:
-barrels - rewrite
-ultrasonic - move to barrels?
+barrels - continue
+ultrasonic - add to /manual
 make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure - task loop inside other cpu core?
 apply test code to check every part of the system:
     ultrasonic data - after barrels done - at manual page
@@ -542,325 +542,6 @@ bool SaveSettings(){
 
 
 
-struct myBR {
-    //bit field
-    //76543210
-    //0 - flush solenoid error
-    //1 - store solenoid error
-    //2 - drain solenoid error
-    //3 - Ultrasonic sensor error
-    //4 - 
-    //5 - 
-    //6 - disabled manually
-    //7 - other error
-    uint8_t _ErrorState;
-    uint8_t _BarrelNumber;      // important for mux selection // really needed?
-    uint8_t _VolumeFreshwater;  // data from flow sensor
-    uint8_t _VolumeNutrients;   // data from flow sensor
-    uint8_t _VolumeEmpty;       // set once at calibration - for sonic sensors
-    uint8_t _VolumeMin;         // set once at calibration - for flow and sonic sensors
-    uint8_t _VolumeMax;         // set once at calibration - for flow and sonic sensors
-    uint8_t _SonicCoefficient;  // set once at calibration - cm to Liters - for sonic sensor
-    uint8_t _SonicOffset;       // set once at calibration - for sonic sensor
-};
-
-
-class BARRClass{
-private:
-    myBR myBarrel[8];
-
-public:
-    bool LoadSD(){ return Load("/SysState.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
-
-    bool SaveSD(){ return Save("/SysState.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
-
-    // error get
-
-    // error set
-
-    // fresh get
-
-    // fresh set
-
-    // nutri get
-
-    // nutri set
-
-    uint16_t VolumeMax(byte barrel){
-        return myBarrel[barrel]._VolumeMax;
-    }
-
-    uint16_t VolumeMin(byte barrel){
-        return myBarrel[barrel]._VolumeMin;
-    }
-
-    // totally empty
-    bool isDry(byte barrel){
-        return sonic(barrel) <= myBarrel[barrel]._VolumeEmpty;
-    }
-
-    // reached min level
-    bool isEmpty(byte barrel){
-        return sonic(barrel) <= myBarrel[barrel]._VolumeMin;
-    }
-
-    // reached max level
-    bool isFull(byte barrel){
-        return sonic(barrel) >= myBarrel[barrel]._VolumeMax;
-    }
-
-    // sonic measure
-    // setMUX
-    // sonic() - _SonicOffset = full barrel point 0
-    // volumeFull - ("point zero" * _SonicCoefficient) = current volume in liters from sonic
-
-    uint16_t sonic(byte barrel){
-        //
-    }
-
-    // concentration in persents
-    // 100 * myBarrel[8]._VolumeNutrients / myBarrel[8]._VolumeFreshwater
-
-    void Init(){ // really needed?
-        for (byte x=0;x<8;x++)
-            myBarrel[x]._BarrelNumber=x; // sets each barrel's number
-    }
-
-} barrels;
-
-
-
-
-
-
-
-
-
-/*
-
-// my data struct should go here
-
-class barrels{
-public:
-    class barrel{
-        friend class barrels;
-    public:
-        barrel();
-        int get_error_state(); 
-        void set_error_state(uint8_t error_mask);
-        void unset_error_state(uint8_t error_mask);
-        void reset_error_state(uint8_t error_mask);
-        int measure_ultrasonic();
-        void add_flow_volume();
-        void substract_flow_volume();
-        int get_flow_volume(); // in liters - data from flow 
-        int get_sonic_volume(); // in liters - data from ultrasonic 
-        int get_combined_volume(); // in liters - data from ultrasonic and flow combined
-        int get_flow_percentage(); // 0 to 100 from flow 
-        int get_sonic_percentage(); // 0 to 100 from ultrasonic 
-        int get_combined_percentage(); // 0 to 100 from ultrasonic and flow combined
-
-    protected:
-        //bit field
-        //76543210
-        //0 - flush solenoid error
-        //1 - store solenoid error
-        //2 - drain solenoid error
-        //3 - Ultrasonic sensor error
-        //4 - 
-        //5 - 
-        //6 - disabled manually
-        //7 - other error
-        uint8_t _error_state;
-
-        uint8_t _TotalVolume; // should be constant
-        uint8_t _Coefficient;
-        uint8_t _EmptyHeight;
-        uint8_t _FullHeight;
-
-        // important for mux selection
-        uint8_t _SonicNumber;
-
-        //data from flow sensor
-        uint8_t _current_volume;
-
-        // !! implement another counder for fresh water?
-
-    };
-
-private:
-    //bit field
-    //76543210
-    //0 - 
-    //1 - 
-    //2 - 
-    //3 - 
-    //4 - 
-    //5 - 
-    //6 - 
-    //7 - other error
-    uint8_t _error_state;
-    barrel _barrel[NUM_OF_BARRELS];
-
-public:
-    barrels();
-    barrel &getBarrel(uint8_t barrelNumber);
-}; // class barrels
-
-
-/*
-// create class instances
-
-// load JSON Object from storage
-
-// copy JSON Object to data struct
-
-// "Object Save" Task - serialize data to JSON object and save to SD
-
-//barrel constructor
-barrels::barrel::barrel(){
-    OUT_PORT.println("barrel constructor");
-}
-
-//returns error state bit field
-int barrels::barrel::get_error_state(){
-    return _error_state;
-}
-
-//apply error state according to mask
-void barrels::barrel::set_error_state(uint8_t error_mask){
-    // "or" operator to the rescue
-    _error_state |= error_mask;
-}
-
-//disapply error state according to mask
-void barrels::barrel::unset_error_state(uint8_t error_mask){
-    // "and not" operators to the rescue
-    _error_state &= ~error_mask;
-
-}
-
-//reset error state according to mask
-void barrels::barrel::reset_error_state(uint8_t error_mask){
-    _error_state = 0;
-}
-
-//return raw value
-int barrels::barrel::measure_ultrasonic(){
-    // lock mux
-    // set mux address to _SonicNumber
-    // read sensor 5? times, get avearge
-    // unlock mux
-    return 0;  /// !!!! sensor ultra should be moved to this file!! + expander solenoids commands too
-}
-
-// increment _current_volume
-void barrels::barrel::add_flow_volume(){
-
-}
-
-// decrement _current_volume
-void barrels::barrel::substract_flow_volume(){
-
-}
-
-// in liters - data from flow sensor
-int barrels::barrel::get_flow_volume(){
-    // uses _current_volume
-    return 0;
-}
-
-
-//barrels calculations:
-//(barrelsEmptyHeight - ultrasonicValue) * barrelsCoefficent = value in liters
-//(barrelsEmptyHeight - barrelsFullHeight) / ultrasonicValue = barrels percent 
-
-
-
-
- // in liters - data from ultrasonic 
-int barrels::barrel::get_sonic_volume(){
-    return ( _EmptyHeight - measure_ultrasonic() ) * _Coefficient ;
-}
-
-// in liters - data from ultrasonic and flow combined
-int barrels::barrel::get_combined_volume(){
-    return ( get_flow_volume() + get_sonic_volume() ) / 2; // fifty-fifty - need to change?
-}
-
- // 0 to 100 from flow 
-int barrels::barrel::get_flow_percentage(){
-    return 0;
-}
-
- // 0 to 100 from ultrasonic 
-int barrels::barrel::get_sonic_percentage(){
-    return 0;
-}
-
- // 0 to 100 from ultrasonic and flow combined
-int barrels::barrel::get_combined_percentage(){
-    return ( get_flow_percentage() + get_sonic_percentage() ) / 2; // fifty-fifty - need to change?
-}
-
-
-//barrels constructor
-//assign every barrel its number
-barrels::barrels(){
-    OUT_PORT.println("barrels constructor");
-    for (uint8_t x=0;x<NUM_OF_BARRELS;x++){
-            // !!!! for test only - need to implement loading from JSON object
-        _barrel[x]._error_state=0;
-        _barrel[x]._current_volume=0;
-        _barrel[x]._TotalVolume=0;
-        _barrel[x]._Coefficient=0;
-        _barrel[x]._EmptyHeight=0;
-        _barrel[x]._FullHeight=0;        
-        _barrel[x]._SonicNumber=x;
-    }
-}
-
-barrels::barrel &barrels::getBarrel(uint8_t barrelNumber){
-  if (barrelNumber < 0 || barrelNumber >= NUM_OF_BARRELS)
-    barrelNumber = 0; // playing safe with dummys :-)
-
-  return barrels::_barrel[barrelNumber];
-}
-
-extern barrels mybarrels;
-
-void test1(){
-    mybarrels.getBarrel(1).measure_ultrasonic();
-}
-
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -905,7 +586,9 @@ public:
     }
 
     uint64_t CounterGet(uint8_t sens){ return fsensor[sens].counter; }
-
+    
+    void CounterSubstract(byte sens, uint64_t value) { fsensor[sens].counter-=value;}
+    
     void CounterReset(uint_fast8_t sens){ fsensor[sens].counter=0; }
     
     uint16_t MultGet(uint8_t sens){ return fsensor[sens].conversion_multiplier; }
@@ -1034,11 +717,152 @@ uint16_t measure(uint8_t sens){
 
 
 
+struct myBR {
+    //bit field
+    //76543210
+    //0 - flush solenoid error
+    //1 - store solenoid error
+    //2 - drain solenoid error
+    //3 - Ultrasonic sensor checksum error
+    //4 - Ultrasonic sensor  timeout error
+    //5 - 
+    //6 - disabled manually
+    //7 - other error
+    uint8_t _ErrorState=0;
+    uint8_t _BarrelNumber=0;       // important for mux selection // really needed?
+    uint16_t _VolumeFreshwater=0;  // data from flow sensor
+    uint16_t _VolumeNutrients=0;   // data from flow sensor
+    uint16_t _VolumeEmpty=0;       // set once at calibration - for sonic sensors
+    uint16_t _VolumeMin=0;         // set once at calibration - for flow and sonic sensors
+    uint16_t _VolumeMax=1;         // set once at calibration - for flow and sonic sensors
+    uint8_t _SonicCoefficient=1;   // set once at calibration - cm to Liters - for sonic sensor
+    uint8_t _SonicOffset=0;        // set once at calibration - for sonic sensor
+    byte _SonicLastValue=0;
+};
 
 
+class BARRClass{
+private:
+    myBR myBarrel[8];
+
+public:
+    bool LoadSD(){ return Load("/Barrels.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
+
+    bool SaveSD(){ return Save("/Barrels.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
+
+    // error get error set
+    byte ErrorGet(byte barrel){ return myBarrel[barrel]._ErrorState; }
+    void ErrorSet(byte barrel, byte mask){ myBarrel[barrel]._ErrorState |= mask; }
+    void ErrorUnset(byte barrel, byte mask){ myBarrel[barrel]._ErrorState &= ~mask; }
+    void ErrorReset(byte barrel){ myBarrel[barrel]._ErrorState=0; }
+
+    uint16_t FreshGet(byte barrel){ return myBarrel[barrel]._VolumeFreshwater; }
+    uint16_t NutriGet(byte barrel){ return myBarrel[barrel]._VolumeNutrients; }
+
+     // add fresh flow couter to barrel, then substract it from flowsensor   
+    void FreshFlowSetTo(byte barrel){
+        uint64_t CounterNow = flow.CounterGet(0); // may be increased during calculation cause flowsensor works on interrupts
+        myBarrel[barrel]._VolumeFreshwater+=CounterNow;
+        flow.CounterSubstract(0, CounterNow); // counter 0 is freshwater
+    }
+
+    // add nutri flow couter to barrel, then substract it from flowsensor
+    void NutriFlowSetTo(byte barrel){
+        uint64_t CounterNow = flow.CounterGet(1);
+        myBarrel[barrel]._VolumeFreshwater+=CounterNow;
+        flow.CounterSubstract(1, CounterNow); // counter 1 is nutrients
+    }
+
+    // add - NutriFlowTransferTo
+
+//barrels calculations:
+//(barrelsEmptyHeight - ultrasonicValue) * barrelsCoefficent = value in liters
+//(barrelsEmptyHeight - barrelsFullHeight) / ultrasonicValue = barrels percent 
+
+//    return ( get_flow_volume() + get_sonic_volume() ) / 2; // fifty-fifty - need to change?
+
+ // 0 to 100% from flow 
+
+  // 0 to 100% from ultrasonic 
+
+ // 0 to 100% from ultrasonic and flow combined
 
 
+//  if (barrelNumber < 0 || barrelNumber >= NUM_OF_BARRELS)
+//    barrelNumber = 0; // playing safe with dummys :-)
 
+
+    uint16_t VolumeMax(byte barrel){
+        return myBarrel[barrel]._VolumeMax;
+    }
+
+    uint16_t VolumeMin(byte barrel){
+        return myBarrel[barrel]._VolumeMin;
+    }
+
+
+    // !! reimplement remeasuring 3 times and return avearge
+    // retry on checksum error - count checksum errors
+    // retry on timeout - count timeout errors
+    // if errors > 10 - set errorstate accordingly
+
+    // returns distance in mm
+    uint16_t Sonic(byte barrel){ // the hedgehog :P
+        expanders.setMUX(barrel);
+        Serial2.write(0x01); // send data so sonic will reply
+        while(!Serial2.available()){}; // wait untill data received // !! reimplement with timeout !!!
+        if (Serial2.read() == 0xFF ) { //start
+            while(Serial2.available()<3){};//wait for all data to be buffered
+            uint8_t upper_data = Serial2.read();
+            uint8_t lower_data = Serial2.read();
+            uint8_t sum = Serial2.read();
+            if (((upper_data + lower_data) & 0xff) == sum) {
+                uint16_t distance = (upper_data << 8) | (lower_data & 0xff);
+                Serial.printf("Sonic %u Distance %u mm\r\n", barrel, distance);
+                expanders.UnlockMUX(); // important!
+                return distance;
+            }
+            else {
+                Serial.println("checksum error");
+                expanders.UnlockMUX(); // important!
+                return 0;
+            }
+            
+        }
+        expanders.UnlockMUX(); // important!
+    }
+
+    // sonic measure
+    uint16_t SonicMeasure(byte barrel){
+        // sonic() - _SonicOffset = full barrel point 0
+        // volumeFull - ("point zero" * _SonicCoefficient) = current barrel volume in liters from sonic
+        return myBarrel[barrel]._VolumeMax - ((Sonic(barrel) - myBarrel[barrel]._SonicOffset) * myBarrel[barrel]._SonicCoefficient); // untill impl
+    }
+
+    // totally empty
+    bool isDry(byte barrel){
+        return SonicMeasure(barrel) <= myBarrel[barrel]._VolumeEmpty;
+    }
+
+    // reached min level
+    bool isEmpty(byte barrel){
+        return SonicMeasure(barrel) <= myBarrel[barrel]._VolumeMin;
+    }
+
+    // reached max level
+    bool isFull(byte barrel){
+        return SonicMeasure(barrel) >= myBarrel[barrel]._VolumeMax;
+    }
+
+    // concentration in persents
+    // 100 * myBarrel[8]._VolumeNutrients / myBarrel[8]._VolumeFreshwater
+
+    void Init(){ // really needed?
+        for (byte x=0;x<8;x++)
+            myBarrel[x]._BarrelNumber=x; // sets each barrel's number
+    }
+
+} barrels;
 
 
 
@@ -1252,60 +1076,6 @@ void fmsexTask(){ // Filling Mixing Storing Emptying
         // can I pause drain and continue after one fms cycle?
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Ultrasonic sensors
-// declare UART2 
-// initiate UART2 - ultrasonic sensors MUX
-void initUltrasonic(){
-    
-}
-
-//while (Serial2.available())
-
-
-// declare each barrel's ultrasonic sensor address in analog mux
-
-// loop thru all barrels using setMUX function (from expander)
-// unlock MUX
-
-
-
-
-
-
-
-
 
 
 
