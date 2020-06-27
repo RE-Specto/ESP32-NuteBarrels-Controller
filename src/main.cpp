@@ -120,12 +120,14 @@ sendSMS - rewrite String to Char Array
 #define DEBUG
 
 // Globals
+FS* disk = &SPIFFS; // default
 File file;
 WiFiUDP UDP;
 AsyncWebServer server(80);
 DNSServer dns;
 bool isTimeSync = false;
 bool isSaving = false;
+bool isSD = false;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED; // for interrupts and xTasks
 
 //function declarations:
@@ -136,12 +138,78 @@ void IRAM_ATTR FlowSensor1Interrupt();
 void IRAM_ATTR FlowSensor2Interrupt();
 
 
+/*-------- Filesystem code ----------*/
+// SD Card and SPIFFS
+void initStorage(){
+    byte retry=10; // 10 times for SD
+    while (retry) {
+        if(SD.begin()){
+            OUT_PORT.println(F("SD card OK"));
+            disk=&SD;
+            isSD=true;
+            break;
+        }
+        else{
+            OUT_PORT.println(F("Error: Failed to initialize SD card"));
+            Alarm.delay(1000);
+            retry--; // prevent dead loop 
+        }
+    }
+    retry=3; // 3 times for SPIFFS
+    while (retry) {
+        if(SPIFFS.begin()){
+            OUT_PORT.println(F("SPIFFS OK"));
+            break;
+        }
+        else{
+            OUT_PORT.println(F("Error: Failed to initialize SPIFFS"));
+            Alarm.delay(1000);
+            retry--; // prevent dead loop 
+        }
+    }
+}
 
 
 
+// loading Structs from files
+// filename, struct pointer, struct lenght "sizeof(myStruct)"
+bool Load(const char* fname, byte* stru_p, uint16_t len){
+    uint16_t count=0;
+    OUT_PORT.printf("Loading %s\t", fname);
+    file = disk->open(fname, "r"); 
+        if (!file)
+        OUT_PORT.print(F("unable to open file\r\n\r\n"));
+        else
+        for (; count<len; count++) 
+            if ( file.available())
+            *( stru_p + count ) = file.read();
+    #ifdef DEBUG
+    OUT_PORT.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count==len?"successfully":"failed", count, len, len==file.size()?"M":"Mism");
+    #else
+    OUT_PORT.println();
+    #endif
+    file.close();
+    return count == len;
+}
 
 
-
+bool Save(const char* fname, byte* stru_p, uint16_t len){
+    uint16_t count=0;
+    OUT_PORT.printf("Saving %s\t", fname);
+    file = disk->open(fname, "w"); // creates the file of not exist
+    //file.setTimeCallback(timeCallback);
+    if (!file)
+        OUT_PORT.print(F("unable to open file\r\n\r\n"));
+    else
+        count = file.write(stru_p, len);
+    #ifdef DEBUG
+    OUT_PORT.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count==len?"successfully":"failed", count, len, len==file.size()?"M":"Mism");
+    #else
+    OUT_PORT.println();
+    #endif
+    file.close();
+    return count == len;
+}
 
 
 
@@ -268,17 +336,6 @@ public:
     }
 
 } expanders; // initiated globally
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -450,73 +507,6 @@ void errorReportTask(){
 
 
 
-// SD Card and SPIFFS
-
-// initiate SD Card and SPIFFS
-// need to check if not getting out of scope
-void initStorage(){
-    while (!SD.begin()) {
-        OUT_PORT.println(F("Error: Failed to initialize SD card"));
-        Alarm.delay(1000);
-    }
-    OUT_PORT.println(F("SD card OK"));
-    if(!SPIFFS.begin(true)){
-        OUT_PORT.println(F("Warning: Failed to initialize SPIFFS"));
-        //return;
-    }
-    else {
-        OUT_PORT.println(F("SPIFFS OK"));
-    }
-}
-
-
-/*-------- Filesystem code ----------*/
-// loading Structs from files
-// filename, struct pointer, struct lenght "sizeof(myStruct)"
-bool Load(const char* fname, byte* stru_p, uint16_t len){
-    uint16_t count=0;
-    OUT_PORT.printf("Loading %s\t", fname);
-    file = SD.open(fname, "r"); 
-        if (!file)
-        OUT_PORT.print(F("unable to open file\r\n\r\n"));
-        else
-        for (; count<len; count++) 
-            if ( file.available())
-            *( stru_p + count ) = file.read();
-    #ifdef DEBUG
-    OUT_PORT.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count==len?"successfully":"failed", count, len, len==file.size()?"M":"Mism");
-    #else
-    OUT_PORT.println();
-    #endif
-    file.close();
-    return count == len;
-}
-
-bool LoadSettings(){
-    return false;   //return Load(CONFFILE, (byte*)&mySettings, sizeof(mySettings));
-}
-
-bool Save(const char* fname, byte* stru_p, uint16_t len){
-    uint16_t count=0;
-    OUT_PORT.printf("Saving %s\t", fname);
-    file = SD.open(fname, "w"); // creates the file of not exist
-    //file.setTimeCallback(timeCallback);
-    if (!file)
-        OUT_PORT.print(F("unable to open file\r\n\r\n"));
-    else
-        count = file.write(stru_p, len);
-    #ifdef DEBUG
-    OUT_PORT.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count==len?"successfully":"failed", count, len, len==file.size()?"M":"Mism");
-    #else
-    OUT_PORT.println();
-    #endif
-    file.close();
-    return count == len;
-}
-
-bool SaveSettings(){
-    return false;   //return Save(CONFFILE, (byte*)&mySettings, sizeof(mySettings));
-}
 
 
 
@@ -824,12 +814,11 @@ public:
             }
             else {
                 Serial.println("checksum error");
-                expanders.UnlockMUX(); // important!
-                return 0;
             }
             
         }
         expanders.UnlockMUX(); // important!
+        return 0;
     }
 
     // sonic measure
@@ -1128,7 +1117,7 @@ void setupServer(){
             if(!index){
                 Serial.printf("\r\nUpload Started: %s\r\n", filename.c_str());
                 // open the file on first call and store the file handle in the request object
-                request->_tempFile = SD.open("/"+filename, "w");
+                request->_tempFile = disk->open("/"+filename, "w");
             }
             if(len) {
                 Serial.printf("received chunk [from %u to %u]\r\n", index, len);
@@ -1149,7 +1138,7 @@ void setupServer(){
         Serial.print("Requested: ");
         Serial.println( request->url().c_str() );
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        File dir = SD.open("/");
+        File dir = disk->open("/");
         File file = dir.openNextFile();
         response->print("<html><body><ul>");
         while(file){
@@ -1170,7 +1159,7 @@ void setupServer(){
             if (request->hasArg("f")) {
                 const char *file = request->arg("f").c_str();
                 Serial.printf("Deleting file %s ", file);
-                SD.remove(file)?Serial.println("Successfully"):Serial.println("Failed");
+                disk->remove(file)?Serial.println("Successfully"):Serial.println("Failed");
             }
         }
         else {
@@ -1485,25 +1474,26 @@ https://techtutorialsx.com/2017/02/04/esp8266-ds3231-alarm-when-seconds-match/
 
 
 void LoadStructs(){
-    if (SD.exists("/SysState.bin"))
+    Serial.printf("Loading system from %s\r\n", isSD?"SD":"SPIFFS");
+    if (disk->exists("/SysState.bin"))
         SystemState.LoadSD();
     else
-        OUT_PORT.println("/SysState.bin not exist");
+        OUT_PORT.println("/SysState.bin\tnot exist");
         
-    if (SD.exists("/Pressure.bin"))
+    if (disk->exists("/Pressure.bin"))
         pressure.LoadSD();
     else
-        OUT_PORT.println("/Pressure.bin not exist");
+        OUT_PORT.println("/Pressure.bin\tnot exist");
 
-    if (SD.exists("/Flow.bin"))
+    if (disk->exists("/Flow.bin"))
         flow.LoadSD();
     else
-        OUT_PORT.println("/Flow.bin not exist");
+        OUT_PORT.println("/Flow.bin\tnot exist");
 
-    if (SD.exists("/Barrels.bin"))
+    if (disk->exists("/Barrels.bin"))
         barrels.LoadSD();
     else
-        OUT_PORT.println("/Barrels.bin not exist");
+        OUT_PORT.println("/Barrels.bin\tnot exist");
 }
 
 // reimplement later to save on demand only what 
