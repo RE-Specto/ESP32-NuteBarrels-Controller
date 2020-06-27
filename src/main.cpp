@@ -2,8 +2,10 @@
 bugs:
 *Guru Meditation Error: Core  1 panic'ed (LoadProhibited)
 while restoring from spiffs to sd without sd loaded
+*
 
 to implement:
+add filesystem name in /list
 ultrasonic multiple measurements + timeout
 barrels - continue
 ultrasonic - add to /manual
@@ -39,7 +41,10 @@ rtc module
 
 
 optional:
+/switchSD /switchSPI implement
+add ... on serial.available to check module awake
 sendSMS - rewrite String to Char Array
+"[E][vfs_api.cpp:22] open(): File system is not mounted" nice error reporting format 
 */
 #include <Arduino.h>
 #include <Wire.h>
@@ -146,7 +151,7 @@ void IRAM_ATTR FlowSensor2Interrupt();
 /*-------- Filesystem code ----------*/
 // SD Card and SPIFFS
 void initStorage(){
-    byte retry=10; // 10 times for SD
+    byte retry=5; // 5 times for SD
     while (retry) {
         if(SD.begin()){
             OUT_PORT.println(F("SD card OK"));
@@ -217,22 +222,30 @@ bool Save(const char* fname, byte* stru_p, uint16_t len){
 }
 
 
+// backup overwrites all files on SPIFFS
 byte Backup(){
+    Serial.println(F("Backing up all files from SD to SPIFFS"));
     File dir = SD.open("/");
     File file = dir.openNextFile();
     size_t len=0; // file chunk lenght at the buffer
     byte counter=0;
     while(file){
-        File destFile = SPIFFS.open(file.name(), FILE_WRITE);
         static uint8_t buf[512];
-        while( file.available() ){
-            len = file.read( buf, 512);
-            //stream.readBytes(buffer, length)
-            destFile.write( buf, len );
-            Serial.printf("copying %s from SD to SPIFFS %u bytes copied\r\n", destFile.name(), len);
+        if(!file.size()){ Serial.printf("skipping empty file %s\r\n", file.name()); }
+        else {
+            // was unable to detect SD disconnection - file was true, name and size returned valid, only read returned zero.
+            if(!file.read( buf, 512)) {Serial.println(F("[E][:231] SD not exist!!"));break;} // protect against endless loop on SD error
+            file.seek(0); // start from start
+            File destFile = SPIFFS.open(file.name(), FILE_WRITE);
+            while( file.available() ){
+                len = file.read( buf, 512);
+                //stream.readBytes(buffer, length)
+                destFile.write( buf, len );
+                Serial.printf("copying %s from SD to SPIFFS %u bytes copied\r\n", destFile.name(), len);
+            }
+            destFile.close();          
+            counter++;  
         }
-        destFile.close();
-        counter++;
         file.close();
         file = dir.openNextFile();
     }
@@ -241,7 +254,9 @@ byte Backup(){
     return counter;
 }
 
+// restore only files missing on SD card
 byte Restore(){
+    Serial.println(F("Restoring missing files from SPIFFS to SD"));
     File dir = SPIFFS.open("/");
     File file = dir.openNextFile();
     size_t len=0; // file chunk lenght at the buffer
@@ -252,12 +267,18 @@ byte Restore(){
             Serial.printf("file %s already exist on SD\r\n", file.name());
         else {
             File destFile = SD.open(file.name(), FILE_WRITE);
-            static uint8_t buf[512];
-            //memset(buf, 0, 512); // zerofill the buffer
-            while( file.available() ){
-                len = file.read( buf, 512);
-                destFile.write( buf, len );
-                Serial.printf("copying %s from SPIFFS to SD %u bytes copied\r\n", destFile.name(), len);
+            Serial.println(file.name());
+            if(destFile){
+                static uint8_t buf[512];
+                //memset(buf, 0, 512); // zerofill the buffer
+                while( file.available() ){
+                    len = file.read( buf, 512);
+                    destFile.write( buf, len );
+                    Serial.printf("copying %s from SPIFFS to SD %u bytes copied\r\n", destFile.name(), len);
+                }                
+            }
+            else {
+                Serial.println(F("Error writing to SD"));
             }
             destFile.close();
             counter++;
@@ -1206,7 +1227,7 @@ void setupServer(){
         response->print("<html><body><ul>");
         while(file){
             response->print("<li>");
-            response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button>", file.name());
+            response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button><span>\t</span>", file.name());
             response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes </li>", file.name(), file.name(), file.size());
             file.close();
             file = dir.openNextFile();
@@ -1214,8 +1235,11 @@ void setupServer(){
         dir.close();
         response->print("</ul><form method='POST' action='/upload' enctype='multipart/form-data'>");
         response->print("<input type='file' name='update'><input type='submit' value='Upload'></form>");
-        response->print("<button onclick=\"location=\'/backup\'\">Backup all to SPIFFS</button>");
-        response->print("<button onclick=\"location=\'/restore\'\">Restore missing to SD</button>");
+        response->print("<button onclick=\"location=\'/backup\'\">Backup all to SPIFFS</button><span> </span>");
+        response->print("<button onclick=\"location=\'/restore\'\">Restore missing to SD</button><br><br>");
+        response->print("<button onclick=\"location=location\">reload</button><span> </span>");
+        response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
+        response->print("<button onclick=\"location=\'/manual\'\">open manual control</button>");
         response->print("</body></html>");
         request->send(response);
     });
@@ -1260,18 +1284,18 @@ void setupServer(){
         response->print("<li>Relays</li>");
         for (uint8_t i=0;i<8;i++){
             response->print("<li>");
-            response->printf("<button onclick=\"location=\'/man?f=%u&o=1\'\">fill %u on</button>", i, i);
-            response->printf("<button onclick=\"location=\'/man?f=%u&o=0\'\">fill %u off</button>", i, i);
-            response->printf("<button onclick=\"location=\'/man?s=%u&o=1\'\">stor %u on</button>", i, i);
-            response->printf("<button onclick=\"location=\'/man?s=%u&o=0\'\">stor %u off</button>", i, i);
-            response->printf("<button onclick=\"location=\'/man?d=%u&o=1\'\">dran %u on</button>", i, i);
-            response->printf("<button onclick=\"location=\'/man?d=%u&o=0\'\">dran %u off</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?f=%u&o=1\'\">fill %u on</button><span> </span>", i, i);
+            response->printf("<button onclick=\"location=\'/man?f=%u&o=0\'\">fill %u off</button><span> </span>", i, i);
+            response->printf("<button onclick=\"location=\'/man?s=%u&o=1\'\">stor %u on</button><span> </span>", i, i);
+            response->printf("<button onclick=\"location=\'/man?s=%u&o=0\'\">stor %u off</button><span> </span>", i, i);
+            response->printf("<button onclick=\"location=\'/man?d=%u&o=1\'\">dran %u on</button><span> </span>", i, i);
+            response->printf("<button onclick=\"location=\'/man?d=%u&o=0\'\">dran %u off</button><span> </span>", i, i);
             response->print("</li>");
         }
         response->print("<li>RGB LED</li>");
         response->print("<li>");
         for (uint8_t i=0;i<8;i++){
-            response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button>", i, i);
+            response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button><span> </span>", i, i);
         }
         response->print("<li>Flow Sensors</li>");
         response->printf("<li>FS1: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", flow.CounterGet(0), flow.CounterGet(0)/flow.MultGet(0), flow.FlowGet(0), flow.MultGet(0));
@@ -1280,8 +1304,9 @@ void setupServer(){
         response->printf("<li>PS1: %u Psi %u multiplier %u offset</li>", pressure.measure(0), pressure.MultiplierGet(0), pressure.OffsetGet(0));
         response->printf("<li>PS2: %u Psi %u multiplier %u offset</li>", pressure.measure(1), pressure.MultiplierGet(1), pressure.OffsetGet(1));
         response->print("</ul>");
-        response->print("<button onclick=\"location=location\">reload</button>");
-        response->print("<button onclick=\"location=\'/reset\'\">reset</button>");
+        response->print("<button onclick=\"location=location\">reload</button><span> </span>");
+        response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
+        response->print("<button onclick=\"location=\'/list\'\">open list filesystem</button>");
         response->print("</body></html>");
         request->send(response);
     });
@@ -1539,6 +1564,7 @@ https://techtutorialsx.com/2017/02/04/esp8266-ds3231-alarm-when-seconds-match/
 
 
 void LoadStructs(){
+    if (isSD) Restore(); // in case something is missing in the SD
     Serial.printf("Loading system from %s\r\n", isSD?"SD":"SPIFFS");
     if (disk->exists("/SysState.bin"))
         SystemState.LoadSD();
