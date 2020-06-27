@@ -5,7 +5,6 @@ while restoring from spiffs to sd without sd loaded
 *
 
 to implement:
-add filesystem name in /list
 ultrasonic multiple measurements + timeout
 barrels - continue
 ultrasonic - add to /manual
@@ -29,7 +28,9 @@ start/stop interrupts
     // can set the bool to !bool to check if pressed twice - for reset and other system tasks
 rgb led status (read from system status via error-reporting task?)
 work on system hardware 
-sendSMS should return actual error names
+sendSMS should return actual error names - dictionary from file?
+reimplement sendSMS as a buffer, actual send when isSmsToSend true and mux not busy
+send sms on SD card error!
 
 add to schematic:
 sim800 4v 2a power line
@@ -41,7 +42,7 @@ rtc module
 
 
 optional:
-/switchSD /switchSPI implement
+switchFS add fs check, try to restart filesystem on failure
 add ... on serial.available to check module awake
 sendSMS - rewrite String to Char Array
 "[E][vfs_api.cpp:22] open(): File system is not mounted" nice error reporting format 
@@ -265,6 +266,8 @@ byte Restore(){
         //file.name() file.size());
         if(SD.exists(file.name()))
             Serial.printf("file %s already exist on SD\r\n", file.name());
+        else if (!file.size())
+            Serial.printf("skipping empty file %s\r\n", file.name());
         else {
             File destFile = SD.open(file.name(), FILE_WRITE);
             Serial.println(file.name());
@@ -281,7 +284,10 @@ byte Restore(){
                 Serial.println(F("Error writing to SD"));
             }
             destFile.close();
-            counter++;
+            if (file.size() != destFile.size())
+                Serial.printf("[E] file %s size mismatch!\r\n", file.name());
+            else
+                counter++;
         }
         file.close();
         file = dir.openNextFile();
@@ -1239,9 +1245,31 @@ void setupServer(){
         response->print("<button onclick=\"location=\'/restore\'\">Restore missing to SD</button><br><br>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
-        response->print("<button onclick=\"location=\'/manual\'\">open manual control</button>");
+        response->print("<button onclick=\"location=\'/manual\'\">open manual control</button><br><br>");
+        if(isSD) {
+            response->print("<div>filesystem is: SD Card</div>");
+            response->print("<button onclick=\"location=\'/switchFS\'\">Switch to SPIFFS</button><br><br>");
+        }
+        else {
+            response->print("<div>filesystem is: SPIFFS</div>");           
+            response->print("<button onclick=\"location=\'/switchFS\'\">Switch to SD Card</button><br><br>");
+        }
         response->print("</body></html>");
         request->send(response);
+    });
+
+    server.on("/switchFS", HTTP_GET, [](AsyncWebServerRequest *request){
+        if (isSD){
+            Serial.println(F("switching to SPIFFS"));
+            disk=&SPIFFS;
+            isSD=false;
+        }
+        else { // IMPORTANT !! add check for filesystem availability
+            Serial.println(F("switching to SD Card"));
+            disk=&SD;
+            isSD=true;
+        }
+        request->redirect("/list");
     });
 
     server.on("/del", HTTP_GET, [](AsyncWebServerRequest *request){
