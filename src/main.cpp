@@ -1,5 +1,10 @@
 /*
+bugs:
+*Guru Meditation Error: Core  1 panic'ed (LoadProhibited)
+while restoring from spiffs to sd without sd loaded
+
 to implement:
+ultrasonic multiple measurements + timeout
 barrels - continue
 ultrasonic - add to /manual
 make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure - task loop inside other cpu core?
@@ -210,6 +215,64 @@ bool Save(const char* fname, byte* stru_p, uint16_t len){
     file.close();
     return count == len;
 }
+
+
+byte Backup(){
+    File dir = SD.open("/");
+    File file = dir.openNextFile();
+    size_t len=0; // file chunk lenght at the buffer
+    byte counter=0;
+    while(file){
+        File destFile = SPIFFS.open(file.name(), FILE_WRITE);
+        static uint8_t buf[512];
+        while( file.available() ){
+            len = file.read( buf, 512);
+            //stream.readBytes(buffer, length)
+            destFile.write( buf, len );
+            Serial.printf("copying %s from SD to SPIFFS %u bytes copied\r\n", destFile.name(), len);
+        }
+        destFile.close();
+        counter++;
+        file.close();
+        file = dir.openNextFile();
+    }
+    dir.close();
+    Serial.printf("Backup finished. %u files copied\r\n", counter);
+    return counter;
+}
+
+byte Restore(){
+    File dir = SPIFFS.open("/");
+    File file = dir.openNextFile();
+    size_t len=0; // file chunk lenght at the buffer
+    byte counter=0;
+    while(file){
+        //file.name() file.size());
+        if(SD.exists(file.name()))
+            Serial.printf("file %s already exist on SD\r\n", file.name());
+        else {
+            File destFile = SD.open(file.name(), FILE_WRITE);
+            static uint8_t buf[512];
+            //memset(buf, 0, 512); // zerofill the buffer
+            while( file.available() ){
+                len = file.read( buf, 512);
+                destFile.write( buf, len );
+                Serial.printf("copying %s from SPIFFS to SD %u bytes copied\r\n", destFile.name(), len);
+            }
+            destFile.close();
+            counter++;
+        }
+        file.close();
+        file = dir.openNextFile();
+    }
+    dir.close();
+    Serial.printf("Restore finished. %u files copied\r\n", counter);
+    return counter;
+}
+/*-------- Filesystem END ----------*/
+
+
+
 
 
 
@@ -1145,10 +1208,15 @@ void setupServer(){
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button>", file.name());
             response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes </li>", file.name(), file.name(), file.size());
+            file.close();
             file = dir.openNextFile();
         }
+        dir.close();
         response->print("</ul><form method='POST' action='/upload' enctype='multipart/form-data'>");
-        response->print("<input type='file' name='update'><input type='submit' value='Upload'></form></body></html>");
+        response->print("<input type='file' name='update'><input type='submit' value='Upload'></form>");
+        response->print("<button onclick=\"location=\'/backup\'\">Backup all to SPIFFS</button>");
+        response->print("<button onclick=\"location=\'/restore\'\">Restore missing to SD</button>");
+        response->print("</body></html>");
         request->send(response);
     });
 
@@ -1175,7 +1243,7 @@ void setupServer(){
             if (request->hasArg("f")) {
                 const char *file = request->arg("f").c_str();
                 Serial.printf("Downloading file %s \r\n", file);
-                request->send(SD, file, "text/plain");
+                request->send(*disk, file, "text/plain");
             }
         }
         else {
@@ -1257,6 +1325,22 @@ void setupServer(){
     server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request){
         request->redirect("/manual");
         ESP.restart();
+    });
+
+
+    server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request){
+        char buf [4];
+        sprintf (buf, "%03u", Backup());
+        //request->send(200, "text/html", buf);
+        request->redirect("/list");
+    });
+
+
+    server.on("/restore", HTTP_GET, [](AsyncWebServerRequest *request){
+        char buf [4];
+        sprintf (buf, "%03u", Restore());
+        //request->send(200, "text/html", buf);
+        request->redirect("/list");
     });
 
 
@@ -1450,25 +1534,6 @@ https://techtutorialsx.com/2017/02/04/esp8266-ds3231-alarm-when-seconds-match/
 
 
 */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
