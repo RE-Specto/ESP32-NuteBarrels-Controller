@@ -1,14 +1,19 @@
 /*
 bugs:
-*Guru Meditation Error: Core  1 panic'ed (LoadProhibited)
-while restoring from spiffs to sd without sd loaded
-*
+
 
 to implement:
-ultrasonic multiple measurements + timeout
 barrels - continue
 ultrasonic - add to /manual
-make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure - task loop inside other cpu core?
+    show last measurements
+    buttons to measure 0-5
+make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure
+    task loop inside other cpu core?
+    ps2 only when pump working?
+    ps1 only once before sol open + once if no flow + once at system start?
+measure all sensors on system start?
+reset all sensor values on system start? flow only? or remeber who to assing to and assign on start?
+    is it important at all? how much water can flow between assignments?
 apply test code to check every part of the system:
     ultrasonic data - after barrels done - at manual page
     start-stop via serial.print
@@ -28,9 +33,16 @@ start/stop interrupts
     // can set the bool to !bool to check if pressed twice - for reset and other system tasks
 rgb led status (read from system status via error-reporting task?)
 work on system hardware 
-sendSMS should return actual error names - dictionary from file?
+sendSMS should return actual error names - dictionary! from file - comma separated
+    https://forum.arduino.cc/index.php?topic=451141.0
+    sendSMS receive 2 parameters: error_number and item_number - error from dict - item show as is
+    error: overpressure sensor:1
+    warning: barrel disabled:4
 reimplement sendSMS as a buffer, actual send when isSmsToSend true and mux not busy
 send sms on SD card error!
+calculate transferred concentration!
+WebUI from "1-pump idea test (1).png" file with overlays and jQuery
+    https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 
 add to schematic:
 sim800 4v 2a power line
@@ -42,6 +54,7 @@ rtc module
 
 
 optional:
+mDNS add port80
 switchFS add fs check, try to restart filesystem on failure
 add ... on serial.available to check module awake
 sendSMS - rewrite String to Char Array
@@ -100,6 +113,15 @@ sendSMS - rewrite String to Char Array
 #define LED_MAGENTA 0X05 //101
 #define LED_CYAN    0X06 //110
 #define LED_WHITE   0X07 //111
+
+#define BARREL_FLUSH_ERR        0X01
+#define BARREL_STORE_ERR        0X02
+#define BARREL_DRAIN_ERR        0X04
+#define BARREL_SONIC_CHECKSUM   0X08
+#define BARREL_SONIC_TIMEOUT    0X10
+#define BARREL_SONIC_TOOCLOSE   0X20
+#define BARREL_DISABLED         0X40
+#define BARREL_OTHER            0X80
 
 #define MUX_UNLOCKED 255 //valid shannels are 0-15
 
@@ -800,24 +822,24 @@ uint16_t measure(uint8_t sens){
 struct myBR {
     //bit field
     //76543210
-    //0 - flush solenoid error
-    //1 - store solenoid error
-    //2 - drain solenoid error
-    //3 - Ultrasonic sensor checksum error
-    //4 - Ultrasonic sensor  timeout error
-    //5 - 
-    //6 - disabled manually
-    //7 - other error
-    uint8_t _ErrorState=0;
-    uint8_t _BarrelNumber=0;       // important for mux selection // really needed?
-    uint16_t _VolumeFreshwater=0;  // data from flow sensor
-    uint16_t _VolumeNutrients=0;   // data from flow sensor
-    uint16_t _VolumeEmpty=0;       // set once at calibration - for sonic sensors
-    uint16_t _VolumeMin=0;         // set once at calibration - for flow and sonic sensors
-    uint16_t _VolumeMax=1;         // set once at calibration - for flow and sonic sensors
-    uint8_t _SonicCoefficient=1;   // set once at calibration - cm to Liters - for sonic sensor
-    uint8_t _SonicOffset=0;        // set once at calibration - for sonic sensor
-    byte _SonicLastValue=0;
+    //0 0x1  - flush solenoid error
+    //1 0x2  - store solenoid error
+    //2 0x4  - drain solenoid error
+    //3 0x8  - Ultrasonic sensor checksum error
+    //4 0x10 - Ultrasonic sensor  timeout error
+    //5 0x20 - 
+    //6 0x40 - disabled manually
+    //7 0x80 - other error
+    byte _ErrorState=0;
+    byte _BarrelNumber=0;        // important for mux selection // really needed?
+    uint16_t _VolumeFreshwater=0;   // data from flow sensor
+    uint16_t _VolumeNutrients=0;    // data from flow sensor
+    uint16_t _VolumeEmpty=0;        // set once at calibration - for sonic sensors
+    uint16_t _VolumeMin=0;          // set once at calibration - for flow and sonic sensors
+    uint16_t _VolumeMax=1;          // set once at calibration - for flow and sonic sensors
+    uint16_t _SonicCoefficient=1;   // set once at calibration - mm to Liters - for sonic sensor
+    uint16_t _SonicOffset=0;        // set once at calibration - mm to barrel's full point
+    uint16_t _SonicLastValue=0;     // updated on every sonic measurement
 };
 
 
@@ -832,7 +854,7 @@ public:
 
     // error get error set
     byte ErrorGet(byte barrel){ return myBarrel[barrel]._ErrorState; }
-    void ErrorSet(byte barrel, byte mask){ myBarrel[barrel]._ErrorState |= mask; }
+    void ErrorSet(byte barrel, byte mask){ myBarrel[barrel]._ErrorState |= mask; Serial.printf("[E] Barr%u:e%u\r\n",barrel,mask); }
     void ErrorUnset(byte barrel, byte mask){ myBarrel[barrel]._ErrorState &= ~mask; }
     void ErrorReset(byte barrel){ myBarrel[barrel]._ErrorState=0; }
 
@@ -888,36 +910,121 @@ public:
 
     // returns distance in mm
     uint16_t Sonic(byte barrel){ // the hedgehog :P
+        // reimplement dynamic values in next version
+        uint16_t notTimeout=2000; // wait "notTimeout" ms total time for sonic data
+        byte retry=5; // try "retry" times on no data or checksum error
+        byte measure=10; // collect "measure" successful measurements to calculate total
+        uint32_t distanceAvearge=0; // avearge of x measurements
         expanders.setMUX(barrel);
-        Serial2.write(0x01); // send data so sonic will reply
-        while(!Serial2.available()){}; // wait untill data received // !! reimplement with timeout !!!
-        if (Serial2.read() == 0xFF ) { //start
-            while(Serial2.available()<3){};//wait for all data to be buffered
-            uint8_t upper_data = Serial2.read();
-            uint8_t lower_data = Serial2.read();
-            uint8_t sum = Serial2.read();
-            if (((upper_data + lower_data) & 0xff) == sum) {
-                uint16_t distance = (upper_data << 8) | (lower_data & 0xff);
-                Serial.printf("Sonic %u Distance %u mm\r\n", barrel, distance);
-                expanders.UnlockMUX(); // important!
-                return distance;
+        delay(1);
+        for (byte x=0;x<measure && retry && notTimeout;) {
+            Serial2.write(0xFF); // send data so sonic will reply
+            while (!Serial2.available() && notTimeout) { delay(1); notTimeout--; }; // wait untill data received
+            while (Serial2.read() != 0xFF && notTimeout) { delay(1); notTimeout--; }; // discard data untill valid
+            if (notTimeout) { //start
+                while (Serial2.available()<3  && notTimeout) { delay(1); notTimeout--; }; // wait for all data to be buffered
+                if (!notTimeout) {
+                    measure = x+1; // number of measurements so far
+                    break;
+                }
+                uint8_t upper_data = Serial2.read();
+                uint8_t lower_data = Serial2.read();
+                uint8_t sum = Serial2.read();
+                Serial.printf("up %u low %u sum %u\r\n",upper_data,lower_data,sum);
+                if (((upper_data + lower_data) & 0xFF) == sum) {
+                    uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
+                    Serial.printf("Sonic %u Distance %u mm x:%u tout:%u retry:%u\r\n", barrel, distance, x,notTimeout,retry);
+                    if (distance) {
+                        distanceAvearge+=distance;
+                        x++; // success - decrement loop counter                        
+                    }
+                    else {
+                        retry--;
+                    }
+                }
+                else {
+                    Serial.println("checksum error");
+                    retry--;
+                }
             }
             else {
-                Serial.println("checksum error");
-            }
-            
-        }
+                measure = x+1; // number of measurements so far
+                break;
+            }; // timeout            
+        } // for loop end here
         expanders.UnlockMUX(); // important!
-        return 0;
+        distanceAvearge/=measure; // total divided by number of measurements taken
+        myBarrel[barrel]._SonicLastValue = distanceAvearge;
+        Serial.printf("sonic %u finished\r\ntook %u measurements, value:%u timeout:%u, retry left:%u\r\n", 
+            barrel, 
+            measure, 
+            distanceAvearge, 
+            notTimeout, 
+            retry
+        );
+        if (!notTimeout) ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
+        if (!retry) ErrorSet(barrel, BARREL_SONIC_CHECKSUM);
+        if (distanceAvearge==10555) ErrorSet(barrel, BARREL_SONIC_TOOCLOSE);
+        return distanceAvearge;
     }
+
+    uint16_t SonicTest(byte barrel){ // the hedgehog :P
+        uint16_t notTimeout=2000; // wait "notTimeout" ms total time for sonic data
+        unsigned long time=millis();
+        expanders.setMUX(barrel);
+        Alarm.delay(1);
+        while ( Serial2.available() ) { Serial.println(Serial2.read()); }; // discard old data
+        //Alarm.delay(100);
+        Serial2.write(0xFF); // send data so sonic will reply
+//        Serial2.write(0xFF); // send data so sonic will reply
+//        Serial2.write(0xFF); // send data so sonic will reply
+        while (Serial2.available()<3 && notTimeout) { Alarm.delay(1); notTimeout--; }; // wait untill data received
+        Serial.println("debug sonic:");
+        while(Serial2.available() && notTimeout){
+            //Serial2.write(0xFF);
+            Serial.print(Serial2.read());
+            Serial.print("  ");
+            //Alarm.delay(1);
+            Serial.print(Serial2.read());
+            Serial.print("  ");
+            //Alarm.delay(1);
+            Serial.print(Serial2.read());
+            Serial.print("  ");
+            //Alarm.delay(1);
+            Serial.print(Serial2.read());
+            Serial.print("  ");
+            Serial.println();
+            notTimeout--;
+        }
+        Serial.print("milis: ");
+        Serial.println(millis()-time);
+        Serial.print("timeout: ");
+        Serial.println(notTimeout);
+        
+        expanders.UnlockMUX(); // important!
+        return 1;
+    }
+
+    uint16_t SonicLastMM(byte barrel){ return myBarrel[barrel]._SonicLastValue; }
+    uint16_t SonicOffsetGet(byte barrel){ return myBarrel[barrel]._SonicOffset; }
+    uint16_t SonicCoefficientGet(byte barrel){ return myBarrel[barrel]._SonicCoefficient; }
+    void SonicOffsetSet(byte barrel, uint16_t offs){  myBarrel[barrel]._SonicOffset = offs; }
+    void SonicCoefficientSet(byte barrel, uint16_t coef){  myBarrel[barrel]._SonicCoefficient = coef; }
 
     // sonic measure
     uint16_t SonicMeasure(byte barrel){
         // sonic() - _SonicOffset = full barrel point 0
         // volumeFull - ("point zero" * _SonicCoefficient) = current barrel volume in liters from sonic
-        return myBarrel[barrel]._VolumeMax - ((Sonic(barrel) - myBarrel[barrel]._SonicOffset) * myBarrel[barrel]._SonicCoefficient); // untill impl
+        myBR *b = &myBarrel[barrel];
+        return b->_VolumeMax - ((Sonic(barrel) - b->_SonicOffset) * b->_SonicCoefficient);
     }
 
+    uint16_t SonicLastLiters(byte barrel){
+        // sonic() - _SonicOffset = full barrel point 0
+        // volumeFull - ("point zero" * _SonicCoefficient) = current barrel volume in liters from sonic
+        return myBarrel[barrel]._VolumeMax - ((myBarrel[barrel]._SonicLastValue - myBarrel[barrel]._SonicOffset) * myBarrel[barrel]._SonicCoefficient);
+    }
+    
     // totally empty
     bool isDry(byte barrel){
         return SonicMeasure(barrel) <= myBarrel[barrel]._VolumeEmpty;
@@ -1303,6 +1410,10 @@ void setupServer(){
         }
     });
 
+    server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(404);
+        //request->send(*disk, "/favicon.png", "image/png");
+    });
 
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request){
         Serial.print("Requested: ");
@@ -1326,11 +1437,25 @@ void setupServer(){
             response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button><span> </span>", i, i);
         }
         response->print("<li>Flow Sensors</li>");
-        response->printf("<li>FS1: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", flow.CounterGet(0), flow.CounterGet(0)/flow.MultGet(0), flow.FlowGet(0), flow.MultGet(0));
-        response->printf("<li>FS2: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", flow.CounterGet(1), flow.CounterGet(1)/flow.MultGet(1), flow.FlowGet(1), flow.MultGet(1));
+        response->printf("<li>FS1: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", 
+            flow.CounterGet(0), 
+            flow.CounterGet(0)/flow.MultGet(0), 
+            flow.FlowGet(0), 
+            flow.MultGet(0));
+        response->printf("<li>FS2: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", 
+            flow.CounterGet(1), 
+            flow.CounterGet(1)/flow.MultGet(1), 
+            flow.FlowGet(1), 
+            flow.MultGet(1));
         response->print("<li>Pressure Sensors</li>");
-        response->printf("<li>PS1: %u Psi %u multiplier %u offset</li>", pressure.measure(0), pressure.MultiplierGet(0), pressure.OffsetGet(0));
-        response->printf("<li>PS2: %u Psi %u multiplier %u offset</li>", pressure.measure(1), pressure.MultiplierGet(1), pressure.OffsetGet(1));
+        response->printf("<li>PS1: %u Psi %u multiplier %u offset</li>", 
+            pressure.measure(0), 
+            pressure.MultiplierGet(0), 
+            pressure.OffsetGet(0));
+        response->printf("<li>PS2: %u Psi %u multiplier %u offset</li>", 
+            pressure.measure(1), 
+            pressure.MultiplierGet(1), 
+            pressure.OffsetGet(1));
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
@@ -1376,24 +1501,48 @@ void setupServer(){
     });
 
     server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
         request->redirect("/manual");
         ESP.restart();
     });
 
 
     server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request){
-        char buf [4];
-        sprintf (buf, "%03u", Backup());
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
+        //char buf [4];
+        //sprintf (buf, "%03u", Backup());
         //request->send(200, "text/html", buf);
+        Backup();
         request->redirect("/list");
     });
 
 
     server.on("/restore", HTTP_GET, [](AsyncWebServerRequest *request){
-        char buf [4];
-        sprintf (buf, "%03u", Restore());
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
+        //char buf [4];
+        //sprintf (buf, "%03u", Restore());
         //request->send(200, "text/html", buf);
+        Restore();
         request->redirect("/list");
+    });
+
+
+    server.on("/sonic", HTTP_GET, [](AsyncWebServerRequest *request){
+        Serial.print("Requested: ");
+        Serial.println( request->url().c_str() );
+        if (request->args() > 0 ) { // Arguments were received
+            if (request->hasArg("n")) {
+                char buf [6];
+                sprintf (buf, "%05u", barrels.Sonic(request->arg("n").toInt()));
+                request->send(200, "text/html", buf);
+            }
+        }
+        else {
+            request->send(200, "text/plain", "n parameter missing");
+        }
     });
 
 
