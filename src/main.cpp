@@ -3,65 +3,87 @@ bugs:
 
 
 to implement:
-change sonic 10555  to retry--
-    BARREL_SONIC_OUTOFRANGE only if all 10555
-handle reset in the middle of flow sensor transfer
-chek if all sonic functions now count from "zero"="empty barrel"
+
 barrels - continue
-    // calc new concentration:
+    // calc new concentration: 
     // only when all solenoids closed!! wait untill no flow!
     // then sol + pump + flow calc need to run on separate thread of barrels!!
-separate calibration values and settings from dynamicly changing values? to save SD writes?
-make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure
-    task loop inside other cpu core?
+    calculate transferred concentration!
+
+make pressure sensor check constantly so i can turn off the pump on overpressure
+    task loop inside other cpu core? or inside filling loop itself?
     ps2 only when pump working?
     ps1 only once before sol open + once if no flow + once at system start?
-measure all sensors on system start?
+
 reset all sensor values on system start? flow only? or remeber who to assing to and assign on start?
     is it important at all? how much water can flow between assignments?
-apply test code to check every part of the system:
-    ultrasonic data - after barrels done - at manual page
-    start-stop via serial.print
-    ntp sync
-reimplement global save function:
-    wait STOPPED_STATE, wait untill flow stopped, save 
-pressure sensors - "stop pump on overpressure" Task
+
 deprecate RTC? replace with ntp + timeAlarms?
 add everything to setup 
-fmsex tasks implement
+fmsex tasks implement:
+    fill
+        water line no pressure? stop, set error, recheck in loop - if ok - clear error
+        fill untill target reached
 start/stop interrupts
-    start sets canMix global boolean
+    start sets canMix global boolean? 
+    if stopped also pressed - do something else
+    if status = stopped: clear stopped. else if no status: set mixing. else do start-button extra action
         task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
-    stop sets shouldStop global boolean
+    stop sets shouldStop global boolean?
+    if start also pressed - do something else
+    if status not stopped - set stopped + save. else save + extra stopped action
         task or loop reads the bool - changes RGB immediately, triggers stop and save
     on stop:     pressure.SaveSD(); flow.SaveSD();
     // can set the bool to !bool to check if pressed twice - for reset and other system tasks
-rgb led status (read from system status via error-reporting task?)
-work on system hardware 
-sendSMS should return actual error names - dictionary! from file - comma separated
-    https://forum.arduino.cc/index.php?topic=451141.0
-    sendSMS receive 2 parameters: error_number and item_number - error from dict - item show as is
-    error: overpressure sensor:1
-    warning: barrel disabled:4
-reimplement sendSMS as a buffer, actual send when isSmsToSend true and mux not busy
+
+work on system hardware - implement all changes to schematic!!
+
 send sms on SD card error!
-calculate transferred concentration!
+
 check all uint values never go below zero!!
+    expected in sensor measurements
+    anywhere else?
+
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
+count total barrels nutrient volume - excluding mixer barrel, and barrels in error state
+telnet server to send serial.prints + telnet client inside webui?
+
+implement mux lock timeout.
+
+check what modem returns if error - if valid check - implement SMS error
+
+measure all sonic on system start so sonic have all values ready?
+
+change sonic 10555  to retry--
+    BARREL_SONIC_OUTOFRANGE only if all 10555
+
+handle reset in the middle of flow sensor transfer
+    calculate by last values?
+
+deprecate error reporting task and sendsms dictionary?
 
 add to schematic:
 rtc module
 12v to 5v to 3.3v power line
+12v to 5v change to switching regulator? move power supply out of the main board?
 12v line add polyfuze
 optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
 optional:
+barrel busy flag?
+add option to continue on pressure sensor1 error if flow1 ok
+continue on ps2 error if flow2 is in range: 0 < flow2 < "flow2 with no load"
+continue on flow error if sonic is rising
+continue on sonic error if flow counted barrel volume is ok
+continue to next barrel if barrel solenoids error
+only unrecoverable errors: pump, main barrel solenoids
+add start-stop from webUI
+
 server.on("/mdns" check mdns broadcast
 switchFS add fs check, try to restart filesystem on failure
 add ... on serial.available to check module awake
-sendSMS - rewrite String to Char Array
 "[E][vfs_api.cpp:22] open(): File system is not mounted" nice error reporting format 
 */
 #include <Arduino.h>
@@ -167,6 +189,7 @@ bool isTimeSync = false;
 bool isSaving = false;
 bool isSD = false;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED; // for interrupts and xTasks
+char smsMessage[64]; // filled by MessageFromDict from dictionary
 
 //function declarations:
 bool Load(const char* fname, byte* stru_p, uint16_t len);
@@ -463,21 +486,64 @@ public:
 
 
 
-
-
-
-// set MUX to SIM_MUX_ADDRESS
-// send sms with error code description
-void SendSMS(String message){
+void SendSMS(const char* message, byte item=0xFF){
     OUT_PORT.print("-sendsms: ");
     OUT_PORT.println(message);
     expanders.setMUX(7); // modem is at port 7
     Alarm.delay(10); // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
     Serial2.print( message ); //text content
+    if (item!=0xFF)
+        Serial2.print( item ); 
     Serial2.write(26); // send ctrl+z end of message
     //Serial2.print((char)26); // if the above won't work - thy this one instead
     expanders.UnlockMUX();
+}
+
+// !!! deprecate dict message below???
+
+//https://forum.arduino.cc/index.php?topic=451141.0
+// search file dictX, skip error_number commas, set value untill next comma to smsMessage[]
+// seaprate dictionary for each caller_function
+void MessageFromDict(byte caller_function, byte error_number){
+    // dictionary files:
+    // system
+    // barrels
+    // fmsd tasks
+    // time?
+    // filesystem?
+
+    char filename[8];
+    sprintf (filename, "dict%u", caller_function);
+    // smsMessage[64] to fill.
+}
+
+void SendSMS(byte caller_function, byte error_number, byte item_number=0xFF){
+    Serial.printf("[SendSMS] [caller_function:%u] [error_number:%u] [item_number:%u]\r\n", 
+        caller_function, error_number, item_number);
+    char buff[96]; // 64 message + else
+    // use dictionary from file - comma separated
+    MessageFromDict(caller_function, error_number);
+    if (item_number==0xFF) {
+        Serial.println(smsMessage);
+        SendSMS(smsMessage);
+    }
+    else {
+        sprintf (buff, "%s: %u", smsMessage, item_number);
+        Serial.println(buff);
+        SendSMS(buff);
+    }
+    //error from dict - item show as is - default item 255 - if default item - no item.
+    //[system] [error: overpressure sensor:] [1]
+    //[barrels] [warning: barrel disabled:] [4]
+}
+
+// set MUX to SIM_MUX_ADDRESS
+// send sms with error code description
+void SendSMS(String message){
+    OUT_PORT.print("-sendsms: ");
+    OUT_PORT.println(message);
+    SendSMS(message.c_str());
 }
 // module needs 3.4V to 4.4V (Ideal 4.1V) @ 2amp
 
@@ -518,7 +584,7 @@ struct myST {
     //000CBA987654321
     //0-0-no errors
     //1-1-water line no pressure
-    //2-2-
+    //2-2-pump error
     //3-4-
     //4-8-
     //5-16-
@@ -579,10 +645,8 @@ public:
 
 } SystemState;
 
-String system_error(uint16_t error){
-    return "system error " + String(error);     // need to reimplement to send error description instead of error number
-}
-
+// deprecate?? send sms on demand in each function?
+//what if need to send sms in middle of mux lock? sonic measurement?
 // Task 0 - Error reporting task
 void errorReportTask(){
     // while there is no new errors
@@ -596,7 +660,7 @@ void errorReportTask(){
     while(newerrors){ // loops untill error is empty
         if(newerrors & counter){ // try each error state bit one by one
             Serial.printf("system error %u", counter);
-            //SendSMS( system_error(counter) );
+            //SendSMS( SYSTEM_ERROR, counter );
             newerrors-=counter; // substract what already reported
             counter *=2; // next bit
         }
@@ -808,8 +872,6 @@ int16_t measure(uint8_t sens){
     // https://forum.arduino.cc/index.php?topic=571166.0
     // convert analog value to psi
     Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
-    Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
-    Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
     uint16_t pressure = (analogRead(p->_sensorPin) * 10 / p->_divider + p->_offset); //test - needs to be replaced with acrual formula
     if (pressure < p->_min_pressure) {
         // set underpressure error
@@ -1011,11 +1073,6 @@ public:
     }
 
 
-    // !! reimplement remeasuring 3 times and return avearge
-    // retry on checksum error - count checksum errors
-    // retry on timeout - count timeout errors
-    // if errors > 10 - set errorstate accordingly
-
     // returns distance in mm
     uint16_t SonicMeasure(byte barrel, byte measure = 10, uint16_t notTimeout = 1000, byte retry = 5){ // the hedgehog :P
         myBR *b = &myBarrel[barrel];
@@ -1110,7 +1167,7 @@ public:
             5-retry
         );
         return distanceAvearge;
-    }
+    } // end SonicMeasure
 
     uint16_t SonicLastMM(byte barrel){ return myBarrel[barrel]._SonicLastValue; }
     int16_t SonicLastMMfromEmpty(byte barrel){ return myBarrel[barrel]._SonicOffset - myBarrel[barrel]._SonicLastValue; }
@@ -1143,7 +1200,7 @@ public:
     // totally empty
     bool isDry(byte barrel){
         SonicMeasure(barrel);
-        return SonicCalcLiters(barrel) < 2; // 1 spare as a safeguard
+        return SonicCalcLiters(barrel) < 2; // +1 spare as a safeguard
     }
     // may I just return SonicCalcLiters(barrel)? is myBarrel[barrel]._VolumeEmpty allways 0? redundant? 
     // is it the right way to measure sonic? maybe zero point shoud be empty barrel? line 1036..
@@ -1413,6 +1470,8 @@ void setupServer(){
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
         Serial.print("Requested: ");
         Serial.println( request->url().c_str() );
+        request->redirect("/manual"); //untill implemented
+        /*
         if(!SD.exists("/index.html")){
             SD.end();
             Serial.println("trying to restart SD");
@@ -1422,6 +1481,7 @@ void setupServer(){
             }
             }
         request->send(SD, "/index2.html", String(), false);
+        */
     });
 
     server.on("/upload", HTTP_POST, [](AsyncWebServerRequest *request) {
@@ -1899,11 +1959,17 @@ void LoadStructs(){
 
 // reimplement later to save on demand only what 
 // this one will be used on system stop? save all...?
+// should run on a separate thread? or ommit the waits for no flow?
+// can also stop all relays (if not already stopped?) expanders.Protect
+    //and undo protect when finished.
 void SaveStructs(){
+    Serial.println(F("[save] all trigerred"));
     if (!isSaving){ // prevent concurrent saving
     isSaving = true;
+    Serial.println(F("waiting for no flow.."));
     while(flow.FlowGet(0)); // wait untill no flow
     while(flow.FlowGet(1));
+    Serial.println(F("no flow ok - saving..."));
     SystemState.SaveSD();
     
     // reimplement to save ondemand?
@@ -1911,6 +1977,7 @@ void SaveStructs(){
     pressure.SaveSD();
     flow.SaveSD();
     isSaving = false;
+    Serial.println(F("all save finished."));
     }
 }
 
