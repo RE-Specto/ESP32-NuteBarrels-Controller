@@ -51,11 +51,9 @@ WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 
 add to schematic:
-rj45 colors to pin numbers
-LED, start/stop pin numbers rj45 socket
 rtc module
 12v to 5v to 3.3v power line
-!! mains power detection !! to stop system on no-power GPIO39?
+12v line add polyfuze
 optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
@@ -769,8 +767,8 @@ void IRAM_ATTR FlowSensor2Interrupt() {
 
 struct myPS {
     uint8_t _sensorPin = 255; // defaults
-    uint8_t _multiplier = 1;
-    uint8_t _offset = 0;
+    uint8_t _divider = 36;
+    int16_t  _offset = -145;
     uint8_t _max_pressure = 255;
     uint8_t _min_pressure = 0;
     uint16_t _TooLowErr = 0;
@@ -791,10 +789,10 @@ public:
         pinMode(sensorPin,INPUT); // initialize analog pin for the sensor
     }
 
-    uint8_t MultiplierGet(uint8_t num) { return psensor[num]._multiplier; }
-    void MultiplierSet(uint8_t num, uint8_t mult){ psensor[num]._multiplier = mult; }
-    uint8_t OffsetGet(uint8_t num) { return psensor[num]._offset; }
-    void OffsetSet(uint8_t num, uint8_t offs){ psensor[num]._offset = offs; }
+    uint8_t DividerGet(uint8_t num) { return psensor[num]._divider; }
+    void DividerSet(uint8_t num, uint8_t div){ psensor[num]._divider = div; }
+    int16_t OffsetGet(uint8_t num) { return psensor[num]._offset; }
+    void OffsetSet(uint8_t num, int16_t offs){ psensor[num]._offset = offs; }
     uint8_t MaxGet(uint8_t num) { return psensor[num]._max_pressure; }
     void MaxSet(uint8_t num, uint8_t max){ psensor[num]._max_pressure = max; }
     uint8_t MinGet(uint8_t num) { return psensor[num]._min_pressure; }
@@ -805,16 +803,21 @@ public:
     bool SaveSD(){ return Save("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
 
     // read sensor - convert analog value to psi
-uint16_t measure(uint8_t sens){
+int16_t measure(uint8_t sens){
+    myPS* p=&psensor[sens];
+    // https://forum.arduino.cc/index.php?topic=571166.0
     // convert analog value to psi
-    uint16_t pressure = (analogRead(psensor[sens]._sensorPin) * psensor[sens]._multiplier - psensor[sens]._offset) /1000; //test - needs to be replaced with acrual formula
-    if (pressure < psensor[sens]._min_pressure) {
+    Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
+    Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
+    Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
+    uint16_t pressure = (analogRead(p->_sensorPin) * 10 / p->_divider + p->_offset); //test - needs to be replaced with acrual formula
+    if (pressure < p->_min_pressure) {
         // set underpressure error
-        SystemState.error_set(psensor[sens]._TooLowErr);
+        SystemState.error_set(p->_TooLowErr);
     }
-    if (pressure > psensor[sens]._max_pressure) {
+    if (pressure > p->_max_pressure) {
         // set overpressure error
-        SystemState.error_set(psensor[sens]._TooHighErr);
+        SystemState.error_set(p->_TooHighErr);
         // !! implement - stop the pump !!!
     }
 
@@ -1560,13 +1563,13 @@ void setupServer(){
             flow.FlowGet(1), 
             flow.MultGet(1));
         response->print("<span>Pressure Sensors</span>");
-        response->printf("<li>Ps1: [%uPsi] [%uraw/psi] [+%u correction]</li>", 
+        response->printf("<li>Ps1: [%iPsi] [%u raw/psi] [%i correction]</li>", 
             pressure.measure(0), 
-            pressure.MultiplierGet(0), 
+            pressure.DividerGet(0), 
             pressure.OffsetGet(0));
-        response->printf("<li>Ps2: [%uPsi] [%uraw/psi] [+%u correction]</li>", 
+        response->printf("<li>Ps2: [%iPsi] [%u raw/psi] [%i correction]</li>", 
             pressure.measure(1), 
-            pressure.MultiplierGet(1), 
+            pressure.DividerGet(1), 
             pressure.OffsetGet(1));
         response->print("<span>Ultrasonic Sensors</span>");
 
