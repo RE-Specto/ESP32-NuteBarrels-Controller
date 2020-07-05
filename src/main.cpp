@@ -3,10 +3,15 @@ bugs:
 
 
 to implement:
+change sonic 10555  to retry--
+    BARREL_SONIC_OUTOFRANGE only if all 10555
+handle reset in the middle of flow sensor transfer
+chek if all sonic functions now count from "zero"="empty barrel"
 barrels - continue
-ultrasonic - add to /manual
-    show last measurements
-    buttons to measure 0-5
+    // calc new concentration:
+    // only when all solenoids closed!! wait untill no flow!
+    // then sol + pump + flow calc need to run on separate thread of barrels!!
+separate calibration values and settings from dynamicly changing values? to save SD writes?
 make pressure sensor interrupt? or check constantly so i can turn off the pump on overpressure
     task loop inside other cpu core?
     ps2 only when pump working?
@@ -18,12 +23,12 @@ apply test code to check every part of the system:
     ultrasonic data - after barrels done - at manual page
     start-stop via serial.print
     ntp sync
-make filling mixing storing draining into single Task?
 reimplement global save function:
     wait STOPPED_STATE, wait untill flow stopped, save 
 pressure sensors - "stop pump on overpressure" Task
 deprecate RTC? replace with ntp + timeAlarms?
 add everything to setup 
+fmsex tasks implement
 start/stop interrupts
     start sets canMix global boolean
         task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
@@ -41,20 +46,21 @@ sendSMS should return actual error names - dictionary! from file - comma separat
 reimplement sendSMS as a buffer, actual send when isSmsToSend true and mux not busy
 send sms on SD card error!
 calculate transferred concentration!
+check all uint values never go below zero!!
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 
 add to schematic:
-sim800 4v 2a power line
 rj45 colors to pin numbers
 LED, start/stop pin numbers rj45 socket
 rtc module
 12v to 5v to 3.3v power line
-
+!! mains power detection !! to stop system on no-power GPIO39?
+optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
 optional:
-mDNS add port80
+server.on("/mdns" check mdns broadcast
 switchFS add fs check, try to restart filesystem on failure
 add ... on serial.available to check module awake
 sendSMS - rewrite String to Char Array
@@ -75,6 +81,7 @@ sendSMS - rewrite String to Char Array
 //#include <Hash.h>
 #include <AsyncTCP.h>
 #include <ArduinoOTA.h>
+#include "ESPmDNS.h"
 //https://github.com/jandrassy/TelnetStream
 #include "TimeAlarms.h" 
 
@@ -119,9 +126,9 @@ sendSMS - rewrite String to Char Array
 #define BARREL_DRAIN_ERR        0X04
 #define BARREL_SONIC_CHECKSUM   0X08
 #define BARREL_SONIC_TIMEOUT    0X10
-#define BARREL_SONIC_TOOCLOSE   0X20
-#define BARREL_DISABLED         0X40
-#define BARREL_OTHER            0X80
+#define BARREL_SONIC_OUTOFRANGE 0X20
+#define BARREL_SONIC_INACCURATE 0X40
+#define BARREL_DISABLED         0X80
 
 #define MUX_UNLOCKED 255 //valid shannels are 0-15
 
@@ -413,38 +420,45 @@ public:
         expander2.write();
     }
 
-    void PumpIn(bool state){
-        // triggers dIN solenoid and then the pump
-        expander2.getPin( 6).setValue( !state ); // storing relay dIN pin
-        expander2.write();
-        expander1.getPin(14).setValue( !state ); // filling relay pump pin
-        expander1.write();
-    }
-
-    void PumpOut(bool state){
-        // triggers dOUT solenoid and then the pump
-        expander2.getPin(14).setValue( !state ); // draining relay dOUT pin
-        expander2.write();
-        expander1.getPin(14).setValue( !state ); // filling relay pump pin
-        expander1.write();
-    }
-
     void FillingRelay(uint8_t address, bool state){
         //offset of 8 - expander 0x20 pins b0-b7
         expander1.getPin( address+8 ).setValue( !state ); 
         expander1.write();
     }
 
+    uint8_t FillingRelayGet(uint8_t address){
+        //offset of 8 - expander 0x20 pins b0-b7
+        //expander1.read();
+        return !expander1.getPin( address+8 ).getValue(); 
+    }
+    
     void StoringRelay(uint8_t address, bool state){
         //offset of 0 - expander 0x21 pins a0-a7
         expander2.getPin( address ).setValue( !state ); 
         expander2.write();
     }
 
+    uint8_t StoringRelayGet(uint8_t address){
+        //offset of 8 - expander 0x20 pins b0-b7
+        //expander1.read();
+        return !expander2.getPin( address ).getValue(); 
+    }
+    
     void DrainingRelay(uint8_t address, bool state){
         //offset of 8 - expander 0x21 pins b0-b7
         expander2.getPin( address+8 ).setValue( !state ); 
         expander2.write();
+    }
+
+    uint8_t DrainingRelayGet(uint8_t address){
+        //offset of 8 - expander 0x20 pins b0-b7
+        //expander1.read();
+        return !expander2.getPin( address+8 ).getValue(); 
+    }
+    
+    void Pump(bool state){
+        expander1.getPin(14).setValue( !state ); // filling relay pump pin
+        expander1.write();
     }
 
 } expanders; // initiated globally
@@ -689,7 +703,14 @@ public:
 
     uint64_t CounterGet(uint8_t sens){ return fsensor[sens].counter; }
     
-    void CounterSubstract(byte sens, uint64_t value) { fsensor[sens].counter-=value;}
+    void CounterSubstract(byte sens, uint64_t value) { 
+        if (fsensor[sens].counter>=value)
+            fsensor[sens].counter-=value;
+        else {
+            fsensor[sens].counter=0;
+            Serial.printf("Err: tried to decrease flowsensor%u below zero, with %llu\r\n", sens+1, value);
+        }        
+    }
     
     void CounterReset(uint_fast8_t sens){ fsensor[sens].counter=0; }
     
@@ -831,15 +852,27 @@ struct myBR {
     //6 0x40 - disabled manually
     //7 0x80 - other error
     byte _ErrorState=0;
-    byte _BarrelNumber=0;        // important for mux selection // really needed?
+    uint8_t  _Concentraion=0;       // percent of nutrients in solution
+    uint8_t  _ConcentraionLast=0;       // percent of nutrients in solution
     uint16_t _VolumeFreshwater=0;   // data from flow sensor
+    uint16_t _VolumeFreshwaterLast=0;   // data from flow sensor
     uint16_t _VolumeNutrients=0;    // data from flow sensor
-    uint16_t _VolumeEmpty=0;        // set once at calibration - for sonic sensors
-    uint16_t _VolumeMin=0;          // set once at calibration - for flow and sonic sensors
-    uint16_t _VolumeMax=1;          // set once at calibration - for flow and sonic sensors
-    uint16_t _SonicCoefficient=1;   // set once at calibration - mm to Liters - for sonic sensor
-    uint16_t _SonicOffset=0;        // set once at calibration - mm to barrel's full point
+    uint16_t _VolumeNutrientsLast=0;    // data from flow sensor
+    uint64_t _CounterLast=0;        // safeguard for flow counter apply
+    bool     _CounterLastNutrients=false;
     uint16_t _SonicLastValue=0;     // updated on every sonic measurement
+    float    _SonicLastError=0;     // +- percent error in measurement
+    byte     _SonicHighErrors=0;    // error > 5% last few times? how to calc?
+//static calibration values - set once at calibration
+    // calibrate by filling and draining
+    uint16_t _VolumeMin=0;          // for flow and sonic sensors
+    // calibrate by filling untill miscalculation
+    uint16_t _VolumeMax=1;          // for flow and sonic sensors
+    // calibrate by filling 100L
+    // also can be calculated by barrel diameter
+    uint16_t _SonicMLinMM=1130;   // mililiters in 1 milimeter 
+    // calibrate by dry barrel height
+    uint16_t _SonicOffset=1000;        // mm to barrel's full point
 };
 
 
@@ -854,6 +887,7 @@ public:
 
     // error get error set
     byte ErrorGet(byte barrel){ return myBarrel[barrel]._ErrorState; }
+    bool ErrorCheck(byte barrel, byte mask){ return myBarrel[barrel]._ErrorState & mask; }
     void ErrorSet(byte barrel, byte mask){ myBarrel[barrel]._ErrorState |= mask; Serial.printf("[E] Barr%u:e%u\r\n",barrel,mask); }
     void ErrorUnset(byte barrel, byte mask){ myBarrel[barrel]._ErrorState &= ~mask; }
     void ErrorReset(byte barrel){ myBarrel[barrel]._ErrorState=0; }
@@ -863,23 +897,94 @@ public:
 
      // add fresh flow couter to barrel, then substract it from flowsensor   
     void FreshFlowSetTo(byte barrel){
-        uint64_t CounterNow = flow.CounterGet(0); // may be increased during calculation cause flowsensor works on interrupts
-        myBarrel[barrel]._VolumeFreshwater+=CounterNow;
-        flow.CounterSubstract(0, CounterNow); // counter 0 is freshwater
+        myBR *b = &myBarrel[barrel];
+        // add _VolumeFreshwaterLast as a safeguard !!
+        if (!b->_CounterLast) { // good
+            b->_CounterLast = flow.CounterGet(0); // may be increased during calculation because flowsensor works on interrupts
+            b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
+            b->_VolumeFreshwater+=b->_CounterLast;
+            flow.CounterSubstract(0, b->_CounterLast); // counter 0 is freshwater
+            b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
+            b->_CounterLast=0;
+        }
+        else {
+            Serial.println("[E] [FreshFlowSetTo] _CounterLast not zero!!");
+            Serial.printf("counter was %s\r\n",b->_CounterLastNutrients?"nutrients":"freshwater");
+            if (!b->_CounterLastNutrients){ // if CounterLast was freshwater
+// !! implement !!
+            }
+            // implement handler
+        }
     }
 
     // add nutri flow couter to barrel, then substract it from flowsensor
     void NutriFlowSetTo(byte barrel){
-        uint64_t CounterNow = flow.CounterGet(1);
-        myBarrel[barrel]._VolumeFreshwater+=CounterNow;
-        flow.CounterSubstract(1, CounterNow); // counter 1 is nutrients
+        myBR *b = &myBarrel[barrel];
+        // add _VolumeNutrientsLast as a safeguard !!
+        if (!b->_CounterLast) { // good
+            b->_CounterLast = flow.CounterGet(1); // may be increased during calculation because flowsensor works on interrupts
+            b->_VolumeNutrientsLast=b->_VolumeNutrients;
+            b->_VolumeNutrients+=b->_CounterLast;
+            flow.CounterSubstract(1, b->_CounterLast); // counter 1 is nutrients
+            b->_VolumeNutrientsLast=b->_VolumeNutrients;
+            b->_CounterLast=0;
+        }
+        else {
+            Serial.println("[E] [FreshFlowSetTo] _CounterLast not zero!!");
+            Serial.printf("counter was %s\r\n",b->_CounterLastNutrients?"nutrients":"freshwater");
+            if (b->_CounterLastNutrients){ // if CounterLast was nutrients
+// !! implement !!
+            }
+            // implement handler
+        }
     }
+
+//https://sciencing.com/calculate-concentration-solution-different-concentrations-8680786.html
+    // concentration of nutrient solution 
+    // (concentrationA/100 *A-L) + (concentrationB/100 *B-L)   / A-L + B-L  * 100%
+    // concentrationB is allways 0 ( b is freshwater) since that is irrelevant, so:
+    // (concentrationA/100 *A-L)  / A-L + B-L  * 100%
+    // concentrationA * A-L  / A-L + B-L 
+    uint8_t ConcentrationGet(byte barrel) { 
+        myBR *b = &myBarrel[barrel];
+        if (!b->_VolumeNutrients && !b->_VolumeFreshwater) {
+            return 0; // empty barrels - prevent Divide By Zero!
+        }
+        else {
+            return b->_Concentraion * b->_VolumeNutrients / (b->_VolumeNutrients+b->_VolumeFreshwater); // mix
+        }
+    } 
+
+    // calc new concentration:
+    // only when all solenoids closed!! wait untill no flow!
+    // then sol + pump + flow calc need to run on separate thread of barrels!!
+    // if b->_VolumeFreshwater
+        // b->_Concentraion = ConcentrationGet(barrel)
+        // b->_VolumeNutrients += b->_VolumeFreshwater
+        // b->_VolumeFreshwater = 0;
+
+    // calc new concentration before transer so transfeting only nutrients @concentration
+
+    // calc concentration on transfer - we are not transfering freshwater? only nutrients?
+    // barrel a calculate new concentration
+    // barrel b calculate new concentration
+    // both barrels now have only Nutrients @ concentration
+    // barrel b concentration =  (concentrationA/100 *A-L) + (concentrationB/100 *B-L)   / A-L + B-L  * 100%
+    // barrel a nutrients -= flowcounter
+    // barrel b nutrients += flowcounter
+
+// should I remember previous Concentration, volumeNutr, volumeFresh ?
+// in case system reset middle-calculation - fresh must be 0, compare volumes? if mishatch use old?
+// thay can only differ middle-calculation as a safeguard? save after applying old - before changing new?
+// save old only these three??
+// save at each change? inside the changing function? only to SD? 
+// compare data after each save? use new struct for each compare?
+// separately save each struct and not the whole array to save SD writes? what minimal SD write size? 512 bytes?
 
     // add - NutriFlowTransferTo
 
-//barrels calculations:
-//(barrelsEmptyHeight - ultrasonicValue) * barrelsCoefficent = value in liters
-//(barrelsEmptyHeight - barrelsFullHeight) / ultrasonicValue = barrels percent 
+
+
 
 //    return ( get_flow_volume() + get_sonic_volume() ) / 2; // fifty-fifty - need to change?
 
@@ -909,143 +1014,152 @@ public:
     // if errors > 10 - set errorstate accordingly
 
     // returns distance in mm
-    uint16_t Sonic(byte barrel){ // the hedgehog :P
-        // reimplement dynamic values in next version
-        uint16_t notTimeout=2000; // wait "notTimeout" ms total time for sonic data
-        byte retry=5; // try "retry" times on no data or checksum error
-        byte measure=10; // collect "measure" successful measurements to calculate total
+    uint16_t SonicMeasure(byte barrel, byte measure = 10, uint16_t notTimeout = 1000, byte retry = 5){ // the hedgehog :P
+        myBR *b = &myBarrel[barrel];
+        // collect "measure" successful measurements to calculate total
+        // wait "notTimeout" ms total time for sonic data
+        // try "retry" times on no data or checksum error
         uint32_t distanceAvearge=0; // avearge of x measurements
+        uint16_t distanceMin=0xffff; // highest for 16bit uint
+        uint16_t distanceMax=0; // to calculate error
         expanders.setMUX(barrel);
         delay(1);
         for (byte x=0;x<measure && retry && notTimeout;) {
             Serial2.write(0xFF); // send data so sonic will reply
-            while (!Serial2.available() && notTimeout) { delay(1); notTimeout--; }; // wait untill data received
-            while (Serial2.read() != 0xFF && notTimeout) { delay(1); notTimeout--; }; // discard data untill valid
-            if (notTimeout) { //start
-                while (Serial2.available()<3  && notTimeout) { delay(1); notTimeout--; }; // wait for all data to be buffered
-                if (!notTimeout) {
-                    measure = x+1; // number of measurements so far
-                    break;
-                }
-                uint8_t upper_data = Serial2.read();
-                uint8_t lower_data = Serial2.read();
-                uint8_t sum = Serial2.read();
-                Serial.printf("up %u low %u sum %u\r\n",upper_data,lower_data,sum);
-                if (((upper_data + lower_data) & 0xFF) == sum) {
-                    uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
-                    Serial.printf("Sonic %u Distance %u mm x:%u tout:%u retry:%u\r\n", barrel, distance, x,notTimeout,retry);
-                    if (distance) {
-                        distanceAvearge+=distance;
-                        x++; // success - decrement loop counter                        
+            while (!Serial2.available() && notTimeout) { delay(1); notTimeout--; }; // wait untill some data is received
+            while (Serial2.read() != 0xFF && notTimeout) { delay(1); notTimeout--; }; // discard data untill begin of packet (0xFF)
+        //if (notTimeout) { //start
+            while (Serial2.available()<3  && notTimeout) { delay(1); notTimeout--; }; // wait for all data to be buffered
+            if (!notTimeout) { // timed out waiting for 3 packats above
+                measure = x; // number of measurements so far (excluding the last "timed out" measurement)
+                ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
+                break;
+            }
+            uint8_t upper_data = Serial2.read();
+            uint8_t lower_data = Serial2.read();
+            uint8_t sum = Serial2.read();
+            //Serial.printf("high %u low %u sum %u\r\n", upper_data, lower_data, sum);
+            if (((upper_data + lower_data) & 0xFF) == sum) {
+                uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
+                Serial.printf("Sonic:%u Distance:%umm measurement:%u timeout:%u retries left:%u\r\n", barrel, distance, x, notTimeout, retry);
+                if (distance) {
+                    if (distance==10555) {
+                        measure = x; // number of measurements so far (excluding the last "out of range" measurement)
+                        distanceAvearge=0;
+                        ErrorSet(barrel, BARREL_SONIC_OUTOFRANGE);
+                        break;
                     }
                     else {
-                        retry--;
+                        distanceAvearge+=distance;
+                        if (distanceMin>distance)
+                            distanceMin = distance;
+                        if (distanceMax<distance)
+                            distanceMax = distance;
+                        x++; // success - decrement loop counter   
                     }
+                    
                 }
                 else {
-                    Serial.println("checksum error");
                     retry--;
                 }
             }
             else {
-                measure = x+1; // number of measurements so far
-                break;
-            }; // timeout            
+                Serial.println("checksum error");
+                retry--;
+            }
+        //}
+            //else {
+                //measure = x+1; // number of measurements so far
+                //break;
+            //}; // timeout 
+            if (!retry) ErrorSet(barrel, BARREL_SONIC_CHECKSUM);       
+            else ErrorUnset(barrel, BARREL_SONIC_CHECKSUM);       
         } // for loop end here
         expanders.UnlockMUX(); // important!
-        distanceAvearge/=measure; // total divided by number of measurements taken
-        myBarrel[barrel]._SonicLastValue = distanceAvearge;
-        Serial.printf("sonic %u finished\r\ntook %u measurements, value:%u timeout:%u, retry left:%u\r\n", 
+        b->_SonicLastValue = distanceAvearge;
+        float err = 0;
+        if (measure && distanceAvearge) {// taken more than 0 measurements, Avearge distance is not zero
+            distanceAvearge/=measure; // total divided by number of measurements taken
+            err = (float)100 * ((distanceMax - distanceMin)/2) / distanceAvearge ; // calculate measurement ±error
+            ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
+            ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
+            Serial.printf("Distance min:%u, max:%u, diff:%u error:±%.3f percent\r\n", 
+                distanceMin,
+                distanceMax,
+                distanceMax - distanceMin,
+                err 
+            );
+        }
+        b->_SonicLastError = err;
+        if (err>5) { // if error > ±5%
+            if (b->_SonicHighErrors<30) b->_SonicHighErrors +=10;
+            // increment by 10 each measurement error, decrement by 1 each success
+            else ErrorSet(barrel, BARREL_SONIC_INACCURATE);
+        }
+        else if (b->_SonicHighErrors) // if not err>5, and if errors not already zero, decrement
+            b->_SonicHighErrors--;
+        else ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
+        Serial.printf("sonic %u finished\r\ntook %u measurements, value:%umm time:%ums, retried %u times\r\n", 
             barrel, 
             measure, 
             distanceAvearge, 
-            notTimeout, 
-            retry
+            1000-notTimeout, 
+            5-retry
         );
-        if (!notTimeout) ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
-        if (!retry) ErrorSet(barrel, BARREL_SONIC_CHECKSUM);
-        if (distanceAvearge==10555) ErrorSet(barrel, BARREL_SONIC_TOOCLOSE);
         return distanceAvearge;
     }
 
-    uint16_t SonicTest(byte barrel){ // the hedgehog :P
-        uint16_t notTimeout=2000; // wait "notTimeout" ms total time for sonic data
-        unsigned long time=millis();
-        expanders.setMUX(barrel);
-        Alarm.delay(1);
-        while ( Serial2.available() ) { Serial.println(Serial2.read()); }; // discard old data
-        //Alarm.delay(100);
-        Serial2.write(0xFF); // send data so sonic will reply
-//        Serial2.write(0xFF); // send data so sonic will reply
-//        Serial2.write(0xFF); // send data so sonic will reply
-        while (Serial2.available()<3 && notTimeout) { Alarm.delay(1); notTimeout--; }; // wait untill data received
-        Serial.println("debug sonic:");
-        while(Serial2.available() && notTimeout){
-            //Serial2.write(0xFF);
-            Serial.print(Serial2.read());
-            Serial.print("  ");
-            //Alarm.delay(1);
-            Serial.print(Serial2.read());
-            Serial.print("  ");
-            //Alarm.delay(1);
-            Serial.print(Serial2.read());
-            Serial.print("  ");
-            //Alarm.delay(1);
-            Serial.print(Serial2.read());
-            Serial.print("  ");
-            Serial.println();
-            notTimeout--;
-        }
-        Serial.print("milis: ");
-        Serial.println(millis()-time);
-        Serial.print("timeout: ");
-        Serial.println(notTimeout);
-        
-        expanders.UnlockMUX(); // important!
-        return 1;
-    }
-
     uint16_t SonicLastMM(byte barrel){ return myBarrel[barrel]._SonicLastValue; }
+    int16_t SonicLastMMfromEmpty(byte barrel){ return myBarrel[barrel]._SonicOffset - myBarrel[barrel]._SonicLastValue; }
     uint16_t SonicOffsetGet(byte barrel){ return myBarrel[barrel]._SonicOffset; }
-    uint16_t SonicCoefficientGet(byte barrel){ return myBarrel[barrel]._SonicCoefficient; }
+    uint16_t SonicMLinMMGet(byte barrel){ return myBarrel[barrel]._SonicMLinMM; }
     void SonicOffsetSet(byte barrel, uint16_t offs){  myBarrel[barrel]._SonicOffset = offs; }
-    void SonicCoefficientSet(byte barrel, uint16_t coef){  myBarrel[barrel]._SonicCoefficient = coef; }
+    void SonicMLinMMSet(byte barrel, uint16_t coef){  myBarrel[barrel]._SonicMLinMM = coef; }
 
     // sonic measure
-    uint16_t SonicMeasure(byte barrel){
-        // sonic() - _SonicOffset = full barrel point 0
-        // volumeFull - ("point zero" * _SonicCoefficient) = current barrel volume in liters from sonic
+    int16_t SonicCalcLiters(byte barrel){
+        // _SonicOffset = empty barrel (full barrel lenght) in mm
+        // "full barrel lenght" - SonicMeasure = water level from empty in mm
+        // lenght * _SonicMLinMM / 1000mlINliter ) = current barrel volume in liters from sonic
         myBR *b = &myBarrel[barrel];
-        return b->_VolumeMax - ((Sonic(barrel) - b->_SonicOffset) * b->_SonicCoefficient);
-    }
+        if (!b->_SonicLastValue)
+            return 0;
+        else
+            return (b->_SonicOffset - b->_SonicLastValue) * b->_SonicMLinMM / 1000; // 1000ml in liter
+    } // should I still return positive value for empty, but not dry barrel??
 
-    uint16_t SonicLastLiters(byte barrel){
-        // sonic() - _SonicOffset = full barrel point 0
-        // volumeFull - ("point zero" * _SonicCoefficient) = current barrel volume in liters from sonic
-        return myBarrel[barrel]._VolumeMax - ((myBarrel[barrel]._SonicLastValue - myBarrel[barrel]._SonicOffset) * myBarrel[barrel]._SonicCoefficient);
+
+    // barrel current volume in percent by sonic the hedgehog
+    // no need to remeasure each call - needed real-time only at transfer - so updated anyway by transfer volume checkers below
+    // 100% * "current liters above min point" / "total liters above min point"
+    int8_t BarrelPercents(byte barrel) {
+        return 100 * (SonicCalcLiters(barrel) - myBarrel[barrel]._VolumeMin) / (myBarrel[barrel]._VolumeMax - myBarrel[barrel]._VolumeMin);
+        // exclude unusable percents below Min point
     }
-    
+  
     // totally empty
     bool isDry(byte barrel){
-        return SonicMeasure(barrel) <= myBarrel[barrel]._VolumeEmpty;
+        SonicMeasure(barrel);
+        return SonicCalcLiters(barrel) < 2; // 1 spare as a safeguard
     }
+    // may I just return SonicCalcLiters(barrel)? is myBarrel[barrel]._VolumeEmpty allways 0? redundant? 
+    // is it the right way to measure sonic? maybe zero point shoud be empty barrel? line 1036..
+    // if so calc coeff = liters per MM
+    // _SonicOffset = mm to empty barrel? easy to calibrate! yay!
+    // _VolumeEmpty redundant - allways zero
+    // barrel liters = -(sonic - offset) * coefficent
+    // (offset-sonic) * coefficent ? 
 
     // reached min level
     bool isEmpty(byte barrel){
-        return SonicMeasure(barrel) <= myBarrel[barrel]._VolumeMin;
+        SonicMeasure(barrel);
+        return SonicCalcLiters(barrel) <= myBarrel[barrel]._VolumeMin;
     }
 
     // reached max level
     bool isFull(byte barrel){
-        return SonicMeasure(barrel) >= myBarrel[barrel]._VolumeMax;
-    }
-
-    // concentration in persents
-    // 100 * myBarrel[8]._VolumeNutrients / myBarrel[8]._VolumeFreshwater
-
-    void Init(){ // really needed?
-        for (byte x=0;x<8;x++)
-            myBarrel[x]._BarrelNumber=x; // sets each barrel's number
+        SonicMeasure(barrel);
+        return SonicCalcLiters(barrel) >= myBarrel[barrel]._VolumeMax;
     }
 
 } barrels;
@@ -1337,7 +1451,7 @@ void setupServer(){
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         File dir = disk->open("/");
         File file = dir.openNextFile();
-        response->print("<html><body><ul>");
+        response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>file system</h3><ul>");
         while(file){
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button><span>\t</span>", file.name());
@@ -1419,43 +1533,49 @@ void setupServer(){
         Serial.print("Requested: ");
         Serial.println( request->url().c_str() );
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        response->print("<html><body><ul>");
-        response->print("<li>Relays</li>");
+        response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual control</h3><ul>");
+        response->print("<span>Relays</span>");
         for (uint8_t i=0;i<8;i++){
             response->print("<li>");
-            response->printf("<button onclick=\"location=\'/man?f=%u&o=1\'\">fill %u on</button><span> </span>", i, i);
-            response->printf("<button onclick=\"location=\'/man?f=%u&o=0\'\">fill %u off</button><span> </span>", i, i);
-            response->printf("<button onclick=\"location=\'/man?s=%u&o=1\'\">stor %u on</button><span> </span>", i, i);
-            response->printf("<button onclick=\"location=\'/man?s=%u&o=0\'\">stor %u off</button><span> </span>", i, i);
-            response->printf("<button onclick=\"location=\'/man?d=%u&o=1\'\">dran %u on</button><span> </span>", i, i);
-            response->printf("<button onclick=\"location=\'/man?d=%u&o=0\'\">dran %u off</button><span> </span>", i, i);
+            response->printf("<button onclick=\"location=\'/man?f=%u&o=%u\'\">fill  %u %s </button><span> </span>", i, expanders.FillingRelayGet(i)?0:1, i, expanders.FillingRelayGet(i)?"X":"O");
+            response->printf("<button onclick=\"location=\'/man?s=%u&o=%u\'\">store %u %s </button><span> </span>", i, expanders.StoringRelayGet(i)?0:1, i, expanders.StoringRelayGet(i)?"X":"O");
+            response->printf("<button onclick=\"location=\'/man?d=%u&o=%u\'\">drain %u %s </button><span> </span>", i, expanders.DrainingRelayGet(i)?0:1, i, expanders.DrainingRelayGet(i)?"X":"O");
             response->print("</li>");
         }
-        response->print("<li>RGB LED</li>");
+        response->print("<span>RGB LED</span>");
         response->print("<li>");
         for (uint8_t i=0;i<8;i++){
             response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button><span> </span>", i, i);
         }
-        response->print("<li>Flow Sensors</li>");
-        response->printf("<li>FS1: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", 
+        response->print("</li>");
+        response->print("<span>Flow Sensors</span>");
+        response->printf("<li>Fs1: [%llup] [%lluL] [%umL/s] [%upulse/L]</li>", 
             flow.CounterGet(0), 
             flow.CounterGet(0)/flow.MultGet(0), 
             flow.FlowGet(0), 
             flow.MultGet(0));
-        response->printf("<li>FS2: %llu pulses %llu Liters %u mL/s %u pulse/L</li>", 
+        response->printf("<li>Fs2: [%llup] [%lluL] [%umL/s] [%upulse/L]</li>", 
             flow.CounterGet(1), 
             flow.CounterGet(1)/flow.MultGet(1), 
             flow.FlowGet(1), 
             flow.MultGet(1));
-        response->print("<li>Pressure Sensors</li>");
-        response->printf("<li>PS1: %u Psi %u multiplier %u offset</li>", 
+        response->print("<span>Pressure Sensors</span>");
+        response->printf("<li>Ps1: [%uPsi] [%uraw/psi] [+%u correction]</li>", 
             pressure.measure(0), 
             pressure.MultiplierGet(0), 
             pressure.OffsetGet(0));
-        response->printf("<li>PS2: %u Psi %u multiplier %u offset</li>", 
+        response->printf("<li>Ps2: [%uPsi] [%uraw/psi] [+%u correction]</li>", 
             pressure.measure(1), 
             pressure.MultiplierGet(1), 
             pressure.OffsetGet(1));
+        response->print("<span>Ultrasonic Sensors</span>");
+
+        for (byte i=0;i<NUM_OF_BARRELS;i++) {
+            response->print("<li>");
+            response->printf("<button onclick=\"location=\'/sonic?n=%u\'\">Sonic %u: measure</button><span> </span>", i, i);
+            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", barrels.SonicCalcLiters(i), barrels.SonicLastMMfromEmpty(i), barrels.SonicMLinMMGet(i), barrels.SonicOffsetGet(i), barrels.ErrorGet(i));
+            response->print("</li>");
+        }
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
@@ -1535,14 +1655,24 @@ void setupServer(){
         Serial.println( request->url().c_str() );
         if (request->args() > 0 ) { // Arguments were received
             if (request->hasArg("n")) {
-                char buf [6];
-                sprintf (buf, "%05u", barrels.Sonic(request->arg("n").toInt()));
-                request->send(200, "text/html", buf);
+                //char buf [6];
+                //sprintf (buf, "%05u", barrels.SonicMeasure(request->arg("n").toInt()));
+                //request->send(200, "text/html", buf);
+                barrels.SonicMeasure(request->arg("n").toInt(), 5); // measure 5 times
+                request->redirect("/manual");
             }
         }
         else {
             request->send(200, "text/plain", "n parameter missing");
         }
+    });
+
+
+    server.on("/mdns", HTTP_GET, [](AsyncWebServerRequest *request){
+        int mdns = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+        char buf [6];
+        sprintf(buf, "mdns:%u", mdns);
+        request->send(200, "text/plain", buf);
     });
 
 
@@ -1834,7 +1964,8 @@ void setup() {
     setupServer();
     ArduinoOTA.setHostname("barrels");
     ArduinoOTA.begin();
-
+    //mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    MDNS.addService("http", "tcp", 80);// add mDNS http port
     // attach interrupts for flow sensors
 
 
