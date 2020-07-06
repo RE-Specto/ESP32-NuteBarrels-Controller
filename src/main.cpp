@@ -10,21 +10,16 @@ barrels - continue
     // then sol + pump + flow calc need to run on separate thread of barrels!!
     calculate transferred concentration!
 
-make pressure sensor check constantly so i can turn off the pump on overpressure
-    task loop inside other cpu core? or inside filling loop itself?
-    ps2 only when pump working?
-    ps1 only once before sol open + once if no flow + once at system start?
+deprecate PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR? use errors locally on-demand?
+    what about old errors on start-up? send system error [number] - view webUI
+    use same ErrorGet ErrorSet ErrorUnset from barrels - internal variable
 
-reset all sensor values on system start? flow only? or remeber who to assing to and assign on start?
-    is it important at all? how much water can flow between assignments?
-
-deprecate RTC? replace with ntp + timeAlarms?
-add everything to setup 
 fmsex tasks implement:
     fill
         water line no pressure? stop, set error, recheck in loop - if ok - clear error
         fill untill target reached
-start/stop interrupts
+
+start/stop interrupts "use start-stop actions from evernote!"
     start sets canMix global boolean? 
     if stopped also pressed - do something else
     if status = stopped: clear stopped. else if no status: set mixing. else do start-button extra action
@@ -38,20 +33,57 @@ start/stop interrupts
 
 work on system hardware - implement all changes to schematic!!
 
-send sms on SD card error!
+check what modem returns if error - if valid check - implement SMS error
+
+add calibration edit for all sensors to manual:
+    SystemState.state_set
+    SystemState.state_unset
+    SystemState.error_set
+    SystemState.error_unset
+    flow.MultSet(sens,mult)
+    pressure.DividerSet
+    pressure.OffsetSet
+    pressure.MaxSet
+    pressure.MinSet
+    barrels.ErrorSet
+    barrels.ErrorUnset
+    barrels.ErrorReset
+    barrels.SonicOffsetSet
+    barrels.SonicMLinMMSet
+    Transfers.prefill_requirement
+    Transfers.afterfill_requirement deprecate??
+    Transfers.mix_requirement
+    Transfers.drain_requirement
+    Transfers.filling_barrel
+    Transfers.mixin_barrel
+    Transfers.storing_barrel
+    Transfers.draining_barrel
+    NTP Timezone + DTS
+
+manual apply sonic value to 
+add concentrationSet to barrels for manual?
+
+WebUI from "1-pump idea test (1).png" file with overlays and jQuery
+    https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
+telnet server to send serial.prints + telnet client inside webui?
+------------------------------
+
+make pressure sensor check constantly so i can turn off the pump on overpressure
+    task loop inside other cpu core? or inside filling loop itself?
+    ps2 only when pump working?
+    ps1 only once before sol open + once if no flow + once at system start?
+
+reset all sensor values on system start? flow only? or remeber who to assing to and assign on start?
+    is it important at all? how much water can flow between assignments?
+
+deprecate RTC? replace with ntp + timeAlarms?
+
 
 check all uint values never go below zero!!
     expected in sensor measurements
     anywhere else?
 
-WebUI from "1-pump idea test (1).png" file with overlays and jQuery
-    https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
-count total barrels nutrient volume - excluding mixer barrel, and barrels in error state
-telnet server to send serial.prints + telnet client inside webui?
-
 implement mux lock timeout.
-
-check what modem returns if error - if valid check - implement SMS error
 
 measure all sonic on system start so sonic have all values ready?
 
@@ -60,6 +92,7 @@ change sonic 10555  to retry--
 
 handle reset in the middle of flow sensor transfer
     calculate by last values?
+    lock thread mux so it executes quick? https://esp32.com/viewtopic.php?t=1703
 
 deprecate error reporting task and sendsms dictionary?
 
@@ -72,6 +105,9 @@ optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
 optional:
+use filter instead of avearge for sonic?
+https://stackoverflow.com/questions/10338888/fast-median-filter-in-c-c-for-uint16-2d-array
+restore to sd if spiffs date newer? fix timestamp
 barrel busy flag?
 add option to continue on pressure sensor1 error if flow1 ok
 continue on ps2 error if flow2 is in range: 0 < flow2 < "flow2 with no load"
@@ -197,6 +233,7 @@ bool Save(const char* fname, byte* stru_p, uint16_t len);
 void SaveStructs();
 void IRAM_ATTR FlowSensor1Interrupt();
 void IRAM_ATTR FlowSensor2Interrupt();
+void SendSMS(const char* message, byte item=0xFF);
 
 
 /*-------- Filesystem code ----------*/
@@ -216,6 +253,7 @@ void initStorage(){
             retry--; // prevent dead loop 
         }
     }
+    if (!isSD) SendSMS("SD Card Error - please check");
     retry=3; // 3 times for SPIFFS
     while (retry) {
         if(SPIFFS.begin()){
@@ -486,7 +524,7 @@ public:
 
 
 
-void SendSMS(const char* message, byte item=0xFF){
+void SendSMS(const char* message, byte item){ //byte item=0xFF moved to declaration BOF
     OUT_PORT.print("-sendsms: ");
     OUT_PORT.println(message);
     expanders.setMUX(7); // modem is at port 7
@@ -794,6 +832,7 @@ public:
 
 } flow;
 
+//https://esp32.com/viewtopic.php?t=1703
 //flow sensor 1 interrupt routine
 void IRAM_ATTR FlowSensor1Interrupt() {
     portENTER_CRITICAL_ISR(&mux);
@@ -871,7 +910,7 @@ int16_t measure(uint8_t sens){
     myPS* p=&psensor[sens];
     // https://forum.arduino.cc/index.php?topic=571166.0
     // convert analog value to psi
-    Serial.printf("measuring pSensor %u @pin%u value%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
+    Serial.printf("measuring pSensor %u @pin%u value:%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
     uint16_t pressure = (analogRead(p->_sensorPin) * 10 / p->_divider + p->_offset); //test - needs to be replaced with acrual formula
     if (pressure < p->_min_pressure) {
         // set underpressure error
@@ -1074,7 +1113,7 @@ public:
 
 
     // returns distance in mm
-    uint16_t SonicMeasure(byte barrel, byte measure = 10, uint16_t notTimeout = 1000, byte retry = 5){ // the hedgehog :P
+    void SonicMeasure(byte barrel, byte measure = 10, uint16_t notTimeout = 1000, byte retry = 5){ // the hedgehog :P
         myBR *b = &myBarrel[barrel];
         // collect "measure" successful measurements to calculate total
         // wait "notTimeout" ms total time for sonic data
@@ -1136,13 +1175,13 @@ public:
             else ErrorUnset(barrel, BARREL_SONIC_CHECKSUM);       
         } // for loop end here
         expanders.UnlockMUX(); // important!
-        b->_SonicLastValue = distanceAvearge;
         float err = 0;
         if (measure && distanceAvearge) {// taken more than 0 measurements, Avearge distance is not zero
             distanceAvearge/=measure; // total divided by number of measurements taken
             err = (float)100 * ((distanceMax - distanceMin)/2) / distanceAvearge ; // calculate measurement ±error
             ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
             ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
+            b->_SonicLastValue = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
             Serial.printf("Distance min:%u, max:%u, diff:%u error:±%.3f percent\r\n", 
                 distanceMin,
                 distanceMax,
@@ -1166,7 +1205,7 @@ public:
             1000-notTimeout, 
             5-retry
         );
-        return distanceAvearge;
+        //return distanceAvearge;
     } // end SonicMeasure
 
     uint16_t SonicLastMM(byte barrel){ return myBarrel[barrel]._SonicLastValue; }
@@ -1182,6 +1221,7 @@ public:
         // "full barrel lenght" - SonicMeasure = water level from empty in mm
         // lenght * _SonicMLinMM / 1000mlINliter ) = current barrel volume in liters from sonic
         myBR *b = &myBarrel[barrel];
+        //Serial.printf("barrel %u (offset %u - value %u) * MLinMM %u / 1000ml\r\n", barrel, b->_SonicOffset, b->_SonicLastValue, b->_SonicMLinMM);
         if (!b->_SonicLastValue)
             return 0;
         else
@@ -1196,7 +1236,28 @@ public:
         return 100 * (SonicCalcLiters(barrel) - myBarrel[barrel]._VolumeMin) / (myBarrel[barrel]._VolumeMax - myBarrel[barrel]._VolumeMin);
         // exclude unusable percents below Min point
     }
-  
+
+    // total liters in all barrels excluding mixing barrel and barrels with errors
+    // should I remeasure all sonics before?
+    int16_t SonicLitersTotal(){
+        int16_t result=0;
+        for (byte x=1;x<NUM_OF_BARRELS;x++) {
+            if (!ErrorGet(x)) // if no errors at all
+            result+=SonicCalcLiters(x); // add this barrel content to sum
+        }
+        return result;
+    }
+
+    // should I remeasure all sonics before?
+    int16_t SonicLitersUsable(){
+        int16_t result=0;
+        for (byte x=1;x<NUM_OF_BARRELS;x++) {
+            if (!ErrorGet(x)) // if no errors at all
+            result+=(SonicCalcLiters(x) - myBarrel[x]._VolumeMin); // add this barrel content minux wasted liters to sum
+        }
+        return result;
+    }
+
     // totally empty
     bool isDry(byte barrel){
         SonicMeasure(barrel);
@@ -1518,7 +1579,7 @@ void setupServer(){
         while(file){
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button><span>\t</span>", file.name());
-            response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes </li>", file.name(), file.name(), file.size());
+            response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes \t %li timestamp</li>", file.name(), file.name(), file.size(), file.getLastWrite());
             file.close();
             file = dir.openNextFile();
         }
@@ -1639,6 +1700,7 @@ void setupServer(){
             response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", barrels.SonicCalcLiters(i), barrels.SonicLastMMfromEmpty(i), barrels.SonicMLinMMGet(i), barrels.SonicOffsetGet(i), barrels.ErrorGet(i));
             response->print("</li>");
         }
+        response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", barrels.SonicLitersTotal(), barrels.SonicLitersUsable());
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
@@ -1966,6 +2028,19 @@ void SaveStructs(){
     Serial.println(F("[save] all trigerred"));
     if (!isSaving){ // prevent concurrent saving
     isSaving = true;
+    if (!isSD) {
+        Serial.println(F("SD card not ready - trying to restart"));
+        SD.end();
+        if(SD.begin()){
+            OUT_PORT.println(F("SD card OK"));
+            disk=&SD;
+            isSD=true;
+        }
+        else {
+            Serial.println(F("SD failed. resorting to SPIFFS"));
+            SendSMS("SD card unable to save");
+        }
+    }
     Serial.println(F("waiting for no flow.."));
     while(flow.FlowGet(0)); // wait untill no flow
     while(flow.FlowGet(1));
