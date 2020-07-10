@@ -60,8 +60,7 @@ add calibration edit for all sensors to manual:
     Transfers.draining_barrel
     NTP Timezone + DTS
 
-manual apply sonic value to 
-add concentrationSet to barrels for manual?
+manual apply sonic value to flow barrel volume on request.
 
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
@@ -105,6 +104,7 @@ optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
 optional:
+add concentrationSet to barrels for manual?
 use filter instead of avearge for sonic?
 https://stackoverflow.com/questions/10338888/fast-median-filter-in-c-c-for-uint16-2d-array
 restore to sd if spiffs date newer? fix timestamp
@@ -1002,21 +1002,27 @@ public:
      // add fresh flow couter to barrel, then substract it from flowsensor   
     void FreshFlowSetTo(byte barrel){
         myBR *b = &myBarrel[barrel];
-        // add _VolumeFreshwaterLast as a safeguard !!
         if (!b->_CounterLast) { // good
+            b->_CounterLastNutrients=false;
             b->_CounterLast = flow.CounterGet(0); // may be increased during calculation because flowsensor works on interrupts
             b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
             b->_VolumeFreshwater+=b->_CounterLast;
             flow.CounterSubstract(0, b->_CounterLast); // counter 0 is freshwater
-            b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
             b->_CounterLast=0;
+            b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
         }
         else {
             Serial.println("[E] [FreshFlowSetTo] _CounterLast not zero!!");
             Serial.printf("counter was %s\r\n",b->_CounterLastNutrients?"nutrients":"freshwater");
             if (!b->_CounterLastNutrients){ // if CounterLast was freshwater
-// !! implement !!
+                if (b->_VolumeFreshwater != b->_VolumeFreshwaterLast) {
+                    b->_VolumeFreshwater+=b->_CounterLast;
+                    b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
+                }
+                flow.CounterSubstract(0, b->_CounterLast); // counter 0 is freshwater
+                b->_CounterLast=0; // prevent retrigger! 
             }
+            else NutriFlowSetTo(barrel); // have business to finish elsewhere
             // implement handler
         }
     }
@@ -1024,22 +1030,27 @@ public:
     // add nutri flow couter to barrel, then substract it from flowsensor
     void NutriFlowSetTo(byte barrel){
         myBR *b = &myBarrel[barrel];
-        // add _VolumeNutrientsLast as a safeguard !!
         if (!b->_CounterLast) { // good
+            b->_CounterLastNutrients=true;
             b->_CounterLast = flow.CounterGet(1); // may be increased during calculation because flowsensor works on interrupts
             b->_VolumeNutrientsLast=b->_VolumeNutrients;
             b->_VolumeNutrients+=b->_CounterLast;
             flow.CounterSubstract(1, b->_CounterLast); // counter 1 is nutrients
-            b->_VolumeNutrientsLast=b->_VolumeNutrients;
             b->_CounterLast=0;
+            b->_VolumeNutrientsLast=b->_VolumeNutrients;
         }
         else {
-            Serial.println("[E] [FreshFlowSetTo] _CounterLast not zero!!");
+            Serial.println("[E] [NutriFlowSetTo] _CounterLast not zero!!");
             Serial.printf("counter was %s\r\n",b->_CounterLastNutrients?"nutrients":"freshwater");
             if (b->_CounterLastNutrients){ // if CounterLast was nutrients
-// !! implement !!
+                if (b->_VolumeNutrients != b->_VolumeNutrientsLast) {
+                    b->_VolumeNutrients+=b->_CounterLast;
+                    b->_VolumeNutrientsLast=b->_VolumeNutrients;
+                }
+                flow.CounterSubstract(1, b->_CounterLast); // counter 1 is nutrients
+                b->_CounterLast=0; // prevent retrigger! 
             }
-            // implement handler
+            else FreshFlowSetTo(barrel); // have business to finish elsewhere
         }
     }
 
@@ -1114,6 +1125,8 @@ public:
 
     // returns distance in mm
     void SonicMeasure(byte barrel, byte measure = 10, uint16_t notTimeout = 1000, byte retry = 5){ // the hedgehog :P
+        uint16_t temptimeout = notTimeout;
+        byte tempretry = retry;
         myBR *b = &myBarrel[barrel];
         // collect "measure" successful measurements to calculate total
         // wait "notTimeout" ms total time for sonic data
@@ -1202,8 +1215,8 @@ public:
             barrel, 
             measure, 
             distanceAvearge, 
-            1000-notTimeout, 
-            5-retry
+            temptimeout-notTimeout, 
+            tempretry-retry
         );
         //return distanceAvearge;
     } // end SonicMeasure
@@ -1697,7 +1710,7 @@ void setupServer(){
         for (byte i=0;i<NUM_OF_BARRELS;i++) {
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/sonic?n=%u\'\">Sonic %u: measure</button><span> </span>", i, i);
-            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", barrels.SonicCalcLiters(i), barrels.SonicLastMMfromEmpty(i), barrels.SonicMLinMMGet(i), barrels.SonicOffsetGet(i), barrels.ErrorGet(i));
+            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", barrels.SonicCalcLiters(i), barrels.SonicLastMM(i), barrels.SonicMLinMMGet(i), barrels.SonicOffsetGet(i), barrels.ErrorGet(i));
             response->print("</li>");
         }
         response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", barrels.SonicLitersTotal(), barrels.SonicLitersUsable());
@@ -1783,7 +1796,7 @@ void setupServer(){
                 //char buf [6];
                 //sprintf (buf, "%05u", barrels.SonicMeasure(request->arg("n").toInt()));
                 //request->send(200, "text/html", buf);
-                barrels.SonicMeasure(request->arg("n").toInt(), 5); // measure 5 times
+                barrels.SonicMeasure(request->arg("n").toInt(), 3, 500); // measure 3 times max 500 ms
                 request->redirect("/manual");
             }
         }
