@@ -3,20 +3,22 @@ bugs:
 
 
 to implement:
-variables that survives reboot?? :)
-try RTC_NOINIT_ATTR?
-https://github.com/highno/rtcvars/issues/3
 
-recheck concentration float is accurate
-"Do not use float to represent whole numbers."
-http://www.cplusplus.com/forum/general/67783/
 
-uint16_t divider = flow.DividerGet(0); use at FreshFlowSetTo
-deprecate redundant checks form Freshwater function
+deprecate PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR? use errors locally on-demand?
+    what about old errors on start-up? send system error [number] - view "error number" meaning via webUI
+    use same ErrorGet ErrorSet ErrorUnset from barrels - internal variable
+    deprecate _TooLowErr _TooHighErr?
 
-change _VolumeNutrients _VolumeFreshwater also to float? no.
-    how else we can assign flowcounter accurately over time?
-        assign only the integral part and substract just it from the flowcounter
+
+calc new concentration only when all solenoids closed? wait untill no flow???
+    // if then sol + pump + flow calc need to run on separate thread of barrels!!
+        if filling - will calc ok. 
+        if storing - will calc before storing so ok anyway?
+    calculate transferred concentration each what?
+        flow > 50L(concxentration must be accurate) or flow target reached?
+        change concentration to float?
+
 
 assign system-wide sub-state to deal with resets? 
     sytem will remeasure using sonic 
@@ -27,29 +29,16 @@ assign system-wide sub-state to deal with resets?
     system will continue from last substate
 
 
-barrels - continue
-    calc new concentration only when all solenoids closed? wait untill no flow???
-    // if then sol + pump + flow calc need to run on separate thread of barrels!!
-        if filling - will calc ok. 
-        if storing - will calc before storing so ok anyway?
-    calculate transferred concentration each what?
-        flow > 50L(concxentration must be accurate) or flow target reached?
-        change concentration to float?
-
-concentration float check if ok.
-
-deprecate PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR? use errors locally on-demand?
-    what about old errors on start-up? send system error [number] - view webUI
-    use same ErrorGet ErrorSet ErrorUnset from barrels - internal variable
-
 fmsex tasks implement:
     fill
         water line no pressure? stop, set error, recheck in loop - if ok - clear error
         fill untill target reached
     mix
-        flow calc should be cleared over time.. on finish only?
+        flow counter should be cleared (set zero) over time - flow reading while mixing are useless - 
+            on finish only? before every save? on start of every other task that uses flow counter (set 0)
 
-start/stop interrupts "use start-stop actions from evernote!"
+
+start/stop interrupts "use start-stop actions from evernote!" 
     start sets canMix global boolean? 
     if stopped also pressed - do something else
     if status = stopped: clear stopped. else if no status: set mixing. else do start-button extra action
@@ -95,6 +84,20 @@ manual apply sonic value to flow barrel volume on request.
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 telnet server to send serial.prints + telnet client inside webui?
+
+limit all data from webUI to valid range - ie. no "measure barrel 27"
+
+variables that survives reboot?? :)
+try RTC_NOINIT_ATTR?
+https://github.com/highno/rtcvars/issues/3
+
+recheck concentration float is accurate
+"Do not use float to represent whole numbers."
+http://www.cplusplus.com/forum/general/67783/
+    check my possible ranges:
+    test on another esp32
+concentration float check if ok.
+
 ------------------------------
 
 make pressure sensor check constantly so i can turn off the pump on overpressure
@@ -986,17 +989,15 @@ struct myBR {
     //6 0x40 - disabled manually
     //7 0x80 - other error
     byte _ErrorState=0;
-    float  _Concentraion=0;       // percent of nutrients in solution
-    float  _ConcentraionLast=0;       // percent of nutrients in solution
-    uint16_t _VolumeFreshwater=0;   // data from flow sensor
+    float  _Concentraion=0;             // percent of nutrients in solution
+    float  _ConcentraionLast=0;         // percent of nutrients in solution
+    uint16_t _VolumeFreshwater=0;       // data from flow sensor
     uint16_t _VolumeFreshwaterLast=0;   // data from flow sensor
-    uint16_t _VolumeNutrients=0;    // data from flow sensor
+    uint16_t _VolumeNutrients=0;        // data from flow sensor
     uint16_t _VolumeNutrientsLast=0;    // data from flow sensor
-    uint64_t _CounterLast=0;        // safeguard for flow counter apply
-    bool     _CounterLastNutrients=false;
-    uint16_t _SonicLastValue=0;     // updated on every sonic measurement
-    float    _SonicLastError=0;     // +- percent error in measurement
-    byte     _SonicHighErrors=0;    // error > 5% last few times? how to calc?
+    uint16_t _SonicLastValue=0;         // updated on every sonic measurement
+    float    _SonicLastError=0;         // +- percent error in measurement
+    byte     _SonicHighErrors=0;        // error > 5% last few times? how to calc?
 //static calibration values - set once at calibration
     // calibrate by filling and draining
     uint16_t _VolumeMin=0;          // for flow and sonic sensors
@@ -1019,7 +1020,7 @@ public:
 
     bool SaveSD(){ return Save("/Barrels.bin", (byte*)&myBarrel, sizeof(myBarrel)); }
 
-    // error get error set
+    // error handling
     byte ErrorGet(byte barrel){ return myBarrel[barrel]._ErrorState; }
     bool ErrorCheck(byte barrel, byte mask){ return myBarrel[barrel]._ErrorState & mask; }
     void ErrorSet(byte barrel, byte mask){ myBarrel[barrel]._ErrorState |= mask; Serial.printf("[E] Barr%u:e%u\r\n",barrel,mask); }
@@ -1030,43 +1031,29 @@ public:
     uint16_t NutriGet(byte barrel){ return myBarrel[barrel]._VolumeNutrients; }
 
      // add fresh flow couter to barrel, then substract it from flowsensor   
-    void FreshFlowSetTo(byte barrel){
+    void FreshwaterFillCalc(byte barrel){
         myBR *b = &myBarrel[barrel];
-        if (b->_VolumeNutrientsLast!=b->_VolumeNutrients) // safeguard
-            b->_VolumeNutrients=b->_VolumeNutrientsLast;
+        if (b->_VolumeFreshwaterLast!=b->_VolumeFreshwater) // safeguard
+            b->_VolumeFreshwater=b->_VolumeFreshwaterLast;
+        else b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
 
-        if (!b->_CounterLast) { // good
-            b->_CounterLastNutrients=false;
-            b->_CounterLast = flow.CounterGet(0); // may be increased during calculation because flowsensor works on interrupts
-            uint16_t divider = flow.DividerGet(0); // !!!!
-            flow.CounterSubstract(0, b->_CounterLast); // counter 0 is freshwater
-            b->_VolumeFreshwaterLast=b->_VolumeFreshwater; // before
-            b->_VolumeFreshwater+=b->_CounterLast;
-            b->_CounterLast=0;
-            b->_VolumeFreshwaterLast=b->_VolumeFreshwater; // after
-        }
-        else {
-            Serial.println("[E] [FreshFlowSetTo] _CounterLast not zero!!");
-            Serial.printf("counter was %s\r\n",b->_CounterLastNutrients?"nutrients":"freshwater");
-            if (!b->_CounterLastNutrients){ // if CounterLast was freshwater
-                if (b->_VolumeFreshwater != b->_VolumeFreshwaterLast) {
-                    b->_VolumeFreshwater+=b->_CounterLast;
-                    b->_VolumeFreshwaterLast=b->_VolumeFreshwater;
-                }
-                //flow.CounterSubstract(0, b->_CounterLast); // counter 0 is freshwater
-                b->_CounterLast=0; // prevent retrigger! 
-            }
-            //else NutriFlowSetTo(barrel); // have business to finish elsewhere
-            // implement handler
-        }
+        uint64_t tempflow = flow.CounterGet(0); // may be increased during calculation because flowsensor works on interrupts
+        Serial.printf("[FreshwaterFillCalc] tempflow so far: %llu", tempflow);
+        tempflow /= flow.DividerGet(0); // integral part, fractional part discarded.
+        Serial.printf("[FreshwaterFillCalc] tempflow in liters: %llu", tempflow);
+        b->_VolumeFreshwater+=tempflow;
+        tempflow*=flow.DividerGet(0); // getting pulse count back - only the integral part
+        Serial.printf("[FreshwaterFillCalc] tempflow integral part: %llu", tempflow);
+        flow.CounterSubstract(0, tempflow); // counter 0 is freshwater
+        b->_VolumeFreshwaterLast=b->_VolumeFreshwater; // after
     }
 
 //https://sciencing.com/calculate-concentration-solution-different-concentrations-8680786.html
     // concentration of nutrient solution 
-    // (concentrationA/100 *A-L) + (concentrationB/100 *B-L)   / A-L + B-L  * 100%
-    // concentrationB is allways 0 ( b is freshwater) since that is irrelevant, so:
-    // (concentrationA/100 *A-L)  / A-L + B-L  * 100%
-    // concentrationA * A-L  / A-L + B-L 
+    // ((concA/100 *LitersA) + (concB/100 *LitersB)) / LitersA + LitersB  * 100%
+    // concB is allways 0 ( b is freshwater) since that is irrelevant, so:
+    // (concA/100 *LitersA)  / LitersA + LitersB  * 100%
+    // concA * LitersA  / LitersA + LitersB 
     float ConcentrationTotal(byte barrel){ 
         myBR *b = &myBarrel[barrel];
         if (!b->_VolumeNutrients && !b->_VolumeFreshwater) {
@@ -1093,7 +1080,7 @@ public:
 
 
 
-    void NutrientsTransfer (byte from, byte to){
+    void NutrientsTransferCalc (byte from, byte to){
         myBR *a = &myBarrel[from];
         myBR *b = &myBarrel[to];
         // calc new concentration before transer so transfeting only nutrients @concentration
@@ -1102,62 +1089,52 @@ public:
         if (b->_VolumeFreshwater) 
             ConcentrationRecalc(to);
         // both barrels now have only Nutrients @ concentration
-        if (a->_VolumeNutrientsLast!=a->_VolumeNutrients) // safeguard
-            a->_VolumeNutrients=a->_VolumeNutrientsLast;
+
+        // safeguards below
+        if (a->_VolumeNutrientsLast!=a->_VolumeNutrients) a->_VolumeNutrients=a->_VolumeNutrientsLast;
         else a->_VolumeNutrientsLast=a->_VolumeNutrients;
-        if (b->_VolumeNutrientsLast!=b->_VolumeNutrients) // safeguard
-            b->_VolumeNutrients=b->_VolumeNutrientsLast;
+
+        if (b->_VolumeNutrientsLast!=b->_VolumeNutrients) b->_VolumeNutrients=b->_VolumeNutrientsLast;
         else b->_VolumeNutrientsLast=b->_VolumeNutrients;
+
+        if (a->_ConcentraionLast!=a->_Concentraion) a->_Concentraion = a->_ConcentraionLast;
+        else a->_ConcentraionLast = a->_Concentraion;
+
+        if (b->_ConcentraionLast!=b->_Concentraion) b->_Concentraion = b->_ConcentraionLast;
+        else b->_ConcentraionLast = b->_Concentraion;
+
         uint64_t tempflow = flow.CounterGet(1); // may be increased during calculation because flowsensor works on interrupts
-        uint16_t divider = flow.DividerGet(1);
-        Serial.printf("transfering %llu liters (%llu pulses) from barrel %u to %u\r\n", tempflow/divider, tempflow, from, to);
+        tempflow /= flow.DividerGet(1); // integral part, fractional part discarded.
+        Serial.printf("transfering %llu liters from barrel %u to %u\r\n", tempflow, from, to);
         Serial.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
-        // barrel b concentration =  (concentrationA/100 *A-L) + (concentrationB/100 *B-L)   / A-L + B-L  * 100%
+        // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
             // recheck this implementation !!! should I calc before adding counter?
         Serial.printf("concentration before: %f\r\n", b->_Concentraion);
-        b->_Concentraion = (a->_Concentraion /100 * ((float)tempflow/divider) ) 
-            + (b->_Concentraion /100 * b->_VolumeNutrients) 
-            / (((float)tempflow/divider) + b->_VolumeNutrients ) * 100 ;
+        b->_Concentraion = ((a->_Concentraion /100 * tempflow ) + (b->_Concentraion /100 * b->_VolumeNutrients)) 
+            / (tempflow + b->_VolumeNutrients ) * 100 ;
                 // recheck this implementation !!!
+                // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
+                // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
 
-        a->_VolumeNutrients-=(tempflow/divider); // !!
-        b->_VolumeNutrients+=(tempflow/divider);
+        a->_VolumeNutrients-=tempflow;
+        b->_VolumeNutrients+=tempflow;
+        tempflow*=flow.DividerGet(1); // getting pulse count back - only the integral part
         flow.CounterSubstract(1, tempflow); // counter 1 is nutrients
 
         a->_VolumeNutrientsLast=a->_VolumeNutrients;
         b->_VolumeNutrientsLast=b->_VolumeNutrients;
+        a->_ConcentraionLast = a->_Concentraion;
+        b->_ConcentraionLast = b->_Concentraion;
         Serial.printf("source barrel %u after: %u, target barrel %u after: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
         Serial.printf("concentration after: %f\r\n", b->_Concentraion);
     }
 
 
 
-
-
-// should I remember previous Concentration, volumeNutr, volumeFresh ?
-// in case system reset middle-calculation - fresh must be 0, compare volumes? if mishatch use old?
-// thay can only differ middle-calculation as a safeguard? save after applying old - before changing new?
-// save old only these three??
 // save at each change? inside the changing function? only to SD? 
-// compare data after each save? use new struct for each compare?
-// separately save each struct and not the whole array to save SD writes? what minimal SD write size? 512 bytes?
-
-    // add - NutriFlowTransferTo
-
-
-
-
-//    return ( get_flow_volume() + get_sonic_volume() ) / 2; // fifty-fifty - need to change?
+// what minimal SD write size? 512 bytes?
 
  // 0 to 100% from flow 
-
-  // 0 to 100% from ultrasonic 
-
- // 0 to 100% from ultrasonic and flow combined
-
-
-//  if (barrelNumber < 0 || barrelNumber >= NUM_OF_BARRELS)
-//    barrelNumber = 0; // playing safe with dummys :-)
 
 
     uint16_t VolumeMax(byte barrel){
@@ -1169,7 +1146,7 @@ public:
     }
 
 
-    // returns distance in mm
+    // contact the sensor via UART, measure, return distance in mm
     void SonicMeasure(byte barrel, byte measure = 10, uint16_t notTimeout = 1000, byte retry = 5){ // the hedgehog :P
         uint16_t temptimeout = notTimeout;
         byte tempretry = retry;
@@ -1274,7 +1251,7 @@ public:
     void SonicOffsetSet(byte barrel, uint16_t offs){  myBarrel[barrel]._SonicOffset = offs; }
     void SonicMLinMMSet(byte barrel, uint16_t coef){  myBarrel[barrel]._SonicMLinMM = coef; }
 
-    // sonic measure
+    // sonic calculate liters of last measurement
     int16_t SonicCalcLiters(byte barrel){
         // _SonicOffset = empty barrel (full barrel lenght) in mm
         // "full barrel lenght" - SonicMeasure = water level from empty in mm
