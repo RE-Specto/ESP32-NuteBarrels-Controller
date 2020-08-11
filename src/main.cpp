@@ -4,11 +4,21 @@ bugs:
 
 to implement:
 
+pressure:
+int16_t measure - implement error_states
 
-deprecate PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR? use errors locally on-demand?
-    what about old errors on start-up? send system error [number] - view "error number" meaning via webUI
-    use same ErrorGet ErrorSet ErrorUnset from barrels - internal variable
-    deprecate _TooLowErr _TooHighErr?
+flow - implement error_states? 
+
+global system - implement only one error per system
+    search: hex codes for "error_state" bit-field
+
+check all sensors at start-up - generate relevant errors. 
+    send error sms every system start-up?
+    only at error-state change? remember old error state?
+    send system[type] error [error_state] - view "error_state" meaning via webUI?
+    
+    "use same ErrorGet ErrorSet ErrorUnset from barrels - internal variable" ??
+
 
 
 calc new concentration only when all solenoids closed? wait untill no flow???
@@ -31,12 +41,48 @@ assign system-wide sub-state to deal with resets?
 
 fmsex tasks implement:
     fill
-        water line no pressure? stop, set error, recheck in loop - if ok - clear error
+        water line no pressure? stop, set error, sendsms, recheck in loop - if ok - clear error
         fill untill target reached
+        check flow - if no flow (but pressure) for 100 times (10 seconds)
+                if no flow set flowsensor1 error
+
     mix
         flow counter should be cleared (set zero) over time - flow reading while mixing are useless - 
             on finish only? before every save? on start of every other task that uses flow counter (set 0)
+        evaluate pressure in loop - set barrel error if overpressure  - system stop 
+            no matter what barrel -  let to continue - on continue clear error + retry
+                if error still there - it will stop again itself.
+        check status not stopped in a loop
+            if stopped - go endless loop?
+                see !need debaunce! below
+        count time to mix
+        check no flow no pressure for 10 times -  stop pump - status stopped - send sms - set error
 
+    store
+        evaluate pressure in loop - if overpressure error - set target barrel error
+            goto next barrel, clear overpressure error
+            if all barrels error - set pump error - clear all barrel errors
+                except manually-disabled barrels "error"
+            if no pressure - loop-measure for a while
+                if still no pressure - check flow
+                    no flow - set pump error.
+        measure untill target reached isFillTargetReached
+            if reached - NutrientsTransferCalc
+            else NutrientsTransferCalc each 50 liters - if flow.CounterGet(1)/flow.DividerGet(1) > 50
+
+    drain
+        same as store to barrel 7
+        at end of task dump barrel 7 to global counter + set barrel 7 to zero
+        at start set barrel 7 to zero anyway justin case
+
+
+!! need debaunce!! - once pressed loop check if high 50 ms, check if still pressed?
+    from within receiving functions only?
+        interrupts only sets variables?
+             each task checks for this flag, loop-measure for 50ms
+                break loop if released
+                acts accordingly otherwise
+                https://www.evernote.com/shard/s544/nl/96519974/8b3f9bc9-551e-4f13-b3cd-98f8cc75c980
 
 start/stop interrupts "use start-stop actions from evernote!" 
     start sets canMix global boolean? 
@@ -51,10 +97,12 @@ start/stop interrupts "use start-stop actions from evernote!"
     // can set the bool to !bool to check if pressed twice - for reset and other system tasks
 
 work on system hardware - implement all changes to schematic!!
+change zeners to 3.3v?
 
 check what modem returns if error - if valid check - implement SMS error
 
-add calibration edit for all sensors to manual:
+add calibration edit for all sensors to manual: 
+use separate <forms> for each one?
     SystemState.state_set
     SystemState.state_unset
     SystemState.error_set
@@ -182,15 +230,14 @@ add ... on serial.available to check module awake
 
 
 //hex codes for "error_state" bit-field
-#define NOWATER_ERROR	    0x01    //1-1-water line no pressure
-#define PS1TOOHIGH_ERROR    0x08    //4-8-pump1 pressure too high - storing solenoids malfunction
-#define PS1TOOLOW_ERROR     0x10    //5-16-pump1 pressure too low - pump failure or no more liquid
-#define PS2TOOHIGH_ERROR    0x20    //6-8-pump1 pressure too high - storing solenoids malfunction
-#define PS2TOOLOW_ERROR     0x40    //7-16-pump1 pressure too low - pump failure or no more liquid
-#define FS1_NOFLOW_ERROR    0x80    //8-128-fs1 no flow
-#define FS2_NOFLOW_ERROR    0x100   //9-256-fs2 no flow
-#define NOMAINS_ERROR       0x400   //B-1024-no mains power
-#define BARRELS_ERROR       0x800   //C-2048-barrels error
+#define ERR_WATER_LOWPRESSURE    0x02    //2-8-pump1 pressure too high - storing solenoids malfunction
+#define ERR_WATER_HIGHPRESSURE     0x04    //3-16-pump1 pressure too low - pump failure or no more liquid
+#define ERR_NUTRI_LOWPRESSURE    0x08    //4-8-pump1 pressure too high - storing solenoids malfunction
+#define ERR_NUTRI_HIGHPRESSURE     0x10    //5-16-pump1 pressure too low - pump failure or no more liquid
+#define ERR_WATER_NOFLOW    0x20    //8-128-fs1 no flow
+#define ERR_NUTRI_NOFLOW    0x40   //9-256-fs2 no flow
+#define ERR_NOMAINS       0x80   //B-1024-no mains power
+#define ERR_BARRELS       0x100   //C-2048-barrels error
 
 //hex codes for "state" bit field
 #define MANUAL_STATE    0x20    // manual mode on
@@ -902,13 +949,18 @@ void IRAM_ATTR FlowSensor2Interrupt() {
 // task pressure sensors - stops pumps on overpressure
 
 struct myPS {
+    //0 normal pressure
+    //1 no pressure
+    //3 overpressure
+    //2 disconnected
+    //4 short circuit
+
+    byte _ErrorState=0;
     uint8_t _sensorPin = 255; // defaults
-    uint8_t _divider = 36;
-    int16_t  _offset = -145;
-    uint8_t _max_pressure = 255;
-    uint8_t _min_pressure = 0;
-    uint16_t _TooLowErr = 0;
-    uint16_t _TooHighErr = 0;
+    uint8_t _divider = 10;//36;
+    int16_t  _offset = 0;//-145;
+    uint8_t _max_pressure = 200;
+    uint8_t _min_pressure = 55;
 };
 
 // pressure sensors starts from 0
@@ -917,11 +969,8 @@ private:
     myPS psensor[2]; // two sensor
 public:
     // init the sensor
-    // !! need to reimplement to use error mask position instead the whole uint16_t mask
-    void setSensor(uint8_t num, uint8_t sensorPin, uint16_t TooLowErr, uint16_t TooHighErr){
+    void setSensor(uint8_t num, uint8_t sensorPin){
         psensor[num]._sensorPin = sensorPin;
-        psensor[num]._TooLowErr = TooLowErr;
-        psensor[num]._TooHighErr = TooHighErr;
         pinMode(sensorPin,INPUT); // initialize analog pin for the sensor
     }
 
@@ -937,24 +986,79 @@ public:
     bool LoadSD(){ return Load("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
 
     bool SaveSD(){ return Save("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
+    
+    // error handling
+    byte ErrorGet(byte sens){ return psensor[sens]._ErrorState; }
+    void ErrorReset(byte sens){ psensor[sens]._ErrorState=0; }
+
+
 
     // read sensor - convert analog value to psi
-int16_t measure(uint8_t sens){
+int16_t measure(byte sens){
+    /*
+    short value: 409.5, short >= 46.5ma 3.3v
+    20.3ma value: 253.8, 2.31v
+    slight pressure: 53.9
+    atmospheric pressure=4ma, 4.04ma value: 51.1-53.1, 0.58v
+    slight vacuum: 43.5
+    disconnect value: 0, v0 0ma
+    */
     myPS* p=&psensor[sens];
     // https://forum.arduino.cc/index.php?topic=571166.0
-    // convert analog value to psi
-    Serial.printf("measuring pSensor %u @pin%u value:%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin));
-    uint16_t pressure = (analogRead(p->_sensorPin) * 10 / p->_divider + p->_offset); //test - needs to be replaced with acrual formula
-    if (pressure < p->_min_pressure) {
-        // set underpressure error
-        SystemState.error_set(p->_TooLowErr);
+    analogRead(p->_sensorPin);// discard first value
+    // convert analog value to pressure
+    Serial.printf("measuring pSensor %u @pin%u value:%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
+    uint16_t pressure = (analogRead(p->_sensorPin) / p->_divider + p->_offset); // third value goes into evaluation
+    Serial.println(pressure);
+
+        //2 overpressure
+    if (pressure > p->_max_pressure && pressure < 255) {
+        // stop pump
+        // set error
+        p->_ErrorState = 2;
+        Serial.printf("[e][pressure] sensor %u overpressure\r\n", sens);
+        // set global error? no - only if other solenoids too
+            //sendsms from fmsd task with solenoid #num or pump #num error
+        return pressure; // exits here
     }
-    if (pressure > p->_max_pressure) {
-        // set overpressure error
-        SystemState.error_set(p->_TooHighErr);
-        // !! implement - stop the pump !!!
+    //4  short circuit
+    if (pressure > 255){
+        // stop pump
+        // set error
+        p->_ErrorState = 4;
+        // set global error
+        Serial.printf("[e][pressure] sensor %u short circuit\r\n", sens);
+        //send sms
+        return pressure; // exits here
+    }
+    //3  disconnected
+    if (pressure < 20 ) {
+        // stop pump
+        // set error
+        p->_ErrorState = 3;
+        // set global error
+        Serial.printf("[e][pressure] sensor %u disconnected\r\n", sens);
+        //send sms
+        return pressure; // exits here
+    }
+    //1  no pressure
+    if (pressure < p->_min_pressure) {
+    //normal state for pump off
+    //no pressure
+    if (p->_ErrorState == 0)
+        p->_ErrorState = 1;
+    //let fmsd task to handle it - ignore for some time untill we build pressure
+    }
+    //normal pressure range is here - reset errors
+    if ( pressure > p->_min_pressure && pressure < p->_max_pressure ) {
+//normal state for pump on
+//flow pressure range
+    if (p->_ErrorState == 1)// should it clean errors??
+        p->_ErrorState = 0;// only if not critical
+
     }
 
+    // "add global pressure error here" - what is this??
     return pressure;
 }
 
@@ -1078,7 +1182,19 @@ public:
         else Serial.println(F("[w] [barrels] ConcentrationRecalc called but already calculated"));
     }
 
-
+    bool isFillTargetReached (byte barrel, byte type, uint16_t target){
+        myBR *b = &myBarrel[barrel];
+        uint16_t tempLiters = 0;
+        //check target barrel current state
+        if (type)
+            tempLiters += b->_VolumeNutrients;
+        else 
+            tempLiters += b->_VolumeFreshwater;
+        //add data from flowsensor
+        tempLiters += flow.CounterGet(type)/flow.DividerGet(type);
+        //check if target reached
+        return tempLiters >= target;
+    }
 
     void NutrientsTransferCalc (byte from, byte to){
         myBR *a = &myBarrel[from];
@@ -1714,11 +1830,11 @@ void setupServer(){
             flow.FlowGet(1), 
             flow.DividerGet(1));
         response->print("<span>Pressure Sensors</span>");
-        response->printf("<li>Ps1: [%iPsi] [%u raw/psi] [%i correction]</li>", 
+        response->printf("<li>Ps1: [%iUnits] [%u raw/Units] [%i correction]</li>", 
             pressure.measure(0), 
             pressure.DividerGet(0), 
             pressure.OffsetGet(0));
-        response->printf("<li>Ps2: [%iPsi] [%u raw/psi] [%i correction]</li>", 
+        response->printf("<li>Ps2: [%iUnits] [%u raw/Units] [%i correction]</li>", 
             pressure.measure(1), 
             pressure.DividerGet(1), 
             pressure.OffsetGet(1));
@@ -2119,8 +2235,8 @@ void setup() {
     // load structs from SD card
     LoadStructs();
 
-    pressure.setSensor(0, PRESSUR_1_PIN, PS1TOOHIGH_ERROR, PS1TOOLOW_ERROR);
-    pressure.setSensor(1, PRESSUR_2_PIN, PS2TOOHIGH_ERROR, PS2TOOLOW_ERROR);
+    pressure.setSensor(0, PRESSUR_1_PIN);
+    pressure.setSensor(1, PRESSUR_2_PIN);
 
     flow.begin();
     flow.CounterReset(0);
