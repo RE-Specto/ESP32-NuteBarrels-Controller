@@ -1003,7 +1003,7 @@ public:
         Serial.println(pres);
 
         //2 overpressure
-        if (pres > p->_max_pressure && pressure < 255) {
+        if (pres > p->_max_pressure && pres < 255) {
             // stop pump
             expanders.Pump(false);
             Alarm.delay(100);
@@ -1043,7 +1043,7 @@ public:
         }
 
         //1  no pressure
-        if (pressure < p->_min_pressure) {
+        if (pres < p->_min_pressure) {
         //normal state for pump off - no pressure
         if (p->_ErrorState == 0)
             p->_ErrorState = 1;
