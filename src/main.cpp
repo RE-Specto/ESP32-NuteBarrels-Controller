@@ -7,10 +7,6 @@ to implement:
 pressure:
 int16_t measure - implement error_states
 
-flow - implement error_states? 
-
-global system - implement only one error per system
-    search: hex codes for "error_state" bit-field
 
 check all sensors at start-up - generate relevant errors. 
     send error sms every system start-up?
@@ -230,14 +226,13 @@ add ... on serial.available to check module awake
 
 
 //hex codes for "error_state" bit-field
-#define ERR_WATER_LOWPRESSURE    0x02    //2-8-pump1 pressure too high - storing solenoids malfunction
-#define ERR_WATER_HIGHPRESSURE     0x04    //3-16-pump1 pressure too low - pump failure or no more liquid
-#define ERR_NUTRI_LOWPRESSURE    0x08    //4-8-pump1 pressure too high - storing solenoids malfunction
-#define ERR_NUTRI_HIGHPRESSURE     0x10    //5-16-pump1 pressure too low - pump failure or no more liquid
-#define ERR_WATER_NOFLOW    0x20    //8-128-fs1 no flow
-#define ERR_NUTRI_NOFLOW    0x40   //9-256-fs2 no flow
-#define ERR_NOMAINS       0x80   //B-1024-no mains power
-#define ERR_BARRELS       0x100   //C-2048-barrels error
+#define ERR_PUMP            0x01
+#define ERR_WATER_PRESSURE  0x02  
+#define ERR_NUTRI_PRESSURE  0x04    
+#define ERR_WATER_NOFLOW    0x08  
+#define ERR_NUTRI_NOFLOW    0x10
+#define ERR_NOMAINS         0x20
+#define ERR_BARRELS         0x40
 
 //hex codes for "state" bit field
 #define MANUAL_STATE    0x20    // manual mode on
@@ -246,6 +241,7 @@ add ... on serial.available to check module awake
 #define STORING_STATE   0x04    // S = storing task on
 #define DRAINIG_STATE   0x02    // E = draining task on
 #define STOPPED_STATE   0x01    // X = stopped status on
+//add sub-states here?
 
 // RGB_LED bitmap 00000BGR
 #define LED_OFF     0x00 //000
@@ -986,81 +982,96 @@ public:
     bool LoadSD(){ return Load("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
 
     bool SaveSD(){ return Save("/Pressure.bin", (byte*)&psensor, sizeof(psensor)); }
-    
-    // error handling
-    byte ErrorGet(byte sens){ return psensor[sens]._ErrorState; }
-    void ErrorReset(byte sens){ psensor[sens]._ErrorState=0; }
-
 
 
     // read sensor - convert analog value to psi
-int16_t measure(byte sens){
-    /*
-    short value: 409.5, short >= 46.5ma 3.3v
-    20.3ma value: 253.8, 2.31v
-    slight pressure: 53.9
-    atmospheric pressure=4ma, 4.04ma value: 51.1-53.1, 0.58v
-    slight vacuum: 43.5
-    disconnect value: 0, v0 0ma
-    */
-    myPS* p=&psensor[sens];
-    // https://forum.arduino.cc/index.php?topic=571166.0
-    analogRead(p->_sensorPin);// discard first value
-    // convert analog value to pressure
-    Serial.printf("measuring pSensor %u @pin%u value:%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
-    uint16_t pressure = (analogRead(p->_sensorPin) / p->_divider + p->_offset); // third value goes into evaluation
-    Serial.println(pressure);
+    int16_t measure(byte sens){
+        /*
+        short value: 409.5, short >= 46.5ma 3.3v
+        20.3ma value: 253.8, 2.31v
+        slight pressure: 53.9
+        atmospheric pressure=4ma, 4.04ma value: 51.1-53.1, 0.58v
+        slight vacuum: 43.5
+        disconnect value: 0, v0 0ma
+        */
+        myPS* p=&psensor[sens];
+        // https://forum.arduino.cc/index.php?topic=571166.0
+        analogRead(p->_sensorPin);// discard first value
+        // convert analog value to pressure
+        Serial.printf("measuring pSensor %u @pin%u value:%u\r\n", sens, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
+        uint16_t pres = (analogRead(p->_sensorPin) / p->_divider + p->_offset); // third value goes into evaluation
+        Serial.println(pres);
 
         //2 overpressure
-    if (pressure > p->_max_pressure && pressure < 255) {
-        // stop pump
-        // set error
-        p->_ErrorState = 2;
-        Serial.printf("[e][pressure] sensor %u overpressure\r\n", sens);
-        // set global error? no - only if other solenoids too
-            //sendsms from fmsd task with solenoid #num or pump #num error
-        return pressure; // exits here
-    }
-    //4  short circuit
-    if (pressure > 255){
-        // stop pump
-        // set error
-        p->_ErrorState = 4;
-        // set global error
-        Serial.printf("[e][pressure] sensor %u short circuit\r\n", sens);
-        //send sms
-        return pressure; // exits here
-    }
-    //3  disconnected
-    if (pressure < 20 ) {
-        // stop pump
-        // set error
-        p->_ErrorState = 3;
-        // set global error
-        Serial.printf("[e][pressure] sensor %u disconnected\r\n", sens);
-        //send sms
-        return pressure; // exits here
-    }
-    //1  no pressure
-    if (pressure < p->_min_pressure) {
-    //normal state for pump off
-    //no pressure
-    if (p->_ErrorState == 0)
-        p->_ErrorState = 1;
-    //let fmsd task to handle it - ignore for some time untill we build pressure
-    }
-    //normal pressure range is here - reset errors
-    if ( pressure > p->_min_pressure && pressure < p->_max_pressure ) {
-//normal state for pump on
-//flow pressure range
-    if (p->_ErrorState == 1)// should it clean errors??
-        p->_ErrorState = 0;// only if not critical
+        if (pres > p->_max_pressure && pressure < 255) {
+            // stop pump
+            expanders.Pump(false);
+            Alarm.delay(100);
+            expanders.Protect(true);
+            // set error
+            p->_ErrorState = 2;
+            Serial.printf("[e][pressure] sensor %u overpressure\r\n", sens);
+            // set global error? no - only if other solenoids too
+                //sendsms from fmsd task with solenoid #num or pump #num error
+            return pres; // exits here
+        }
 
+        //4  short circuit
+        if (pres > 255){
+            // stop pump
+            expanders.Pump(false);
+            Alarm.delay(100);
+            expanders.Protect(true);
+            // set error
+            p->_ErrorState = 4;
+            Serial.printf("[e][pressure] sensor %u short circuit\r\n", sens);
+            //send sms
+            return pres; // exits here
+        }
+
+        //3  disconnected
+        if (pres < 20 ) {
+            // stop pump
+            expanders.Pump(false);
+            Alarm.delay(100);
+            expanders.Protect(true);
+            // set error
+            p->_ErrorState = 3;
+            Serial.printf("[e][pressure] sensor %u disconnected\r\n", sens);
+            //send sms
+            return pres; // exits here
+        }
+
+        //1  no pressure
+        if (pressure < p->_min_pressure) {
+        //normal state for pump off - no pressure
+        if (p->_ErrorState == 0)
+            p->_ErrorState = 1;
+        //let fmsd task to handle it - ignore for some time untill we build pressure
+        }
+
+        //normal pressure range is here - reset errors
+        if ( pres > p->_min_pressure && pres < p->_max_pressure ) {
+        //normal state for pump on - flow pressure range
+        if (p->_ErrorState == 1)// should it clean errors??
+            p->_ErrorState = 0;// only if not critical
+
+        }
+
+        // "add global pressure error here" - what is this??
+        if (p->_ErrorState > 1) { // critical error
+            if (sens == 0)
+                SystemState.error_set(ERR_WATER_PRESSURE);
+            else
+                SystemState.error_set(ERR_NUTRI_PRESSURE);
+        }
+        return pres;
     }
 
-    // "add global pressure error here" - what is this??
-    return pressure;
-}
+    
+    // error handling
+    byte ErrorGet(byte sens){ return psensor[sens]._ErrorState; }
+    void ErrorReset(byte sens){ psensor[sens]._ErrorState=0; measure(sens);}
 
 } pressure;
 
