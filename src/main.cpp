@@ -4,41 +4,11 @@ bugs:
 
 to implement:
 
-pressure:
-int16_t measure - implement error_states
-
-
-check all sensors at start-up - generate relevant errors. 
-    send error sms every system start-up?
-    only at error-state change? remember old error state?
-    send system[type] error [error_state] - view "error_state" meaning via webUI?
-    
-    "use same ErrorGet ErrorSet ErrorUnset from barrels - internal variable" ??
-
-
-
-calc new concentration only when all solenoids closed? wait untill no flow???
-    // if then sol + pump + flow calc need to run on separate thread of barrels!!
-        if filling - will calc ok. 
-        if storing - will calc before storing so ok anyway?
-    calculate transferred concentration each what?
-        flow > 50L(concxentration must be accurate) or flow target reached?
-        change concentration to float?
-
-
-assign system-wide sub-state to deal with resets? 
-    sytem will remeasure using sonic 
-        if diff too large - assign sonic value to 
-            VolumeNutrients or VolumeFreshwater depending on last substate
-            if sub-state was nutri transfer - recalc concentration?
-                make concentration calc function universal?
-    system will continue from last substate
-
 
 fmsex tasks implement:
     fill
         water line no pressure? stop, set error, sendsms, recheck in loop - if ok - clear error
-        fill untill target reached
+        fill untill target reached  "bool isFillTargetReached"
         check flow - if no flow (but pressure) for 100 times (10 seconds)
                 if no flow set flowsensor1 error
 
@@ -71,6 +41,14 @@ fmsex tasks implement:
         at end of task dump barrel 7 to global counter + set barrel 7 to zero
         at start set barrel 7 to zero anyway justin case
 
+
+assign system-wide sub-state to deal with resets? 
+    on reset - sytem will remeasure using sonic 
+        if diff too large - assign sonic value to 
+            VolumeNutrients or VolumeFreshwater depending on last substate
+            if sub-state was nutri transfer - recalc concentration?
+                make concentration calc function universal?
+    system will continue from last substate
 
 !! need debaunce!! - once pressed loop check if high 50 ms, check if still pressed?
     from within receiving functions only?
@@ -614,8 +592,20 @@ void SendSMS(const char* message, byte item){ //byte item=0xFF moved to declarat
     expanders.UnlockMUX();
 }
 
-// !!! deprecate dict message below???
+/*
+module needs 3.4V to 4.4V (Ideal 4.1V) @ 2amp
+mySerial.println("AT"); //Once the handshake test is successful, it will back to OK
+mySerial.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
+mySerial.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
+mySerial.println("AT+CREG?"); //Check whether it has registered in the network
+ATI – Get the module name and revision
+AT+COPS? – Check that you’re connected to the network, in this case BSNL
+AT+COPS=? – Return the list of operators present in the network.
+AT+CBC – will return the lipo battery state. The second number is the % full (in this case its 93%) and the third number is the actual voltage in mV (in this case, 3.877 V)
+*/
 
+// !!! deprecate dict message below???
+/*
 //https://forum.arduino.cc/index.php?topic=451141.0
 // search file dictX, skip error_number commas, set value untill next comma to smsMessage[]
 // seaprate dictionary for each caller_function
@@ -658,19 +648,10 @@ void SendSMS(String message){
     OUT_PORT.print("-sendsms: ");
     OUT_PORT.println(message);
     SendSMS(message.c_str());
-}
-// module needs 3.4V to 4.4V (Ideal 4.1V) @ 2amp
+}*/
 
-/*
-  mySerial.println("AT"); //Once the handshake test is successful, it will back to OK
-  mySerial.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
-  mySerial.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
-  mySerial.println("AT+CREG?"); //Check whether it has registered in the network
-  ATI – Get the module name and revision
-AT+COPS? – Check that you’re connected to the network, in this case BSNL
-AT+COPS=? – Return the list of operators present in the network.
-AT+CBC – will return the lipo battery state. The second number is the % full (in this case its 93%) and the third number is the actual voltage in mV (in this case, 3.877 V)
-  */
+
+
 
 void modemInit(){
     OUT_PORT.println("-modem init");
@@ -1026,6 +1007,7 @@ public:
             p->_ErrorState = 4;
             Serial.printf("[e][pressure] sensor %u short circuit\r\n", sens);
             //send sms
+            SendSMS("short circuit @pressure sensor", sens);
             return pres; // exits here
         }
 
@@ -1039,6 +1021,7 @@ public:
             p->_ErrorState = 3;
             Serial.printf("[e][pressure] sensor %u disconnected\r\n", sens);
             //send sms
+            SendSMS("lost connection @pressure sensor", sens);
             return pres; // exits here
         }
 
