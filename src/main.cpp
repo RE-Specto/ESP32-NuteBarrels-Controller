@@ -1,16 +1,14 @@
 /*
 bugs:
-
+pressure measure alerting disconnected in any case
+sendsms not showing sensor number on print
+flow + pressure no data?
 
 to implement:
 
 
 fmsex tasks implement:
-    fill
-        water line no pressure? stop, set error, sendsms, recheck in loop - if ok - clear error
-        fill untill target reached  "bool isFillTargetReached"
-        check flow - if no flow (but pressure) for 100 times (10 seconds)
-                if no flow set flowsensor1 error
+line 1454
 
     mix
         flow counter should be cleared (set zero) over time - flow reading while mixing are useless - 
@@ -43,6 +41,7 @@ fmsex tasks implement:
 
 
 assign system-wide sub-state to deal with resets? 
+use combination of SystemState.state_check and Transfers.inner_state
     on reset - sytem will remeasure using sonic 
         if diff too large - assign sonic value to 
             VolumeNutrients or VolumeFreshwater depending on last substate
@@ -995,7 +994,7 @@ public:
             // set global error? no - only if other solenoids too
                 //sendsms from fmsd task with solenoid #num or pump #num error
             return pres; // exits here
-        }
+            }
 
         //4  short circuit
         if (pres > 255){
@@ -1009,7 +1008,7 @@ public:
             //send sms
             SendSMS("short circuit @pressure sensor", sens);
             return pres; // exits here
-        }
+            }
 
         //3  disconnected
         if (pres < 20 ) {
@@ -1023,23 +1022,22 @@ public:
             //send sms
             SendSMS("lost connection @pressure sensor", sens);
             return pres; // exits here
-        }
+            }
 
         //1  no pressure
         if (pres < p->_min_pressure) {
-        //normal state for pump off - no pressure
-        if (p->_ErrorState == 0)
-            p->_ErrorState = 1;
-        //let fmsd task to handle it - ignore for some time untill we build pressure
-        }
+            //normal state for pump off - no pressure
+            if (p->_ErrorState == 0)
+                p->_ErrorState = 1;
+            //let fmsd task to handle it - ignore for some time untill we build pressure
+            }
 
         //normal pressure range is here - reset errors
         if ( pres > p->_min_pressure && pres < p->_max_pressure ) {
-        //normal state for pump on - flow pressure range
-        if (p->_ErrorState == 1)// should it clean errors??
-            p->_ErrorState = 0;// only if not critical
-
-        }
+            //normal state for pump on - flow pressure range
+            if (p->_ErrorState == 1)// should it clean errors??
+                p->_ErrorState = 0;// only if not critical
+            }
 
         // "add global pressure error here" - what is this??
         if (p->_ErrorState > 1) { // critical error
@@ -1047,14 +1045,23 @@ public:
                 SystemState.error_set(ERR_WATER_PRESSURE);
             else
                 SystemState.error_set(ERR_NUTRI_PRESSURE);
-        }
+            }
+
         return pres;
-    }
+        }
 
     
     // error handling
     byte ErrorGet(byte sens){ return psensor[sens]._ErrorState; }
-    void ErrorReset(byte sens){ psensor[sens]._ErrorState=0; measure(sens);}
+    void ErrorReset(byte sens){ 
+        expanders.Protect(false);
+        psensor[sens]._ErrorState=0; 
+        if (!sens)  // sensor-0 freshwater
+            SystemState.error_unset(ERR_WATER_PRESSURE);
+        else        // sensor-1 nutrients
+            SystemState.error_unset(ERR_NUTRI_PRESSURE);
+        measure(sens);
+        }
 
 } pressure;
 
@@ -1176,6 +1183,7 @@ public:
         else Serial.println(F("[w] [barrels] ConcentrationRecalc called but already calculated"));
     }
 
+    // checks if current barrel freshwater/nutrients level is at/above target
     bool isFillTargetReached (byte barrel, byte type, uint16_t target){
         myBR *b = &myBarrel[barrel];
         uint16_t tempLiters = 0;
@@ -1190,6 +1198,8 @@ public:
         return tempLiters >= target;
     }
 
+    // substracting flowcount from source, adding to destination, recalculating concentration @destination
+    // run less often for concentration accuracy
     void NutrientsTransferCalc (byte from, byte to){
         myBR *a = &myBarrel[from];
         myBR *b = &myBarrel[to];
@@ -1429,6 +1439,7 @@ public:
 
 
 struct st {
+        byte inner_state = 0; // for states inside fmsd tasks
         uint16_t prefill_requirement = 100; // initial 100 liters
         uint16_t prefill_counter = 0;
         uint16_t afterfill_requirement = 400; // additional 400 liters
@@ -1446,12 +1457,44 @@ struct st {
 } Transfers;
 
 void Fill(uint16_t barrel, uint16_t requirement){
+        
+        pressure.measure(0);//freshwater at sensor 0
+        if (pressure.ErrorGet(0) == 1 ) {
+            // water line no pressure? stop, set error, 
+            SystemState.error_set(ERR_WATER_PRESSURE);
+            //sendsms, 
+            SendSMS("no water pressure");
+            //recheck in loop - if ok - clear error
+            while (pressure.ErrorGet(0) != 0) {
+                Alarm.delay(2000);
+                pressure.measure(0);
+                }
+            SystemState.error_unset(ERR_WATER_PRESSURE);
+            }
         // if barrel ammount less than requirement
         // open barrel filling tap
+        expanders.FillingRelay(barrel, true);
         // fill until requirement OR barrel_high_level
-            // decrement requirement by flow counter
-            // break if stopped but not manual
-        // close mixer tap
+        while (!barrels.isFillTargetReached(barrel,0,requirement)){
+            if (barrels.isFull(barrel)) break;
+            // assign flowcount to barrel
+            barrels.FreshwaterFillCalc(barrel);//
+            // check if changed to STOPPED state
+            if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
+                break;  // breaks the measure loop, close tap, back to FillingTask,
+                            // will enter stopped loop there
+            // check flow - if no flow (but pressure) for 100 times (10 seconds)
+            // if no flow set flowsensor1 error     
+//!!!
+
+
+
+            Alarm.delay(1000);
+        }
+
+
+        // close tap
+        expanders.FillingRelay(barrel, false);
 }
 
 // Filling task
@@ -1472,17 +1515,24 @@ void FillingTask(){
 
 void Mix(uint16_t barrel, uint16_t requirement){
     // open barrel drain tap
+    expanders.DrainingRelay(barrel, true);
     // open barrel store tap
-    // open dIN tap
+    expanders.StoringRelay(barrel, true);
     // start pump
+    expanders.Pump(true);
     // loop - while requirement > 0
+    while(Transfers.mix_requirement > Transfers.mix_counter){
         // decrement requirement every minute
         // break if stopped but not manual
+    }
+
     // if requirement reached 0
         // stop pump
+        expanders.Pump(true);
         // close barrel drain tap
-        // close dIN tap
+        expanders.DrainingRelay(barrel, false);
         // close barrel store tap
+        expanders.StoringRelay(barrel, false);
         // init save 
 }
 
@@ -1518,6 +1568,10 @@ void Store(uint16_t barrel, uint16_t target, uint16_t requirement){
 
 // Storing task
 void StoringTask(){
+// !! use src barrel level as requirement?
+// while barrels.isFillTargetReached(barrel-0, 1, min_level)
+// if flowcounter>50L barrels.NutrientsTransferCalc (barrel-src, barrel-dest)
+// at the end of while loop - NutrientsTransferCalc again
     while (true){ // endless loop Storing task
         // stopped status off?
         // measure barrel 0
@@ -1841,6 +1895,7 @@ void setupServer(){
             response->print("</li>");
         }
         response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", barrels.SonicLitersTotal(), barrels.SonicLitersUsable());
+        response->printf("<li>uptime: %lli</li>", esp_timer_get_time()/1000000);
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
