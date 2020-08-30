@@ -1456,6 +1456,7 @@ struct st {
         uint8_t draining_barrel = NUM_OF_BARRELS-1; // last barrel (-1 cause we start from zero)
 } Transfers;
 
+
 void Fill(uint16_t barrel, uint16_t requirement){
         byte waited_for_flow=0;// number of seconds without flow
         pressure.measure(0);//freshwater at sensor 0
@@ -1471,11 +1472,10 @@ void Fill(uint16_t barrel, uint16_t requirement){
                 }
             SystemState.error_unset(ERR_WATER_PRESSURE);
             }
-        // if barrel ammount less than requirement
         // open barrel filling tap
         expanders.FillingRelay(barrel, true);
         // fill until requirement OR barrel_high_level
-        while (!barrels.isFillTargetReached(barrel,0,requirement)){
+        while (!barrels.isFillTargetReached(barrel,0,requirement)){// if barrel ammount less than requirement
             if (barrels.isFull(barrel)) break;
             // assign flowcount to barrel
             barrels.FreshwaterFillCalc(barrel);//
@@ -1501,7 +1501,9 @@ void Fill(uint16_t barrel, uint16_t requirement){
 
         // close tap
         expanders.FillingRelay(barrel, false);
+        SaveStructs();
 }
+
 
 // Filling task
 void FillingTask(){
@@ -1519,6 +1521,7 @@ void FillingTask(){
     } // endless loop Filling task
 }
 
+
 void Mix(uint16_t barrel, uint16_t requirement){
     // open barrel drain tap
     expanders.DrainingRelay(barrel, true);
@@ -1527,20 +1530,34 @@ void Mix(uint16_t barrel, uint16_t requirement){
     // start pump
     expanders.Pump(true);
     // loop - while requirement > 0
+    byte x = 0;
     while(Transfers.mix_requirement > Transfers.mix_counter){
-        // decrement requirement every minute
+        // increment counter every minute
+        if (x<60) {
+            Alarm.delay(1000);
+            x++;
+        }
+        else {
+            Transfers.mix_counter++;
+            x=0;
+        }
         // break if stopped but not manual
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
+            break;  // breaking the measure loop will close taps
     }
-
-    // if requirement reached 0
-        // stop pump
-        expanders.Pump(true);
-        // close barrel drain tap
-        expanders.DrainingRelay(barrel, false);
-        // close barrel store tap
-        expanders.StoringRelay(barrel, false);
-        // init save 
+    // counter reached requirement
+    // stop pump
+    expanders.Pump(false);
+    // wait untill pressure released
+    Alarm.delay(100); 
+    // close barrel drain tap
+    expanders.DrainingRelay(barrel, false);
+    // close barrel store tap
+    expanders.StoringRelay(barrel, false);
+    // init save 
+    SaveStructs();
 }
+
 
 // Mixing task
 void MixingTask(){
@@ -1556,9 +1573,11 @@ void MixingTask(){
 
 void Store(uint16_t barrel, uint16_t target, uint16_t requirement){
     // open barrel drain tap
+    expanders.DrainingRelay(barrel, true);
     // open target store tap
-    // open dIN tap
+    expanders.StoringRelay(target, true);
     // start pump
+    expanders.Pump(true);
     // loop - while requirement > 0 OR barrel not empty OR target not full
         // decrement requirement by flow counter
         // truncate flow counter from barrel
@@ -1566,11 +1585,17 @@ void Store(uint16_t barrel, uint16_t target, uint16_t requirement){
         // break if stopped but not manual
     // if requirement reached 0
         // stop pump
+        expanders.Pump(false);
+        // wait untill pressure released
+        Alarm.delay(100); 
         // close barrel drain tap
-        // close dIN tap
+        expanders.DrainingRelay(barrel, false);
         // close target store tap
+        expanders.StoringRelay(target, false);
         // init save 
+        SaveStructs();
 }
+
 
 // Storing task
 void StoringTask(){
@@ -1598,14 +1623,21 @@ void StoringTask(){
     } // endless loop Storing task
 }
 
+
 void Drain(uint16_t barrel, uint16_t requirement){
         // assign flow counter to barrel x
-    // open barrel x drain tap + dOUT tap
+//!!!
+    // open barrel drain tap
+    expanders.DrainingRelay(barrel, true);
+    // open pools "store" tap
+    expanders.StoringRelay(6, true); // store No6 is pools out
     // start pump
+    expanders.Pump(true);
     // loop while drain counter > 0 and barrel x not empty
     while ( requirement && !barrels.isEmpty(barrel) ){ 
         // truncate flow counter from a barrel
         // decrement requirement by flow counter
+//!!!
 
         // check for STOPPED state change
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
@@ -1614,12 +1646,17 @@ void Drain(uint16_t barrel, uint16_t requirement){
         Alarm.delay(1000); 
     }
     // stop pump
+    expanders.Pump(false);
     // close barrel x tap
-    Alarm.delay(1000); // untill pressure released
+    expanders.DrainingRelay(barrel, false);
+    // wait untill pressure released
+    Alarm.delay(100); 
     // close dOUT tap
+    expanders.StoringRelay(6, false);
     // init save
     SaveStructs(); 
 }
+
 
 // Draining task
 void DrainingTask(){
