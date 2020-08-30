@@ -1457,7 +1457,7 @@ struct st {
 } Transfers;
 
 void Fill(uint16_t barrel, uint16_t requirement){
-        
+        byte waited_for_flow=0;// number of seconds without flow
         pressure.measure(0);//freshwater at sensor 0
         if (pressure.ErrorGet(0) == 1 ) {
             // water line no pressure? stop, set error, 
@@ -1483,15 +1483,21 @@ void Fill(uint16_t barrel, uint16_t requirement){
             if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
                 break;  // breaks the measure loop, close tap, back to FillingTask,
                             // will enter stopped loop there
-            // check flow - if no flow (but pressure) for 100 times (10 seconds)
+            // check flow - if no flow (but pressure) for 10 times (10 seconds)
+            if (!flow.FlowGet(0)) {
+                //if (pressure.ErrorGet(0) == 0) {//normal 
+                //}
+                if (waited_for_flow<100) waited_for_flow++; // will increase by 1 every second where is no flow
+            }
+            else waited_for_flow = 0; // reset count if flow detected
             // if no flow set flowsensor1 error     
-//!!!
-
-
-
+            if (waited_for_flow >= 10) { //10 seconds or more
+                SystemState.error_set(ERR_WATER_NOFLOW);
+                SendSMS("flowsensor 1 error: no water flow while filling");
+                break; // breaks the measure loop, close tap, back to FillingTask,
+            }
             Alarm.delay(1000);
         }
-
 
         // close tap
         expanders.FillingRelay(barrel, false);
