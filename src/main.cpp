@@ -3,29 +3,17 @@ bugs:
 pressure measure alerting disconnected in any case
 sendsms not showing sensor number on print
 flow + pressure no data?
+if mix stopped in the middle - it will count from start again
 
 to implement:
-
-get rid of Transfers.mix_counter = Transfers.mix_requirement; - mix by parameter
+add a way to reset pressure error "protect" mode - by pressing start?
 finish void Store
-replace brake with delay loop in fill mix store drain functions to ensure success
-
+finish void Drain
+should i replace brake with delay loop in store drain functions to ensure success?
 
 use info from here below
 fmsex tasks implement:
-line 1454
-
-    mix
-        flow counter should be cleared (set zero) over time - flow reading while mixing are useless - 
-            on finish only? before every save? on start of every other task that uses flow counter (set 0)
-        evaluate pressure in loop - set barrel error if overpressure  - system stop 
-            no matter what barrel -  let to continue - on continue clear error + retry
-                if error still there - it will stop again itself.
-        check status not stopped in a loop
-            if stopped - go endless loop?
-                see !need debaunce! below
-        count time to mix
-        check no flow no pressure for 10 times -  stop pump - status stopped - send sms - set error
+line 1498
 
     store
         evaluate pressure in loop - if overpressure error - set target barrel error
@@ -74,6 +62,8 @@ start/stop interrupts "use start-stop actions from evernote!"
     on stop:     pressure.SaveSD(); flow.SaveSD();
     // can set the bool to !bool to check if pressed twice - for reset and other system tasks
 
+add setRGBLED to functions
+
 work on system hardware - implement all changes to schematic!!
 change zeners to 3.3v?
 
@@ -109,6 +99,8 @@ WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 telnet server to send serial.prints + telnet client inside webui?
 
+------------------------------
+
 limit all data from webUI to valid range - ie. no "measure barrel 27"
 
 variables that survives reboot?? :)
@@ -121,8 +113,6 @@ http://www.cplusplus.com/forum/general/67783/
     check my possible ranges:
     test on another esp32
 concentration float check if ok.
-
-------------------------------
 
 make pressure sensor check constantly so i can turn off the pump on overpressure
     task loop inside other cpu core? or inside filling loop itself?
@@ -1010,7 +1000,7 @@ public:
         uint16_t pres = (analogRead(p->_sensorPin) / p->_divider + p->_offset); // third value goes into evaluation
         Serial.println(pres);
 
-        //2 overpressure
+        //2  overpressure
         if (pres > p->_max_pressure && pres < 255) {
             // stop pump
             expanders.Pump(false);
@@ -1060,7 +1050,7 @@ public:
             //let fmsd task to handle it - ignore for some time untill we build pressure
             }
 
-        //normal pressure range is here - reset errors
+        //0  normal pressure range is here - reset errors?
         if ( pres > p->_min_pressure && pres < p->_max_pressure ) {
             //normal state for pump on - flow pressure range
             if (p->_ErrorState == 1)// should it clean errors??
@@ -1080,6 +1070,11 @@ public:
 
     
     // error handling
+    //0  normal pressure
+    //1  no pressure
+    //2  overpressure
+    //3  disconnected
+    //4  short circuit
     byte ErrorGet(byte sens){ return psensor[sens]._ErrorState; }
 
     // disable protect
@@ -1481,7 +1476,6 @@ struct st {
         uint16_t prefill_requirement = 100; // initial 100 liters
         uint16_t afterfill_requirement = 500; // additional 400 liters - total 500L
         uint16_t mix_requirement = 30; // minutes to mix
-        uint16_t mix_counter = 0;
         // transfer requirement calculated dynamically by barrel ammount
         // transfer counter applied dynamically at transfer from source to destination
         uint16_t drain_requirement = 0; //in liters - how much to drain
@@ -1490,9 +1484,13 @@ struct st {
         uint8_t storing_barrel = NUM_OF_BARRELS-1; // last barrel (-1 cause we start from zero)
 } Transfers;
 
+
+
+
+
 // receives barrel to fill, required water level
 // checks whatever clean water line have pressure
-// fills clean water until level is reached, or barrel is full
+// fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
 void Fill(byte barrel, uint16_t requirement){
     Serial.printf("[Fill]filling barrel:%u to %uL", barrel, requirement);
     byte waited_for_flow=0;// number of seconds without flow
@@ -1501,16 +1499,19 @@ void Fill(byte barrel, uint16_t requirement){
         // water line no pressure? stop, set error, 
         SystemState.error_set(ERR_WATER_PRESSURE);
         //sendsms, 
-        SendSMS("no water pressure");
+        SendSMS("no water pressure. system paused.");
         //recheck in loop - if ok - clear error
         while (pressure.ErrorGet(0) != 0) {
-            Alarm.delay(2000);
+            Alarm.delay(1000);
             pressure.measure(0);
+            Alarm.delay(1000);
             }
         SystemState.error_unset(ERR_WATER_PRESSURE);
         }
+
     // open barrel filling tap
     expanders.FillingRelay(barrel, true);
+
     // fill until requirement OR barrel_high_level
     while (!barrels.isFillTargetReached(barrel,0,requirement)){// if barrel ammount less than requirement
         if (barrels.isFull(barrel)) {
@@ -1521,61 +1522,34 @@ void Fill(byte barrel, uint16_t requirement){
         barrels.FreshwaterFillCalc(barrel);//
         // check if changed to STOPPED state
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
-            break;  // breaks the measure loop, close tap, back to FillingTask,
-                        // will enter stopped loop there
+            break;  // breaks if stopped set
         // check flow - if no flow (but pressure) for 10 times (10 seconds)
         if (!flow.FlowGet(0)) {
             //if (pressure.ErrorGet(0) == 0) {//normal 
             //}
-            if (waited_for_flow<100) waited_for_flow++; // will increase by 1 every second where is no flow
+            if (waited_for_flow<255) waited_for_flow++; // will increase by 1 every second where is no flow
         }
         else waited_for_flow = 0; // reset count if flow detected
         // if no flow set flowsensor1 error     
         if (waited_for_flow >= 10) { //10 seconds or more
             SystemState.error_set(ERR_WATER_NOFLOW);
             SendSMS("flowsensor 1 error: no water flow while filling");
-            break; // breaks the measure loop, close tap, back to FillingTask,
+            SystemState.state_set(STOPPED_STATE);  // untill separate error-handling reimplemented
+            break; // breaks + sets stopped if flowsensor error
         }
         Alarm.delay(1000);
     }
-
     // close tap
     expanders.FillingRelay(barrel, false);
-    //SaveStructs();
 }
 
 
-// Filling task
-void FillingTask(){
-    while (true){ // endless loop Filling task
-        while (SystemState.state_check(FILLING_STATE)){ // have a need to drain
-            while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
-                Alarm.delay(1000); // check every second
-
-        // check water level is prefill_requirement
-        //if (!barrels.isFillTargetReached(Transfers.filling_barrel, 0, Transfers.prefill_requirement) && !barrels.isFull(Transfers.filling_barrel)) // not reached target and not full
-        Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
-        // set stopped status on
-        SystemState.state_set(STOPPED_STATE);
-        // set mixing status on
-        Transfers.mix_counter = Transfers.mix_requirement;
-        SystemState.state_set(MIXING_STATE);
-        // wait untill not stopped status
-        while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
-            Alarm.delay(1000); // check every second
-        // if water level is afterfill_requirement
-        Fill(Transfers.filling_barrel, Transfers.afterfill_requirement);
-        // set filling status off
-        SystemState.state_unset(FILLING_STATE);
-        // init save
-        SaveStructs();
-        }
-    } // endless loop Filling task
-}
 
 
-void Mix(byte barrel){
-    Serial.printf("[Mix]mixing barrel:%u for %uMin.", barrel, Transfers.mix_counter);
+// will mix "barrel" untill "duration" minutes is over, 
+// or before if state changed to stopped while we're not operating manual
+void Mix(byte barrel, uint16_t duration){
+    Serial.printf("[Mix]mixing barrel:%u for %uMin.", barrel, duration);
     // open barrel drain tap
     expanders.DrainingRelay(barrel, true);
     // open barrel store tap
@@ -1583,21 +1557,36 @@ void Mix(byte barrel){
     // start pump
     expanders.Pump(true);
     // loop - while counter > 0
-    byte x = 0;
-    while(Transfers.mix_counter){
+    byte sec = 0; // seconds 
+    byte nopres = 0; // loops with no pressure
+    while(duration){
         // decrement counter every minute
-        if (x<60) {
+        if (sec<60) {
             Alarm.delay(1000);
-            x++;
+            sec++;
         }
         else {
-            Transfers.mix_counter--;
-            x=0;
-            Serial.printf("[Mix]barrel:%u %uMin remaining", barrel, Transfers.mix_counter);
+            duration--;
+            sec=0;
+            Serial.printf("[Mix]barrel:%u %uMin remaining", barrel, duration);
         }
         // break if stopped but not manual
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
             break;  // breaking the measure loop will close taps
+        // check pressure in range 
+        pressure.measure(1);//freshwater at sensor 0
+        if (pressure.ErrorGet(1) == 1 ) 
+            nopres++; // increment every cycle (second) of no pressure
+        else
+            nopres=0; // reset if measured ok once
+        if (nopres>4) {
+            SystemState.error_set(ERR_NUTRI_PRESSURE);
+            SendSMS("error: no pressure while mixing. check pump and sensors");
+            SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
+            break; // breaks + sets stopped if flowsensor error
+        }
+        // check flow - noflow for 10 seconds - break
+// to implement later version
     }
     // counter reached zero
     // stop pump
@@ -1608,30 +1597,18 @@ void Mix(byte barrel){
     expanders.DrainingRelay(barrel, false);
     // close barrel store tap
     expanders.StoringRelay(barrel, false);
-    // init save 
-    //SaveStructs();
+    // reset flow counter 2
+    flow.CounterReset(1);
 }
 
 
-// Mixing task
-void MixingTask(){
-    while(true){ // endless loop Mixing task
-        while (Transfers.mix_counter  && SystemState.state_check(MIXING_STATE)){ // have a need to drain
-            while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
-                Alarm.delay(1000); // check every second
-        // stopped status off?
-        Mix(Transfers.filling_barrel);
-        // Storing status on
-        SystemState.state_set(STORING_STATE);
-        // mixing status off
-        SystemState.state_unset(MIXING_STATE);
-        // init save 
-        SaveStructs();
-        }
-    } // endless loop Mixing task
-}
 
 
+
+// !! use src barrel level as requirement?
+// while barrels.isFillTargetReached(barrel-0, 1, min_level)
+// if flowcounter>50L barrels.NutrientsTransferCalc (barrel-src, barrel-dest)
+// at the end of while loop - NutrientsTransferCalc again
 void Store(byte barrel, byte target){
     Serial.printf("[Store]storing from barrel:%u to target %u", barrel, target);
     if (barrel == target) {
@@ -1663,34 +1640,8 @@ void Store(byte barrel, byte target){
 }
 
 
-// Storing task
-void StoringTask(){
-// !! use src barrel level as requirement?
-// while barrels.isFillTargetReached(barrel-0, 1, min_level)
-// if flowcounter>50L barrels.NutrientsTransferCalc (barrel-src, barrel-dest)
-// at the end of while loop - NutrientsTransferCalc again
-    while (true){ // endless loop Storing task
-        while (SystemState.state_check(FILLING_STATE)){ // have a need to drain
-            while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
-                Alarm.delay(1000); // check every second
-        // measure barrel 0
-            // while barrel 0 not empty
-                // measure barrel storing_barrel
-                // if not full
-                    // Storing(0, storing_barrel, mybarrels.getBarrel(0).measure_ultrasonic() ) // store all barrel 0 amount
-                // goto next barrel set storing_barrel += 1
-                // all barrels full?
-                    // loop - let draining task to kick in when required
-            // if barrel 0 empty
-                // if drain_counter 
-                    // draining status on
-                    // keep storing status on so when dtaining finished it goes back here and do "else"
-                // else
-                    // filling status on
-                    // storing status off
-        }
-    } // endless loop Storing task
-}
+
+
 
 
 void Drain(byte barrel, uint16_t requirement){
@@ -1729,57 +1680,9 @@ void Drain(byte barrel, uint16_t requirement){
 }
 
 
-// Draining task
-void DrainingTask(){
-    while (true){ // endless loop Draining task
-
-        while (Transfers.drain_counter  && SystemState.state_check(DRAINIG_STATE)){ // have a need to drain
-            while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
-                Alarm.delay(1000); // check every second
-
-
-            // measure barrel x - Barrel x not empty?
-            if ( !barrels.isEmpty(Transfers.storing_barrel) ){ 
-                Drain(Transfers.storing_barrel, Transfers.drain_requirement);
-            }
-
-
-            else { // still in the draincounter > 0 loop -  barrel x is empty              
-                if (Transfers.storing_barrel > 1) // if not the first barrel (i started from last to first)
-                    Transfers.storing_barrel--; // goto next barrel
-                else { // all storage barrels empty? 
-                // unset DRAINING state temporarely so fms can kick in.
-                SystemState.state_unset(DRAINIG_STATE);
-                SystemState.state_load(); // get the last state back f? m? s? stopped or not..
-                // init save 
-                SaveStructs();
-                // set x back to last barrel
-                Transfers.storing_barrel = NUM_OF_BARRELS-1; //  -1 cause we start from zero
-                }
-
-            }        
-        } //Transfers.drain_counter  && SystemState.state_check(DRAINIG_STATE)
-        
-        // i"m here because drainCounter reached 0 - or not DRAINIG_STATE
-        // if still DRAINIG_STATE then unset DRAINIG_STATE and undo to last state before draining - back to fms
-        if (SystemState.state_check(DRAINIG_STATE)) { 
-            // set draining status off
-            SystemState.state_unset(DRAINIG_STATE);
-            // undo to last state before draining
-            SystemState.state_load();
-            // init save 
-            SaveStructs();
-        }
-        // wait untill draining state set - goes here at system start cause DRAINIG_STATE not set
-        if (!SystemState.state_check(DRAINIG_STATE))
-            OUT_PORT.println(F("draining task entering wait-mode"));
-        while ( !SystemState.state_check(DRAINIG_STATE))
-            Alarm.delay(1000);
 
 
 
-    } // endless loop Draining task
-}
 
 
 void fmsTask(){ // Filling Mixing Storing Draining
@@ -1789,12 +1692,11 @@ void fmsTask(){ // Filling Mixing Storing Draining
             Alarm.delay(1000); // check every second
 
         if (SystemState.state_check(FILLING_STATE)){
+            //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
+            SystemState.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
             Fill(Transfers.filling_barrel, Transfers.afterfill_requirement);
-// bug - need to check if the fuction breaked before success
-            Transfers.mix_counter = Transfers.mix_requirement;
             SaveStructs();
-            Mix(Transfers.filling_barrel);
-// check here also?
+            Mix(Transfers.filling_barrel, Transfers.mix_requirement);
             SystemState.state_set(STORING_STATE);
             SystemState.state_unset(FILLING_STATE);
             SaveStructs();
@@ -1842,20 +1744,15 @@ void fmsTask(){ // Filling Mixing Storing Draining
                         Transfers.storing_barrel++;
                 // all storage barrels empty? 
                 else break; // totally empty - will do another cycle fms to refill
-                } 
-
-            }
+            } 
             // repeat the fms cycle if no draining required, or all barrels empty
-            {
-                SystemState.state_set(FILLING_STATE);
-                SystemState.state_unset(STORING_STATE);
-                
-                SystemState.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
-            }
-
-        }
-        SaveStructs();
-
+            SystemState.state_set(FILLING_STATE);
+            SystemState.state_unset(STORING_STATE);
+            
+            SaveStructs();
+        }// if storing_state
+    }// endless loop ends here
+        
 
 //drain should be launched on-demand only? 
 
