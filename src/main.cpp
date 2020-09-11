@@ -6,26 +6,14 @@ flow + pressure no data?
 if mix stopped in the middle - it will count from start again
 
 to implement:
+move pressure flow checks outside of fill mix store drain into separate function
 add a way to reset pressure error "protect" mode - by pressing start?
-finish void Store
 finish void Drain
 should i replace brake with delay loop in store drain functions to ensure success?
 
 use info from here below
 fmsex tasks implement:
 line 1498
-
-    store
-        evaluate pressure in loop - if overpressure error - set target barrel error
-            goto next barrel, clear overpressure error
-            if all barrels error - set pump error - clear all barrel errors
-                except manually-disabled barrels "error"
-            if no pressure - loop-measure for a while
-                if still no pressure - check flow
-                    no flow - set pump error.
-        measure untill target reached isFillTargetReached
-            if reached - NutrientsTransferCalc
-            else NutrientsTransferCalc each 50 liters - if flow.CounterGet(1)/flow.DividerGet(1) > 50
 
     drain
         same as store to barrel 7
@@ -1448,19 +1436,19 @@ public:
         return result;
     }
 
-    // totally empty
+    // totally empty (by ultrasonic)
     bool isDry(byte barrel){
         SonicMeasure(barrel);
         return SonicCalcLiters(barrel) < 2; // +1 spare as a safeguard
     }
 
-    // reached min level
+    // reached min level (by ultrasonic)
     bool isEmpty(byte barrel){
         SonicMeasure(barrel);
         return SonicCalcLiters(barrel) <= myBarrel[barrel]._VolumeMin;
     }
 
-    // reached max level
+    // reached max level (by ultrasonic)
     bool isFull(byte barrel){
         SonicMeasure(barrel);
         return SonicCalcLiters(barrel) >= myBarrel[barrel]._VolumeMax;
@@ -1621,22 +1609,48 @@ void Store(byte barrel, byte target){
     expanders.StoringRelay(target, true);
     // start pump
     expanders.Pump(true);
-    // loop - while source barrel not empty OR target not full
-        // decrement requirement by flow counter
+    byte nopres = 0; // loops with no pressure
+    // loop - while source barrel not empty AND target not full
+    while (!barrels.isEmpty(barrel) && !barrels.isFull(target)) {
+        if (flow.CounterGet(1)/flow.DividerGet(1) > 50) {
         // truncate flow counter from barrel
         // append flow counter to target
+        barrels.NutrientsTransferCalc(barrel, target);
+        }
         // break if stopped but not manual
-    // if requirement reached 0
-        // stop pump
-        expanders.Pump(false);
-        // wait untill pressure released
-        Alarm.delay(100); 
-        // close barrel drain tap
-        expanders.DrainingRelay(barrel, false);
-        // close target store tap
-        expanders.StoringRelay(target, false);
-        // init save 
-        //SaveStructs();
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
+            break;  // breaking the measure loop will close taps
+
+        //evaluate pressure in loop
+        pressure.measure(1);//freshwater at sensor 0
+        if (pressure.ErrorGet(1) == 1 ) 
+            nopres++; // increment every cycle (second) of no pressure
+        else
+            nopres=0; // reset if measured ok once
+        if (nopres>4) {
+            SystemState.error_set(ERR_NUTRI_PRESSURE);
+            SendSMS("error: no pressure while mixing. check pump and sensors");
+            SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
+            break; // breaks + sets stopped if flowsensor error
+        }
+        //if overpressure error - set target barrel error
+        //goto next barrel, clear overpressure error
+        //if all barrels error - set pump error - clear all barrel errors
+            //except manually-disabled barrels "error"
+        //if no pressure - loop-measure for a while
+            //if still no pressure - check flow
+                //no flow - set pump error.
+    }
+    // stop pump
+    expanders.Pump(false);
+    // wait untill pressure released
+    Alarm.delay(100); 
+    // close barrel drain tap
+    expanders.DrainingRelay(barrel, false);
+    // close target store tap
+    expanders.StoringRelay(target, false);
+    // calculate final ammount
+    barrels.NutrientsTransferCalc(barrel, target);
 }
 
 
