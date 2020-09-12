@@ -366,9 +366,7 @@ byte Backup()
     {
         static uint8_t buf[512];
         if (!file.size())
-        {
             Serial.printf("skipping empty file %s\r\n", file.name());
-        }
         else
         {
             // was unable to detect SD disconnection - file was true, name and size returned valid, only read returned zero.
@@ -482,11 +480,16 @@ public:
     }
 
     //set analogMUX address
+    //checks bit 0-3 of mux Address "address"
+    //if bit set - setValue receives a positive value
+    //otherwise sets setValue with 0
+    //offset of 0 - expander 0x20 pins a0 a1 a2 a3
     void setMUX(uint8_t address)
     {
 
         if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
             OUT_PORT.printf("-MUX! previously locked to %u, %u is waiting\r\n", _muxLock, address);
+
         while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
             Alarm.delay(1);
 
@@ -494,20 +497,13 @@ public:
         _muxLock = address;
 
         for (uint8_t i = 0; i < 4; i++)
-        {
-            //checks bit 0-3 of mux Address "address"
-            //if bit set - setValue receives a positive value
-            //otherwise sets setValue with 0
-            //offset of 0 - expander 0x20 pins a0 a1 a2 a3
             expander1.getPin(i + 0).setValue(address & (1 << i));
-        }
+
         expander1.write();
     }
 
-    uint8_t GetMUX()
-    {
-        return _muxLock;
-    }
+    // who locks the mux?
+    uint8_t GetMUX() { return _muxLock; }
 
     // very important to run this every time you ended up business with setMUX
     void UnlockMUX()
@@ -834,13 +830,13 @@ public:
     // returns flow in mililiters per second for sensor No(sens)
     uint16_t FlowGet(uint8_t sens)
     {
+        // measurement older than 1 second means no flow
         if ((millis() - fsensor[sens].lastMilis) > 1000)
-        { // measurement older than 1 second means no flow
             return 0;
-        }
         return ((1000000 / (fsensor[sens].flow ? fsensor[sens].flow : 1)) / fsensor[sens].conversion_divider); // in mililiters per second
     }                                                                                                          // Guru Meditation Error: Core  1 panic'ed (IntegerDivideByZero). Exception was unhandled.
 
+    // executed by interrupt to increase counter
     void IRAM_ATTR CounterInc(uint8_t sens)
     {
         fsensor[sens].counter++;
@@ -1016,20 +1012,13 @@ public:
 
         //1  no pressure
         if (pres < p->_min_pressure)
-        {
-            //normal state for pump off - no pressure
             if (p->_ErrorState == 0)
                 p->_ErrorState = 1;
-            //let fmsd task to handle it - ignore for some time untill we build pressure
-        }
 
         //0  normal pressure range is here - reset errors?
         if (pres > p->_min_pressure && pres < p->_max_pressure)
-        {
-            //normal state for pump on - flow pressure range
-            if (p->_ErrorState == 1) // should it clean errors??
-                p->_ErrorState = 0;  // only if not critical
-        }
+            if (p->_ErrorState == 1)
+                p->_ErrorState = 0;
 
         // "add global pressure error here" - what is this??
         if (p->_ErrorState > 1)
@@ -1158,13 +1147,9 @@ public:
     {
         myBR *b = &myBarrel[barrel];
         if (!b->_VolumeNutrients && !b->_VolumeFreshwater)
-        {
             return 0; // empty barrels - prevent Divide By Zero!
-        }
         else
-        {
             return b->_Concentraion * b->_VolumeNutrients / (b->_VolumeNutrients + b->_VolumeFreshwater); // mix
-        }
     }
 
     // calc new concentration:
@@ -1293,26 +1278,31 @@ public:
         delay(1);
         for (byte x = 0; x < measure && retry && notTimeout;)
         {
-            Serial2.write(0xFF); // send data so sonic will reply
+            // send data so sonic will reply
+            Serial2.write(0xFF);
+            // wait untill some data is received
             while (!Serial2.available() && notTimeout)
             {
                 delay(1);
                 notTimeout--;
-            }; // wait untill some data is received
+            };
+            // discard data untill begin of packet (0xFF)
             while (Serial2.read() != 0xFF && notTimeout)
             {
                 delay(1);
                 notTimeout--;
-            }; // discard data untill begin of packet (0xFF)
-               //if (notTimeout) { //start
+            };
+            // wait for all data to be buffered
             while (Serial2.available() < 3 && notTimeout)
             {
                 delay(1);
                 notTimeout--;
-            }; // wait for all data to be buffered
+            };
+            // timed out waiting for 3 packats above
             if (!notTimeout)
-            {                // timed out waiting for 3 packats above
-                measure = x; // number of measurements so far (excluding the last "timed out" measurement)
+            {
+                // number of measurements so far (excluding the last "timed out" measurement)
+                measure = x;
                 ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
                 break;
             }
@@ -1344,20 +1334,13 @@ public:
                     }
                 }
                 else
-                {
                     retry--;
-                }
             }
             else
             {
                 Serial.println("checksum error");
                 retry--;
             }
-            //}
-            //else {
-            //measure = x+1; // number of measurements so far
-            //break;
-            //}; // timeout
             if (!retry)
                 ErrorSet(barrel, BARREL_SONIC_CHECKSUM);
             else
@@ -1436,10 +1419,8 @@ public:
     {
         int16_t result = 0;
         for (byte x = 1; x < NUM_OF_BARRELS; x++)
-        {
             if (!ErrorGet(x))                 // if no errors at all
                 result += SonicCalcLiters(x); // add this barrel content to sum
-        }
         return result;
     }
 
@@ -1449,10 +1430,8 @@ public:
     {
         int16_t result = 0;
         for (byte x = 1; x < NUM_OF_BARRELS; x++)
-        {
             if (!ErrorGet(x))                                            // if no errors at all
                 result += (SonicCalcLiters(x) - myBarrel[x]._VolumeMin); // add this barrel content minux wasted liters to sum
-        }
         return result;
     }
 
@@ -1534,15 +1513,13 @@ void Fill(byte barrel, uint16_t requirement)
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
             break;                                                                            // breaks if stopped set
         // check flow - if no flow (but pressure) for 10 times (10 seconds)
+        pressure.measure(0);
         if (!flow.FlowGet(0))
-        {
-            //if (pressure.ErrorGet(0) == 0) {//normal
-            //}
-            if (waited_for_flow < 255)
-                waited_for_flow++; // will increase by 1 every second where is no flow
-        }
-        else
-            waited_for_flow = 0; // reset count if flow detected
+            if (pressure.ErrorGet(0) == 0) // normal pressure
+                if (waited_for_flow < 255)
+                    waited_for_flow++; // will increase by 1 every second where is no flow
+                else
+                    waited_for_flow = 0; // reset count if flow detected
         // if no flow set flowsensor1 error
         if (waited_for_flow >= 10)
         { //10 seconds or more
@@ -1780,9 +1757,7 @@ void fmsTask()
             {
                 // storing_barrel not empty? drain it
                 if (!barrels.isEmpty(Transfers.storing_barrel))
-                {
                     Drain(Transfers.storing_barrel, Transfers.drain_requirement);
-                }
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
                 else if (Transfers.storing_barrel < NUM_OF_BARRELS - 1)
                     Transfers.storing_barrel++;
@@ -1840,17 +1815,20 @@ void setupServer()
 
     server.on(
         "/upload", HTTP_POST, [](AsyncWebServerRequest *request) {}, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-            if(!index){
+            if(!index)
+            {
                 Serial.printf("\r\nUpload Started: %s\r\n", filename.c_str());
                 // open the file on first call and store the file handle in the request object
                 request->_tempFile = disk->open("/"+filename, "w");
             }
-            if(len) {
+            if(len) 
+            {
                 Serial.printf("received chunk [from %u to %u]\r\n", index, len);
                 // stream the incoming chunk to the opened file
                 request->_tempFile.write(data,len);
             }       
-            if(final){
+            if(final)
+            {
                 Serial.printf("\r\nUpload Ended: %s, %u Bytes\r\n", filename.c_str(), index+len);
                 request->_tempFile.close();
                 request->redirect("/list");
@@ -1923,9 +1901,7 @@ void setupServer()
             }
         }
         else
-        {
             Serial.println("*server: del received no args");
-        }
         request->redirect("/list");
     });
 
@@ -1942,9 +1918,7 @@ void setupServer()
             }
         }
         else
-        {
             request->send(200, "text/plain", "file not found");
-        }
     });
 
     server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -1969,9 +1943,7 @@ void setupServer()
         response->print("<span>RGB LED</span>");
         response->print("<li>");
         for (uint8_t i = 0; i < 8; i++)
-        {
             response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button><span> </span>", i, i);
-        }
         response->print("</li>");
         response->print("<span>Flow Sensors</span>");
         response->printf("<li>Fs1: [%llup] [%lluL] [%umL/s] [%upulse/L]</li>",
@@ -2046,9 +2018,7 @@ void setupServer()
             }
         }
         else
-        {
             request->send(200, "text/plain", "no args!");
-        }
         request->redirect("/manual");
     });
 
@@ -2094,9 +2064,7 @@ void setupServer()
             }
         }
         else
-        {
             request->send(200, "text/plain", "n parameter missing");
-        }
     });
 
     server.on("/mdns", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -2145,17 +2113,11 @@ void setupServer()
         {
             AsyncWebParameter *p = request->getParam(i);
             if (p->isFile())
-            {
                 response->printf("<li>FILE[%s]: %s, size: %u</li>", p->name().c_str(), p->value().c_str(), p->size());
-            }
             else if (p->isPost())
-            {
                 response->printf("<li>POST[%s]: %s</li>", p->name().c_str(), p->value().c_str());
-            }
             else
-            {
                 response->printf("<li>GET[%s]: %s</li>", p->name().c_str(), p->value().c_str());
-            }
         }
         response->print("</ul>");
 
@@ -2343,7 +2305,7 @@ void SaveStructs()
         }
         Serial.println(F("waiting for no flow.."));
         while (flow.FlowGet(0))
-            ; // wait untill no flow
+            ;
         while (flow.FlowGet(1))
             ;
         Serial.println(F("no flow ok - saving..."));
@@ -2361,7 +2323,6 @@ void SaveStructs()
 /* initial sequnence */
 void setup()
 {
-
     // initiate UART0 - serial output
     OUT_PORT.begin(115200);
 
@@ -2423,6 +2384,7 @@ void setup()
         }
     }
 
+    // disable loop watchdog - working with tasks only?
     void loop() {
     // nope, do nothing here
     vTaskDelay(portMAX_DELAY); // wait as much as posible ...
@@ -2435,6 +2397,5 @@ void setup()
 
 void loop()
 {
-    // disable loop watchdog - working with tasks only?
     ArduinoOTA.handle();
 }
