@@ -8,7 +8,6 @@ if mix stopped in the middle - it will count from start again
 to implement:
 fill mix store drain finished?
 serial print to telnet or to webui directly or via another board (esp8266?).
-all uint64_t to uint32_t?
 change to start sensors from 1 not from zero (flow.CounterReset(2) sensor 2)
 add a way to reset pressure error "protect" mode - by pressing start?
 use combination of SystemState.state_check and Transfers.inner_state
@@ -42,7 +41,7 @@ start/stop interrupts "use start-stop actions from evernote!"
 add setRGBLED to functions
 
 work on system hardware - implement all changes to schematic!!
-change zeners to 3.3v?
+change zeners to 3.3v? - check new zeners that arrived
 
 check what modem returns if error - if valid check - implement SMS error
 
@@ -352,7 +351,7 @@ byte Backup()
     byte counter = 0;
     while (file)
     {
-        static uint8_t buf[512];
+        static byte buf[512];
         if (!file.size())
             Serial.printf("skipping empty file %s\r\n", file.name());
         else
@@ -404,7 +403,7 @@ byte Restore()
             Serial.println(file.name());
             if (destFile)
             {
-                static uint8_t buf[512];
+                static byte buf[512];
                 //memset(buf, 0, 512); // zerofill the buffer
                 while (file.available())
                 {
@@ -441,7 +440,7 @@ MCP23017 expander2(1); // Base Address + 1: 0x21
 class exp
 {
 private:
-    uint8_t _muxLock = MUX_UNLOCKED; // unlocked
+    byte _muxLock = MUX_UNLOCKED; // unlocked
 
 public:
     void Init()
@@ -472,7 +471,7 @@ public:
     //if bit set - setValue receives a positive value
     //otherwise sets setValue with 0
     //offset of 0 - expander 0x20 pins a0 a1 a2 a3
-    void setMUX(uint8_t address)
+    void setMUX(byte address)
     {
 
         if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
@@ -484,14 +483,14 @@ public:
         OUT_PORT.printf("-MUX! is free. locking to %u\r\n", address);
         _muxLock = address;
 
-        for (uint8_t i = 0; i < 4; i++)
+        for (byte i = 0; i < 4; i++)
             expander1.getPin(i + 0).setValue(address & (1 << i));
 
         expander1.write();
     }
 
     // who locks the mux?
-    uint8_t GetMUX() { return _muxLock; }
+    byte GetMUX() { return _muxLock; }
 
     // very important to run this every time you ended up business with setMUX
     void UnlockMUX()
@@ -506,9 +505,9 @@ public:
     }
 
     // set RGB LED according to mask (LED_YELLOW, LED_CYAN....)
-    void setRGBLED(uint8_t address)
+    void setRGBLED(byte address)
     {
-        for (uint8_t i = 0; i < 3; i++)
+        for (byte i = 0; i < 3; i++)
         {
             //checks bit 0-2 of color ( R G B ) in "address"
             //offset of 4 - expander 0x20 pins a4 a5 a6
@@ -529,7 +528,7 @@ public:
     }
 
     // triggers filling relay
-    void FillingRelay(uint8_t address, bool state)
+    void FillingRelay(byte address, bool state)
     {
         //offset of 8 - expander 0x20 pins b0-b7
         expander1.getPin(address + 8).setValue(!state);
@@ -537,7 +536,7 @@ public:
     }
 
     // get filling relay state
-    uint8_t FillingRelayGet(uint8_t address)
+    byte FillingRelayGet(byte address)
     {
         //offset of 8 - expander 0x20 pins b0-b7
         //expander1.read();
@@ -545,7 +544,7 @@ public:
     }
 
     // triggers storing relay
-    void StoringRelay(uint8_t address, bool state)
+    void StoringRelay(byte address, bool state)
     {
         //offset of 0 - expander 0x21 pins a0-a7
         expander2.getPin(address).setValue(!state);
@@ -553,7 +552,7 @@ public:
     }
 
     // get storing relay state
-    uint8_t StoringRelayGet(uint8_t address)
+    byte StoringRelayGet(byte address)
     {
         //offset of 8 - expander 0x20 pins b0-b7
         //expander1.read();
@@ -561,7 +560,7 @@ public:
     }
 
     // triggers draining relay
-    void DrainingRelay(uint8_t address, bool state)
+    void DrainingRelay(byte address, bool state)
     {
         //offset of 8 - expander 0x21 pins b0-b7
         expander2.getPin(address + 8).setValue(!state);
@@ -569,7 +568,7 @@ public:
     }
 
     // get draining relay state
-    uint8_t DrainingRelayGet(uint8_t address)
+    byte DrainingRelayGet(byte address)
     {
         //offset of 8 - expander 0x20 pins b0-b7
         //expander1.read();
@@ -679,8 +678,8 @@ struct st
     // transfer counter applied dynamically at transfer from source to destination
     uint16_t drain_requirement = 0;              //in liters - how much to drain
     uint32_t drain_counter = 0;                  //in liters - how much totally drained
-    uint8_t filling_barrel = 0;                  // mixer barrel
-    uint8_t storing_barrel = NUM_OF_BARRELS - 1; // last barrel (-1 cause we start from zero)
+    byte filling_barrel = 0;                  // mixer barrel
+    byte storing_barrel = NUM_OF_BARRELS - 1; // last barrel (-1 cause we start from zero)
 } Transfers;
 
 struct myST
@@ -694,8 +693,8 @@ struct myST
     // E = Emptying task on - overrides f,m,s
     // X = stopped status on
     // 00NFMSEX
-    uint8_t _state_now = 17; // 00010001 - filling + waiting for nutes - initial system state
-    uint8_t _state_before = 0;
+    byte _state_now = 17; // 00010001 - filling + waiting for nutes - initial system state
+    byte _state_before = 0;
 
     // bit field
     //000CBA987654321
@@ -730,10 +729,10 @@ public:
     bool SaveSD() { return Save("/SysState.bin", (byte *)&myState, sizeof(myState)); }
 
     // returns system state raw integer value (0=uninitiated)
-    uint8_t state_get() { return myState._state_now; }
+    byte state_get() { return myState._state_now; }
 
     // set state using mask (FILLING_STALE,STORING_STATE....)
-    void state_set(uint8_t mask) { myState._state_now |= mask; }
+    void state_set(byte mask) { myState._state_now |= mask; }
 
     // unset mask from state  (FILLING_STALE,STORING_STATE....)
     void state_unset(uint16_t mask) { myState._state_now &= ~mask; }
@@ -745,7 +744,7 @@ public:
     void state_load() { myState._state_now = myState._state_before; }
 
     // returns true if state have "mask-bit" state on. ex: return_state(MIXING_STATE);
-    bool state_check(uint8_t mask) { return myState._state_now & mask; }
+    bool state_check(byte mask) { return myState._state_now & mask; }
 
     // returns error state
     uint16_t error_get() { return myState._error_now; }
@@ -829,7 +828,7 @@ private:
     myFS fsensor[2]; // two sensors
 public:
     // returns flow in mililiters per second for sensor No(sens)
-    uint16_t FlowGet(uint8_t sens)
+    uint16_t FlowGet(byte sens)
     {
         // measurement older than 1 second means no flow
         if ((millis() - fsensor[sens].lastMilis) > 1000)
@@ -838,7 +837,7 @@ public:
     }                                                                                                          // Guru Meditation Error: Core  1 panic'ed (IntegerDivideByZero). Exception was unhandled.
 
     // executed by interrupt to increase counter
-    void IRAM_ATTR CounterInc(uint8_t sens)
+    void IRAM_ATTR CounterInc(byte sens)
     {
         fsensor[sens].counter++;
         fsensor[sens].flow = millis() - fsensor[sens].lastMilis; // interval in miliseconds from the last call
@@ -846,17 +845,17 @@ public:
     }
 
     // get raw flow counter pulses
-    uint64_t CounterGet(uint8_t sens) { return fsensor[sens].counter; }
+    uint32_t CounterGet(byte sens) { return fsensor[sens].counter; }
 
     // Subtracts count from sensor (after we applied the count to target barrel)
-    void CounterSubtract(byte sens, uint64_t value)
+    void CounterSubtract(byte sens, uint32_t value)
     {
         if (fsensor[sens].counter >= value)
             fsensor[sens].counter -= value;
         else
         {
             fsensor[sens].counter = 0;
-            Serial.printf("Err: tried to decrease flowsensor%u below zero, with %llu\r\n", sens + 1, value);
+            Serial.printf("Err: tried to decrease flowsensor%u below zero, with %u\r\n", sens + 1, value);
         }
     }
 
@@ -864,10 +863,10 @@ public:
     void CounterReset(uint_fast8_t sens) { fsensor[sens].counter = 0; }
 
     // returns pulses to liter
-    uint16_t DividerGet(uint8_t sens) { return fsensor[sens].conversion_divider; }
+    uint16_t DividerGet(byte sens) { return fsensor[sens].conversion_divider; }
 
     // set pulses to liter (sensor number, divider)
-    void DividerSet(uint8_t sens, uint16_t div) { fsensor[sens].conversion_divider = div; }
+    void DividerSet(byte sens, uint16_t div) { fsensor[sens].conversion_divider = div; }
 
     bool LoadSD() { return Load("/Flow.bin", (byte *)&fsensor, sizeof(fsensor)); }
 
@@ -914,11 +913,11 @@ struct myPS
     //4 short circuit
 
     byte _ErrorState = 0;
-    uint8_t _sensorPin = 255; // defaults
-    uint8_t _divider = 10;    //36;
+    byte _sensorPin = 255; // defaults
+    byte _divider = 10;    //36;
     int16_t _offset = 0;      //-145;
-    uint8_t _max_pressure = 200;
-    uint8_t _min_pressure = 55;
+    byte _max_pressure = 200;
+    byte _min_pressure = 55;
 };
 
 // pressure sensors starts from 0
@@ -928,20 +927,20 @@ private:
     myPS psensor[2]; // two sensor
 public:
     // init the sensor
-    void setSensor(uint8_t num, uint8_t sensorPin)
+    void setSensor(byte sens, byte sensorPin)
     {
-        psensor[num]._sensorPin = sensorPin;
+        psensor[sens]._sensorPin = sensorPin;
         pinMode(sensorPin, INPUT); // initialize analog pin for the sensor
     }
 
-    uint8_t DividerGet(uint8_t num) { return psensor[num]._divider; }
-    void DividerSet(uint8_t num, uint8_t div) { psensor[num]._divider = div; }
-    int16_t OffsetGet(uint8_t num) { return psensor[num]._offset; }
-    void OffsetSet(uint8_t num, int16_t offs) { psensor[num]._offset = offs; }
-    uint8_t MaxGet(uint8_t num) { return psensor[num]._max_pressure; }
-    void MaxSet(uint8_t num, uint8_t max) { psensor[num]._max_pressure = max; }
-    uint8_t MinGet(uint8_t num) { return psensor[num]._min_pressure; }
-    void MinSet(uint8_t num, uint8_t min) { psensor[num]._min_pressure = min; }
+    byte DividerGet(byte sens) { return psensor[sens]._divider; }
+    void DividerSet(byte sens, byte div) { psensor[sens]._divider = div; }
+    int16_t OffsetGet(byte sens) { return psensor[sens]._offset; }
+    void OffsetSet(byte sens, int16_t offs) { psensor[sens]._offset = offs; }
+    byte MaxGet(byte sens) { return psensor[sens]._max_pressure; }
+    void MaxSet(byte sens, byte max) { psensor[sens]._max_pressure = max; }
+    byte MinGet(byte sens) { return psensor[sens]._min_pressure; }
+    void MinSet(byte sens, byte min) { psensor[sens]._min_pressure = min; }
 
     bool LoadSD() { return Load("/Pressure.bin", (byte *)&psensor, sizeof(psensor)); }
 
@@ -1127,13 +1126,13 @@ public:
         else
             b->_VolumeFreshwaterLast = b->_VolumeFreshwater;
 
-        uint64_t tempflow = flow.CounterGet(0); // may be increased during calculation because flowsensor works on interrupts
-        Serial.printf("[FreshwaterFillCalc] tempflow so far: %llu", tempflow);
+        uint32_t tempflow = flow.CounterGet(0); // may be increased during calculation because flowsensor works on interrupts
+        Serial.printf("[FreshwaterFillCalc] tempflow so far: %u", tempflow);
         tempflow /= flow.DividerGet(0); // integral part, fractional part discarded.
-        Serial.printf("[FreshwaterFillCalc] tempflow in liters: %llu", tempflow);
+        Serial.printf("[FreshwaterFillCalc] tempflow in liters: %u", tempflow);
         b->_VolumeFreshwater += tempflow;
         tempflow *= flow.DividerGet(0); // getting pulse count back - only the integral part
-        Serial.printf("[FreshwaterFillCalc] tempflow integral part: %llu", tempflow);
+        Serial.printf("[FreshwaterFillCalc] tempflow integral part: %u", tempflow);
         flow.CounterSubtract(0, tempflow);              // counter 0 is freshwater
         b->_VolumeFreshwaterLast = b->_VolumeFreshwater; // after
     }
@@ -1223,9 +1222,9 @@ public:
         else
             b->_ConcentraionLast = b->_Concentraion;
 
-        uint64_t tempflow = flow.CounterGet(1); // may be increased during calculation because flowsensor works on interrupts
+        uint32_t tempflow = flow.CounterGet(1); // may be increased during calculation because flowsensor works on interrupts
         tempflow /= flow.DividerGet(1);         // integral part, fractional part discarded.
-        Serial.printf("transfering %llu liters from barrel %u to %u\r\n", tempflow, from, to);
+        Serial.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
         Serial.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
         // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
         // recheck this implementation !!! should I calc before adding counter?
@@ -1327,9 +1326,9 @@ public:
                 ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
                 break;
             }
-            uint8_t upper_data = Serial2.read();
-            uint8_t lower_data = Serial2.read();
-            uint8_t sum = Serial2.read();
+            byte upper_data = Serial2.read();
+            byte lower_data = Serial2.read();
+            byte sum = Serial2.read();
             //Serial.printf("high %u low %u sum %u\r\n", upper_data, lower_data, sum);
             if (((upper_data + lower_data) & 0xFF) == sum)
             {
@@ -1897,7 +1896,7 @@ void setupServer()
     });
 
     server.on(
-        "/upload", HTTP_POST, [](AsyncWebServerRequest *request) {}, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+        "/upload", HTTP_POST, [](AsyncWebServerRequest *request) {}, [](AsyncWebServerRequest *request, String filename, size_t index, byte *data, size_t len, bool final) {
             if(!index)
             {
                 Serial.printf("\r\nUpload Started: %s\r\n", filename.c_str());
@@ -2015,7 +2014,7 @@ void setupServer()
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual control</h3><ul>");
         response->print("<span>Relays</span>");
-        for (uint8_t i = 0; i < 8; i++)
+        for (byte i = 0; i < 8; i++)
         {
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/man?f=%u&o=%u\'\">fill  %u %s </button><span> </span>", i, expanders.FillingRelayGet(i) ? 0 : 1, i, expanders.FillingRelayGet(i) ? "X" : "O");
@@ -2025,16 +2024,16 @@ void setupServer()
         }
         response->print("<span>RGB LED</span>");
         response->print("<li>");
-        for (uint8_t i = 0; i < 8; i++)
+        for (byte i = 0; i < 8; i++)
             response->printf("<button onclick=\"location=\'/man?rgb=%u\'\">RGB %u</button><span> </span>", i, i);
         response->print("</li>");
         response->print("<span>Flow Sensors</span>");
-        response->printf("<li>Fs1: [%llup] [%lluL] [%umL/s] [%upulse/L]</li>",
+        response->printf("<li>Fs1: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
                          flow.CounterGet(0),
                          flow.CounterGet(0) / flow.DividerGet(0),
                          flow.FlowGet(0),
                          flow.DividerGet(0));
-        response->printf("<li>Fs2: [%llup] [%lluL] [%umL/s] [%upulse/L]</li>",
+        response->printf("<li>Fs2: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
                          flow.CounterGet(1),
                          flow.CounterGet(1) / flow.DividerGet(1),
                          flow.FlowGet(1),
@@ -2255,7 +2254,7 @@ time_t getNtpTime()
     uint32_t beginWait = millis();
     while (millis() - beginWait < NTP_TIMEOUT)
     {
-        uint8_t size = UDP.parsePacket();
+        byte size = UDP.parsePacket();
         if (size >= NTP_PACKET_SIZE)
         {
             OUT_PORT.println(" Received NTP Response");
