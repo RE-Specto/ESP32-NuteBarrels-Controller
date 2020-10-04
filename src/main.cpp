@@ -1,8 +1,5 @@
 /*
 bugs:
-pressure measure alerting disconnected in any case
-sendsms not showing sensor number on print
-flow + pressure no data?
 if mix stopped in the middle - it will count from start again
 
 to implement:
@@ -587,8 +584,11 @@ public:
 // message... item number (optional)
 void SendSMS(const char *message, byte item)
 { //byte item=0xFF moved to declaration BOF
-    OUT_PORT.print("-sendsms: ");
-    OUT_PORT.println(message);
+    if (item != 0xFF)
+        OUT_PORT.printf("-sendsms: %s %u\r\n", message, item);
+    else
+        OUT_PORT.printf("-sendsms: %s\r\n", message);
+        
     expanders.setMUX(7);                          // modem is at port 7
     Alarm.delay(10);                              // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\""); //change ZZ with country code and xxxxxxxxxxx with phone number to sms
