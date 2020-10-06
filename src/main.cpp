@@ -4,8 +4,8 @@ if mix stopped in the middle - it will count from start again
 pressure offset is redundant?
 
 to implement:
-sensor %u overpressure//sendsms from fmsd task with solenoid #num or pump #num error
 fill mix store drain finished?
+an option to manually start fill mix store drain from webUI
 serial print to telnet or to webui directly or via another board (esp8266?).
 add a way to reset pressure error "protect" mode - by pressing start?
 use combination of SystemState.state_check and Transfers.inner_state
@@ -101,6 +101,7 @@ reset all sensor values on system start? flow only? or remeber who to assing to 
 
 deprecate RTC? replace with ntp + timeAlarms?
 
+set Overpressure global error only if error occurs with multiple solenoids
 
 check all uint values never go below zero!!
     expected in sensor measurements
@@ -207,6 +208,23 @@ add ... on serial.available to check module awake
 #define BARREL_SONIC_OUTOFRANGE 0X20
 #define BARREL_SONIC_INACCURATE 0X40
 #define BARREL_DISABLED 0X80
+
+// pressure sensor state codes
+#define PRESSURE_NORMAL 0
+#define PRESSURE_NOPRESSURE 1
+#define PRESSURE_OVERPRESSURE 2
+#define PRESSURE_DISCONNECT 3
+#define PRESSURE_SHORTCIRCUIT 4
+
+#define PRES_SENSOR_FRESHWATER 1
+#define PRES_SENSOR_NUTRIENTS 2
+
+#define FLOW_SENSOR_FRESHWATER 1
+#define FLOW_SENSOR_NUTRIENTS 2
+
+#define BARREL_FRESHWATER 1
+#define BARREL_NUTRIENTS 2
+
 
 #define MUX_UNLOCKED 255 //valid shannels are 0-15
 
@@ -1051,8 +1069,7 @@ public:
             // set error
             p->_ErrorState = 2;
             Serial.printf("[e][pressure] sensor %u overpressure\r\n", sens + 1);
-            // set global error? no - only if other solenoids too
-            //sendsms from fmsd task with solenoid #num or pump #num error
+            SendSMS("Overpressure @pressure sensor", sens + 1);
             return pres; // exits here
         }
 
@@ -1211,14 +1228,14 @@ public:
         else
             b->_VolumeFreshwaterLast = b->_VolumeFreshwater;
 
-        uint32_t tempflow = flow.CounterGet(1); // may be increased during calculation because flowsensor works on interrupts
+        uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
         Serial.printf("[FreshwaterFillCalc] tempflow so far: %u", tempflow);
-        tempflow /= flow.DividerGet(1); // integral part, fractional part discarded.
+        tempflow /= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // integral part, fractional part discarded.
         Serial.printf("[FreshwaterFillCalc] tempflow in liters: %u", tempflow);
         b->_VolumeFreshwater += tempflow;
-        tempflow *= flow.DividerGet(1); // getting pulse count back - only the integral part
+        tempflow *= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // getting pulse count back - only the integral part
         Serial.printf("[FreshwaterFillCalc] tempflow integral part: %u", tempflow);
-        flow.CounterSubtract(1, tempflow);              // counter 1 is freshwater
+        flow.CounterSubtract(FLOW_SENSOR_FRESHWATER, tempflow);              // counter 1 is freshwater
         b->_VolumeFreshwaterLast = b->_VolumeFreshwater; // after
     }
 
@@ -1263,10 +1280,10 @@ public:
         myBR *b = &myBarrel[barrel];
         uint16_t tempLiters = 0;
         //check target barrel current state
-        if (type > 1)
-            tempLiters += b->_VolumeNutrients;
-        else
+        if (type == BARREL_FRESHWATER)
             tempLiters += b->_VolumeFreshwater;
+        else
+            tempLiters += b->_VolumeNutrients;
         //add data from flowsensor
         tempLiters += flow.CounterGet(type) / flow.DividerGet(type);
         //check if target reached
@@ -1307,8 +1324,8 @@ public:
         else
             b->_ConcentraionLast = b->_Concentraion;
 
-        uint32_t tempflow = flow.CounterGet(2); // may be increased during calculation because flowsensor works on interrupts
-        tempflow /= flow.DividerGet(2);         // integral part, fractional part discarded.
+        uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
+        tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part, fractional part discarded.
         Serial.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
         Serial.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
         // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
@@ -1321,8 +1338,8 @@ public:
 
         a->_VolumeNutrients -= tempflow;
         b->_VolumeNutrients += tempflow;
-        tempflow *= flow.DividerGet(2);     // getting pulse count back - only the integral part
-        flow.CounterSubtract(2, tempflow); // counter 2 is nutrients
+        tempflow *= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);     // getting pulse count back - only the integral part
+        flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, tempflow); // counter 2 is nutrients
 
         a->_VolumeNutrientsLast = a->_VolumeNutrients;
         b->_VolumeNutrientsLast = b->_VolumeNutrients;
@@ -1346,8 +1363,8 @@ public:
         // decrement the barrel you draining from
         myBarrel[barrel]._VolumeNutrients -= liters;
         
-        liters *= flow.DividerGet(2);     // getting pulse count back - only the integral part
-        flow.CounterSubtract(2, liters); // counter 2 is nutrients
+        liters *= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);     // getting pulse count back - only the integral part
+        flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, liters); // counter 2 is nutrients
     }
 
 
@@ -1572,20 +1589,20 @@ void Fill(byte barrel, uint16_t requirement)
 {
     Serial.printf("[Fill]filling barrel:%u to %uL", barrel, requirement);
     // reset flow counter 1
-    flow.CounterReset(1);
+    flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
-    pressure.measure(1);      //freshwater at sensor 1
-    if (pressure.ErrorGet(1) == 1)
+    pressure.measure(PRES_SENSOR_FRESHWATER);      //freshwater at sensor 1
+    if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) == PRESSURE_NOPRESSURE)
     {
         // water line no pressure? stop, set error,
         SystemState.error_set(ERR_WATER_PRESSURE);
         //sendsms,
         SendSMS("no water pressure. system paused.");
         //recheck in loop - if ok - clear error
-        while (pressure.ErrorGet(1) != 0)
+        while (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) != PRESSURE_NORMAL)
         {
             Alarm.delay(1000);
-            pressure.measure(1);
+            pressure.measure(PRES_SENSOR_FRESHWATER);
             Alarm.delay(1000);
         }
         SystemState.error_unset(ERR_WATER_PRESSURE);
@@ -1595,7 +1612,7 @@ void Fill(byte barrel, uint16_t requirement)
     expanders.FillingRelay(barrel, true);
 
     // fill until requirement OR barrel_high_level
-    while (!barrels.isFillTargetReached(barrel, 1, requirement))
+    while (!barrels.isFillTargetReached(barrel, BARREL_FRESHWATER, requirement))
     { 
 
         //LOGIC
@@ -1616,9 +1633,9 @@ void Fill(byte barrel, uint16_t requirement)
 
         // SENSOR CHECK
         // check flow - if no flow (but pressure) for 10 times (10 seconds)
-        pressure.measure(1); // will stop at overpressure
-        if (!flow.FlowGet(1)) // noflow
-            if (pressure.ErrorGet(1) == 0) // normal pressure
+        pressure.measure(PRES_SENSOR_FRESHWATER); // will stop at overpressure
+        if (!flow.FlowGet(FLOW_SENSOR_FRESHWATER)) // noflow
+            if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) == PRESSURE_NORMAL) // normal pressure
             {
                 if (waited_for_flow < 255)
                     waited_for_flow++; // will increase by 1 every second where is no flow
@@ -1641,7 +1658,7 @@ void Fill(byte barrel, uint16_t requirement)
     // assign flowcount to barrel
     barrels.FreshwaterFillCalc(barrel); 
     // reset flow counter 1
-    flow.CounterReset(1);
+    flow.CounterReset(FLOW_SENSOR_FRESHWATER);
 }
 
 // will mix "barrel" untill "duration" minutes is over,
@@ -1650,7 +1667,7 @@ void Mix(byte barrel, uint16_t duration)
 {
     Serial.printf("[Mix]mixing barrel:%u for %uMin.", barrel, duration);
     // reset flow counter 2
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
     expanders.DrainingRelay(barrel, true);
     // open barrel store tap
@@ -1688,8 +1705,8 @@ void Mix(byte barrel, uint16_t duration)
 
         // SENSOR CHECK
         // check pressure in range
-        pressure.measure(2); 
-        if (pressure.ErrorGet(2) == 1)
+        pressure.measure(PRES_SENSOR_NUTRIENTS); 
+        if (pressure.ErrorGet(PRES_SENSOR_NUTRIENTS) == PRESSURE_NOPRESSURE)
             nopres++; // increment every cycle (second) of no pressure
         else
             nopres = 0; // reset if measured ok once
@@ -1713,7 +1730,7 @@ void Mix(byte barrel, uint16_t duration)
     // close barrel store tap
     expanders.StoringRelay(barrel, false);
     // reset flow counter 2
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 }
 
 // !! use src barrel level as requirement?
@@ -1724,7 +1741,7 @@ void Store(byte barrel, byte target)
 {
     Serial.printf("[Store]storing from barrel:%u to target %u", barrel, target);
     // reset flow counter 2
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     if (barrel == target)
     {
         Serial.println("Error! trying to store to itself.\r\nstoring function exit now.");
@@ -1743,7 +1760,7 @@ void Store(byte barrel, byte target)
 
         // LOGIC
         // every 50 liters (not too often for good calculation accuracy)
-        if (flow.CounterGet(2) / flow.DividerGet(2) > 50)
+        if (flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS) > 50)
         {
             // truncate flow counter from barrel
             // append flow counter to target
@@ -1757,8 +1774,8 @@ void Store(byte barrel, byte target)
 
         // SENSOR CHECK
         //evaluate pressure in loop
-        pressure.measure(2); //nutrients at sensor 2
-        if (pressure.ErrorGet(2) == 1)
+        pressure.measure(PRES_SENSOR_NUTRIENTS); //nutrients at sensor 2
+        if (pressure.ErrorGet(PRES_SENSOR_NUTRIENTS) == PRESSURE_NOPRESSURE)
             nopres++; // increment every cycle (second) of no pressure
         else
             nopres = 0; // reset if measured ok once
@@ -1788,14 +1805,14 @@ void Store(byte barrel, byte target)
     // calculate final ammount
     barrels.NutrientsTransferCalc(barrel, target);
     // reset flow counter 2
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 }
 
 void Drain(byte barrel, uint16_t requirement)
 {
     Serial.printf("[Drain]Draining %uL from barrel:%u", requirement, barrel);
     // reset flow counter 2
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
     expanders.DrainingRelay(barrel, true);
     // open pools "store" tap
@@ -1810,8 +1827,8 @@ void Drain(byte barrel, uint16_t requirement)
     while (requirement && !barrels.isEmpty(barrel))
     {
         // LOGIC
-        tempflow = flow.CounterGet(2); // may be increased during calculation because flowsensor works on interrupts
-        tempflow /= flow.DividerGet(2);         // integral part in liters, fractional part discarded.
+        tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
+        tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part in liters, fractional part discarded.
         // flow counted a liter or more
         if (tempflow)
         {
@@ -1830,8 +1847,8 @@ void Drain(byte barrel, uint16_t requirement)
 
         // SENSOR CHECK
         // check pressure in range
-        pressure.measure(2); 
-        if (pressure.ErrorGet(2) == 1)
+        pressure.measure(PRES_SENSOR_NUTRIENTS); 
+        if (pressure.ErrorGet(PRES_SENSOR_NUTRIENTS) == PRESSURE_NOPRESSURE)
             nopres++; // increment every cycle (second) of no pressure
         else
             nopres = 0; // reset if measured ok once
@@ -1855,12 +1872,12 @@ void Drain(byte barrel, uint16_t requirement)
     expanders.StoringRelay(6, false);
     Alarm.delay(1000);
     // last flow calculation
-    tempflow = flow.CounterGet(2); // may be increased during calculation because flowsensor works on interrupts
-    tempflow /= flow.DividerGet(2);         // integral part in liters, fractional part discarded.
+    tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
+    tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part in liters, fractional part discarded.
     if (tempflow) // if more than liter - Subtract
         barrels.DrainLitrageSubtract(barrel, tempflow);
     // reset flow counter 2
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 }
 
 void fmsTask()
@@ -1871,6 +1888,7 @@ void fmsTask()
         while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
             Alarm.delay(1000);                         // check every second
 
+        Serial.printf("[FMSD task]system state:%u", SystemState.state_get());
         if (SystemState.state_check(FILLING_STATE))
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
@@ -1883,6 +1901,7 @@ void fmsTask()
             SaveStructs();
         }
 
+        Serial.printf("[FMSD task]system state:%u", SystemState.state_get());
         if (SystemState.state_check(STORING_STATE))
         {
             // still have nutes to transfer
@@ -2114,24 +2133,24 @@ void setupServer()
         response->print("</li>");
         response->print("<span>Flow Sensors</span>");
         response->printf("<li>Fs1: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
-                         flow.CounterGet(1),
-                         flow.CounterGet(1) / flow.DividerGet(1),
-                         flow.FlowGet(1),
-                         flow.DividerGet(1));
+                         flow.CounterGet(FLOW_SENSOR_FRESHWATER),
+                         flow.CounterGet(FLOW_SENSOR_FRESHWATER) / flow.DividerGet(FLOW_SENSOR_FRESHWATER),
+                         flow.FlowGet(FLOW_SENSOR_FRESHWATER),
+                         flow.DividerGet(FLOW_SENSOR_FRESHWATER));
         response->printf("<li>Fs2: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
-                         flow.CounterGet(2),
-                         flow.CounterGet(2) / flow.DividerGet(2),
-                         flow.FlowGet(2),
-                         flow.DividerGet(2));
+                         flow.CounterGet(FLOW_SENSOR_NUTRIENTS),
+                         flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS),
+                         flow.FlowGet(FLOW_SENSOR_NUTRIENTS),
+                         flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
         response->print("<span>Pressure Sensors</span>");
         response->printf("<li>Ps1: [%iUnits] [%u raw/Units] [%i correction]</li>",
-                         pressure.measure(1),
-                         pressure.DividerGet(1),
-                         pressure.OffsetGet(1));
+                         pressure.measure(PRES_SENSOR_FRESHWATER),
+                         pressure.DividerGet(PRES_SENSOR_FRESHWATER),
+                         pressure.OffsetGet(PRES_SENSOR_FRESHWATER));
         response->printf("<li>Ps2: [%iUnits] [%u raw/Units] [%i correction]</li>",
-                         pressure.measure(2),
-                         pressure.DividerGet(2),
-                         pressure.OffsetGet(2));
+                         pressure.measure(PRES_SENSOR_NUTRIENTS),
+                         pressure.DividerGet(PRES_SENSOR_NUTRIENTS),
+                         pressure.OffsetGet(PRES_SENSOR_NUTRIENTS));
         response->print("<span>Ultrasonic Sensors</span>");
 
         for (byte i = 0; i < NUM_OF_BARRELS; i++)
@@ -2471,9 +2490,9 @@ void SaveStructs()
             }
         }
         Serial.println(F("waiting for no flow.."));
-        while (flow.FlowGet(1))
+        while (flow.FlowGet(FLOW_SENSOR_FRESHWATER))
             ;
-        while (flow.FlowGet(2))
+        while (flow.FlowGet(FLOW_SENSOR_NUTRIENTS))
             ;
         Serial.println(F("no flow ok - saving..."));
         SystemState.SaveSD();
@@ -2512,12 +2531,12 @@ void setup()
     // load structs from SD card
     LoadStructs();
 
-    pressure.setSensor(1, PRESSUR_1_PIN);
-    pressure.setSensor(2, PRESSUR_2_PIN);
+    pressure.setSensor(PRES_SENSOR_FRESHWATER, PRESSUR_1_PIN);
+    pressure.setSensor(PRES_SENSOR_NUTRIENTS, PRESSUR_2_PIN);
 
     flow.begin();
-    flow.CounterReset(1);
-    flow.CounterReset(2);
+    flow.CounterReset(FLOW_SENSOR_FRESHWATER);
+    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 
     //bug? testing..
     expanders.UnlockMUX();
