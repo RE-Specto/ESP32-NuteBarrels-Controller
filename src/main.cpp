@@ -4,8 +4,10 @@ if mix stopped in the middle - it will count from start again
 pressure offset is redundant?
 
 to implement:
-fill mix store drain finished?
 an option to manually start fill mix store drain from webUI
+    /manual add form input
+    -started 
+
 serial print to telnet or to webui directly or via another board (esp8266?).
 add a way to reset pressure error "protect" mode - by pressing start?
 use combination of SystemState.state_check and Transfers.inner_state
@@ -72,7 +74,11 @@ manual apply sonic value to flow barrel volume on request.
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 telnet server to send serial.prints + telnet client inside webui?
+allow to manually disable a barrel
+    barrels.ErrorSet(barrel, BARREL_DISABLED)
 
+fmsTask - check fill mix if barrel 0 not error!? 
+    who can set barrel 0 error?
 ------------------------------
 
 uint16_t DTS = 0;                                              //mySettings.DTS?3600UL:0;
@@ -121,8 +127,6 @@ handle reset in the middle of flow sensor transfer
 deprecate error reporting task and sendsms dictionary?
 
 add to schematic:
-rtc module
-12v to 5v to 3.3v power line
 12v to 5v change to switching regulator? move power supply out of the main board?
 12v line add polyfuze
 optional: doser on expander x20 pin A7? serial scale mux#14?
@@ -347,7 +351,7 @@ bool Save(const char *fname, byte *stru_p, uint16_t len)
     if (!file)
         OUT_PORT.print(F("unable to open file\r\n\r\n"));
     else
-        count = file.write(stru_p, len);
+        count = file.write(stru_p, len); // save Logic
 #ifdef DEBUG
     OUT_PORT.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
 #else
@@ -820,7 +824,7 @@ void errorReportTask()
 // flow Sensors Pin Declarations
 // and Interrupt routines
 
-struct myFS
+struct myFSENS
 {
     volatile uint32_t counter = 0;
     uint16_t conversion_divider = 450;
@@ -844,7 +848,7 @@ etc.  Max 30 L/min
 class FSClass
 {
 private:
-    myFS fsensor[2]; // two sensors
+    myFSENS fsensor[2]; // two sensors
 public:
     // returns flow in mililiters per second for sensor No(sens)
     uint16_t FlowGet(byte sens)
@@ -1596,9 +1600,9 @@ void Fill(byte barrel, uint16_t requirement)
     {
         // water line no pressure? stop, set error,
         SystemState.error_set(ERR_WATER_PRESSURE);
-        //sendsms,
+        // sendsms
         SendSMS("no water pressure. system paused.");
-        //recheck in loop - if ok - clear error
+        // recheck in loop - if ok - clear error
         while (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) != PRESSURE_NORMAL)
         {
             Alarm.delay(1000);
@@ -1615,10 +1619,10 @@ void Fill(byte barrel, uint16_t requirement)
     while (!barrels.isFillTargetReached(barrel, BARREL_FRESHWATER, requirement))
     { 
 
-        //LOGIC
+        // LOGIC
         // assign flowcount to barrel
         barrels.FreshwaterFillCalc(barrel);         
-        // if barrel ammount less than requirement
+        // if barrel ammount is Full then stop
         if (barrels.isFull(barrel))
         {
             Serial.printf("[E][Fill]barrel:%u full. breaking..", barrel);
@@ -1644,7 +1648,7 @@ void Fill(byte barrel, uint16_t requirement)
             }
         // if no flow set flowsensor1 error
         if (waited_for_flow >= 10)
-        { //10 seconds or more
+        { // 10 seconds or more
             SystemState.error_set(ERR_WATER_NOFLOW);
             SendSMS("error: no water flow while [Filling]. check flowsensor 1, filling solenoid");
             SystemState.state_set(STOPPED_STATE); // untill separate error-handling reimplemented
@@ -1713,9 +1717,9 @@ void Mix(byte barrel, uint16_t duration)
         if (nopres > 4)
         {
             SystemState.error_set(ERR_NUTRI_PRESSURE);
-            SendSMS("error: no pressure while [Mixing]. check pump, solenoids, and sensors");
+            SendSMS("error: no pressure while [Mixing]. check pump, solenoids, and sensors. barrel:", barrel);
             SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
-            break;                                // breaks + sets stopped if flowsensor error
+            break;                                // breaks + sets stopped if sensor error
         }
 
 
@@ -1733,10 +1737,9 @@ void Mix(byte barrel, uint16_t duration)
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 }
 
-// !! use src barrel level as requirement?
-// while barrels.isFillTargetReached(barrel-0, 2, min_level)
-// if flowcounter>50L barrels.NutrientsTransferCalc (barrel-src, barrel-dest)
-// at the end of while loop - NutrientsTransferCalc again
+// transfers nutrients from "barrel" to "target"
+// untill barrel is empty or untill target is full
+// or untill "stopped" state set, except if system state also set to manual
 void Store(byte barrel, byte target)
 {
     Serial.printf("[Store]storing from barrel:%u to target %u", barrel, target);
@@ -1764,6 +1767,7 @@ void Store(byte barrel, byte target)
         {
             // truncate flow counter from barrel
             // append flow counter to target
+            // also prints useful info to serial monitor
             barrels.NutrientsTransferCalc(barrel, target);
         }
 
@@ -1779,20 +1783,23 @@ void Store(byte barrel, byte target)
             nopres++; // increment every cycle (second) of no pressure
         else
             nopres = 0; // reset if measured ok once
-        if (nopres > 4)
+        if (nopres > 40) // 4 seconds
         {
             SystemState.error_set(ERR_NUTRI_PRESSURE);
             SendSMS("error: no pressure while [Storing]. check pump, solenoids, and sensors");
             SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
             break;                                // breaks + sets stopped if flowsensor error
         }
+        // in next version:
         //if overpressure error - set target barrel error
         //goto next barrel, clear overpressure error
-        //if all barrels error - set pump error - clear all barrel errors
-        //except manually-disabled barrels "error"
+        //if all barrels error - set pump error - clear all barrel overpressure errors
+        //  except manually-disabled barrels "error"
         //if no pressure - loop-measure for a while
         //if still no pressure - check flow
         //no flow - set pump error.
+
+        Alarm.delay(100);
     }
     // stop pump
     expanders.Pump(false);
@@ -1808,6 +1815,8 @@ void Store(byte barrel, byte target)
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 }
 
+// draining from barrel, untill requirement liters is transferred, or barrel is empty
+// or untill state set to stopped except if state is also manual
 void Drain(byte barrel, uint16_t requirement)
 {
     Serial.printf("[Drain]Draining %uL from barrel:%u", requirement, barrel);
@@ -1852,7 +1861,7 @@ void Drain(byte barrel, uint16_t requirement)
             nopres++; // increment every cycle (second) of no pressure
         else
             nopres = 0; // reset if measured ok once
-        if (nopres > 4)
+        if (nopres > 40) // 4 seconds (40 delays of 100ms below)
         {
             SystemState.error_set(ERR_NUTRI_PRESSURE);
             SendSMS("error: no pressure while [Draining]. check pump, solenoid, and sensors");
@@ -1860,7 +1869,7 @@ void Drain(byte barrel, uint16_t requirement)
             break;                                // breaks + sets stopped if flowsensor error
         }
 
-        Alarm.delay(1000);
+        Alarm.delay(100);
     }
     // stop pump
     expanders.Pump(false);
@@ -1918,7 +1927,8 @@ void fmsTask()
                 // then we store what is left
                 // target not full - transfer into storing barrel
                 // excluding the case where all system was full and storing_barrel pointed to barrel 0
-                if (!barrels.isFull(Transfers.storing_barrel) && Transfers.storing_barrel > 0)
+                // skip barrel if disabled or errorous!
+                if (!barrels.isFull(Transfers.storing_barrel) && !barrels.ErrorGet(Transfers.storing_barrel) && Transfers.storing_barrel > 0)
                     Store(Transfers.filling_barrel, Transfers.storing_barrel);
                 // target full - goto next barrel
                 else if (Transfers.storing_barrel > 1)
@@ -1941,8 +1951,8 @@ void fmsTask()
             // or broke out of the loop cause all including mixer is full
             while (Transfers.drain_requirement)
             {
-                // storing_barrel not empty? drain it
-                if (!barrels.isEmpty(Transfers.storing_barrel))
+                // storing_barrel not empty? not errorous? drain it
+                if (!barrels.isEmpty(Transfers.storing_barrel) && !barrels.ErrorGet(Transfers.storing_barrel))
                     Drain(Transfers.storing_barrel, Transfers.drain_requirement);
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
                 else if (Transfers.storing_barrel < NUM_OF_BARRELS - 1)
@@ -2161,10 +2171,19 @@ void setupServer()
             response->print("</li>");
         }
         response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", barrels.SonicLitersTotal(), barrels.SonicLitersUsable());
-        response->printf("<li>uptime: %lli</li>", esp_timer_get_time() / 1000000);
+
+        response->print("<span>FMSD:</span>");
+        response->print("<form action=\"/man\">");
+        response->print("<li><input id=\"barr\" name=\"barr\" value=\"barrel 0-6\"></li>");
+        response->print("<li><input id=\"task\" name=\"task\" value=\"task 1 2 3 4\"></li>");
+        response->print("<li><input id=\"ammo\" name=\"ammo\" value=\"ammount > 0\"></li>");
+        response->print("<li><input type=\"submit\" value=\"Go\">");
+        response->print("</form>");
+
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
-        response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
+        response->print("<button onclick=\"location=\'/reset\'\">reset</button><br>");
+        response->printf("<span>uptime: %lli seconds</span><br><br>", esp_timer_get_time() / 1000000);
         response->print("<button onclick=\"location=\'/list\'\">open list filesystem</button>");
         response->print("</body></html>");
         request->send(response);
@@ -2201,6 +2220,19 @@ void setupServer()
                 int rgb = request->arg("rgb").toInt();
                 Serial.printf("setting setRGBLED to %i\r\n", rgb);
                 expanders.setRGBLED(rgb);
+            }
+            if (request->hasArg("barr"))
+            {
+                // converting arguments
+                int barr = request->arg("barr").toInt();
+                int task = request->arg("task").toInt();
+                int ammo = request->arg("ammo").toInt();
+                // printing message
+                Serial.printf("[man]fmsd barr received: %i %i %i\r\n", barr, task, ammo);
+                // checking input is valid
+
+                // running the task
+///!!!!
             }
         }
         else
