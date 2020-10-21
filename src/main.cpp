@@ -1,14 +1,42 @@
 /*
 bugs:
+NutrientsTransferCalc should also skip ip tempflow is 0
+void store allways storing untill empty
+    must give option to store only required ammount
 if mix stopped in the middle - it will count from start again
 pressure offset is redundant?
 
 to implement:
+add measure button to pressure sens /manual
+
 an option to manually start fill mix store drain from webUI
-    /manual add form input
-    -started 
+    ---[mix]Status Stopped and not Manual. breaking.
+        add "set manual mode on off" from /manual
+    add a cancel button
+        will webui hangs during long execution?
+        webserver should run in a separate thread?
+            manual commands can leave a flag for fmsd to pick up
+should fmsd tasks return right away without starting if stopped and not manual?
+
+test:
+    fill huge ammount
+    mix huge ammount
+    fill 0
+    fill 6
+    store to itself
+    store from 0 to 6
+    store from 6 to 0
+    drain 0
+    drain 6
+
+barr error set shoud save to sd? or save after each use in code?
+    implement error unset from webui
 
 serial print to telnet or to webui directly or via another board (esp8266?).
+
+-solder start-stop rgb led test cable
+-solder dummy pressure sensor
+
 add a way to reset pressure error "protect" mode - by pressing start?
 use combination of SystemState.state_check and Transfers.inner_state
     on reset - sytem will remeasure using sonic 
@@ -79,6 +107,12 @@ allow to manually disable a barrel
 
 fmsTask - check fill mix if barrel 0 not error!? 
     who can set barrel 0 error?
+
+add Serial.println(__FUNCTION__); at every function start for debug
+    add uptime?
+    typeid(*this).name() for class name?
+        __FUNCTION__ is non standard, __func__ exists in C99 / C++11. The others (__LINE__ and __FILE__) are just fine.
+        It will always report the right file and line (and function if you choose to use __FUNCTION__/__func__). Optimization is a non-factor since it is a compile time macro expansion; it will never effect performance in any way.
 ------------------------------
 
 uint16_t DTS = 0;                                              //mySettings.DTS?3600UL:0;
@@ -621,6 +655,7 @@ void SendSMS(const char *message, byte item)
     Serial2.write(26); // send ctrl+z end of message
     //Serial2.print((char)26); // if the above won't work - thy this one instead
     expanders.UnlockMUX();
+    Serial.println(); // add newline after sendsms for log readability
 }
 
 /*
@@ -811,7 +846,7 @@ void errorReportTask()
     { // loops untill error is empty
         if (newerrors & counter)
         { // try each error state bit one by one
-            Serial.printf("system error %u", counter);
+            Serial.printf("system error %u\r\n", counter);
             //SendSMS( SYSTEM_ERROR, counter );
             newerrors -= counter; // Subtract what already reported
             counter *= 2;         // next bit
@@ -965,6 +1000,7 @@ struct myPS
     int16_t _offset = 0;      //-145;
     byte _max_pressure = 200;
     byte _min_pressure = 55;
+    int16_t _last_pressure = 0;
 };
 
 // pressure sensors starts from 0
@@ -1042,6 +1078,12 @@ public:
 
     bool SaveSD() { return Save("/Pressure.bin", (byte *)&psensor, sizeof(psensor)); }
 
+    // returns last value measured by pressure sensor (sens)
+    int16_t LastValue(byte sens)
+    {
+        return psensor[sens]._last_pressure;
+    }
+
     // read sensor (sens) - converts analog value to pressure
     int16_t measure(byte sens)
     {
@@ -1059,8 +1101,9 @@ public:
         // https://forum.arduino.cc/index.php?topic=571166.0
         analogRead(p->_sensorPin); // discard first value
         // convert analog value to pressure
-        Serial.printf("measuring pSensor %u @pin%u value:%u\r\n", sens + 1, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
+        Serial.printf("[pres]measuring pSensor %u @pin%u calib:%u value:", sens + 1, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
         uint16_t pres = (analogRead(p->_sensorPin) / p->_divider + p->_offset);                                    // third value goes into evaluation
+        p->_last_pressure = pres; // storing value for reuse
         Serial.println(pres);
 
         //2  overpressure
@@ -1233,13 +1276,18 @@ public:
             b->_VolumeFreshwaterLast = b->_VolumeFreshwater;
 
         uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
-        Serial.printf("[FreshwaterFillCalc] tempflow so far: %u", tempflow);
-        tempflow /= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // integral part, fractional part discarded.
-        Serial.printf("[FreshwaterFillCalc] tempflow in liters: %u", tempflow);
-        b->_VolumeFreshwater += tempflow;
-        tempflow *= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // getting pulse count back - only the integral part
-        Serial.printf("[FreshwaterFillCalc] tempflow integral part: %u", tempflow);
-        flow.CounterSubtract(FLOW_SENSOR_FRESHWATER, tempflow);              // counter 1 is freshwater
+        if (tempflow)
+        {
+            Serial.printf("[barrels][FreshwaterFillCalc] tempflow so far: %u\r\n", tempflow);
+            tempflow /= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // integral part, fractional part discarded.
+            Serial.printf("[barrels][FreshwaterFillCalc] tempflow in liters: %u\r\n", tempflow);
+            b->_VolumeFreshwater += tempflow;
+            tempflow *= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // getting pulse count back - only the integral part
+            Serial.printf("[barrels][FreshwaterFillCalc] tempflow integral part: %u\r\n", tempflow);
+            flow.CounterSubtract(FLOW_SENSOR_FRESHWATER, tempflow);              // counter 1 is freshwater
+        }
+        else
+            Serial.println("[barrels][FreshwaterFillCalc]0 flow so far. skipping");
         b->_VolumeFreshwaterLast = b->_VolumeFreshwater; // after
     }
 
@@ -1400,6 +1448,7 @@ public:
         uint32_t distanceAvearge = 0;  // avearge of x measurements
         uint16_t distanceMin = 0xffff; // highest for 16bit uint
         uint16_t distanceMax = 0;      // to calculate error
+        Serial.printf("[sonic][measure]measuring barrel# %u\r\n", barrel);
         expanders.setMUX(barrel);
         delay(1);
         for (byte x = 0; x < measure && retryLeft && timeLeft;)
@@ -1591,7 +1640,7 @@ public:
 // fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
 void Fill(byte barrel, uint16_t requirement)
 {
-    Serial.printf("[Fill]filling barrel:%u to %uL", barrel, requirement);
+    Serial.printf("[Fill]filling barrel:%u to %uL\r\n", barrel, requirement);
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
@@ -1625,13 +1674,14 @@ void Fill(byte barrel, uint16_t requirement)
         // if barrel ammount is Full then stop
         if (barrels.isFull(barrel))
         {
-            Serial.printf("[E][Fill]barrel:%u full. breaking..", barrel);
+            Serial.printf("[E][Fill]barrel:%u full. breaking..\r\n", barrel);
             break;
         }
 
         // STOP-BREAK
         // check if changed to STOPPED state
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
+            Serial.println("[fill]Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks if stopped set
 
 
@@ -1663,13 +1713,14 @@ void Fill(byte barrel, uint16_t requirement)
     barrels.FreshwaterFillCalc(barrel); 
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
+    Serial.printf("[Fill]END filling barrel:%u to %uL\r\n", barrel, requirement);
 }
 
 // will mix "barrel" untill "duration" minutes is over,
 // or before if state changed to stopped while we're not operating manual
 void Mix(byte barrel, uint16_t duration)
 {
-    Serial.printf("[Mix]mixing barrel:%u for %uMin.", barrel, duration);
+    Serial.printf("[Mix]mixing barrel:%u for %uMin.\r\n", barrel, duration);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
@@ -1697,13 +1748,14 @@ void Mix(byte barrel, uint16_t duration)
         {
             duration--;
             sec = 0;
-            Serial.printf("[Mix]barrel:%u %uMin remaining", barrel, duration);
+            Serial.printf("[Mix]barrel:%u %uMin remaining\r\n", barrel, duration);
         }
 
 
         // STOP-BREAK
         // break if stopped but not manual
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
+            Serial.println("[mix]Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
 
 
@@ -1735,6 +1787,7 @@ void Mix(byte barrel, uint16_t duration)
     expanders.StoringRelay(barrel, false);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
+    Serial.printf("[Mix]END mixing barrel:%u for %uMin.\r\n", barrel, duration);
 }
 
 // transfers nutrients from "barrel" to "target"
@@ -1742,7 +1795,7 @@ void Mix(byte barrel, uint16_t duration)
 // or untill "stopped" state set, except if system state also set to manual
 void Store(byte barrel, byte target)
 {
-    Serial.printf("[Store]storing from barrel:%u to target %u", barrel, target);
+    Serial.printf("[Store]storing from barrel:%u to target %u\r\n", barrel, target);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     if (barrel == target)
@@ -1774,6 +1827,7 @@ void Store(byte barrel, byte target)
         // STOP-BREAK
         // break if stopped but not manual
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
+            Serial.println("[store]Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
 
         // SENSOR CHECK
@@ -1813,13 +1867,14 @@ void Store(byte barrel, byte target)
     barrels.NutrientsTransferCalc(barrel, target);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
+    Serial.printf("[Store]END storing from barrel:%u to target %u\r\n", barrel, target);
 }
 
 // draining from barrel, untill requirement liters is transferred, or barrel is empty
 // or untill state set to stopped except if state is also manual
 void Drain(byte barrel, uint16_t requirement)
 {
-    Serial.printf("[Drain]Draining %uL from barrel:%u", requirement, barrel);
+    Serial.printf("[Drain]Draining %uL from barrel:%u\r\n", requirement, barrel);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
@@ -1851,6 +1906,7 @@ void Drain(byte barrel, uint16_t requirement)
         // STOP-BREAK
         // check for STOPPED state change
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
+            Serial.println("[drain]Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks the measure loop, stops pump, not decrement the x
                                                                                               //stays in the while STOPPED above
 
@@ -1887,17 +1943,18 @@ void Drain(byte barrel, uint16_t requirement)
         barrels.DrainLitrageSubtract(barrel, tempflow);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
+    Serial.printf("[Drain]END Draining %uL from barrel:%u\r\n", requirement, barrel);
 }
 
 void fmsTask()
 { // Filling Mixing Storing Draining
-    Serial.printf("[FMSD task]system state:%u", SystemState.state_get());
+    Serial.printf("[FMSD task]system state:%u\r\n", SystemState.state_get());
     while (true)
     {
         while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
             Alarm.delay(1000);                         // check every second
 
-        Serial.printf("[FMSD task]system state:%u", SystemState.state_get());
+        Serial.printf("[FMSD task]system state:%u\r\n", SystemState.state_get());
         if (SystemState.state_check(FILLING_STATE))
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
@@ -1910,7 +1967,7 @@ void fmsTask()
             SaveStructs();
         }
 
-        Serial.printf("[FMSD task]system state:%u", SystemState.state_get());
+        Serial.printf("[FMSD task]system state:%u\r\n", SystemState.state_get());
         if (SystemState.state_check(STORING_STATE))
         {
             // still have nutes to transfer
@@ -2153,12 +2210,18 @@ void setupServer()
                          flow.FlowGet(FLOW_SENSOR_NUTRIENTS),
                          flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
         response->print("<span>Pressure Sensors</span>");
-        response->printf("<li>Ps1: [%iUnits] [%u raw/Units] [%i correction]</li>",
-                         pressure.measure(PRES_SENSOR_FRESHWATER),
+        response->print("<li>");
+        response->printf("<button onclick=\"location=\'/pressure?n=1\'\">PS1: measure</button><span> </span>");
+        response->printf("[%iUnits] [%u raw/Units] [%i correction]</li>",
+                         //pressure.measure(PRES_SENSOR_FRESHWATER),
+                         pressure.LastValue(PRES_SENSOR_FRESHWATER),
                          pressure.DividerGet(PRES_SENSOR_FRESHWATER),
                          pressure.OffsetGet(PRES_SENSOR_FRESHWATER));
-        response->printf("<li>Ps2: [%iUnits] [%u raw/Units] [%i correction]</li>",
-                         pressure.measure(PRES_SENSOR_NUTRIENTS),
+        response->print("<li>");
+        response->printf("<button onclick=\"location=\'/pressure?n=2\'\">PS2: measure</button><span> </span>");
+        response->printf("[%iUnits] [%u raw/Units] [%i correction]</li>",
+                         //pressure.measure(PRES_SENSOR_NUTRIENTS),
+                         pressure.LastValue(PRES_SENSOR_NUTRIENTS),
                          pressure.DividerGet(PRES_SENSOR_NUTRIENTS),
                          pressure.OffsetGet(PRES_SENSOR_NUTRIENTS));
         response->print("<span>Ultrasonic Sensors</span>");
@@ -2174,9 +2237,11 @@ void setupServer()
 
         response->print("<span>FMSD:</span>");
         response->print("<form action=\"/man\">");
-        response->print("<li><input id=\"barr\" name=\"barr\" value=\"barrel 0-6\"></li>");
-        response->print("<li><input id=\"task\" name=\"task\" value=\"task 1 2 3 4\"></li>");
-        response->print("<li><input id=\"ammo\" name=\"ammo\" value=\"ammount > 0\"></li>");
+        response->print("<li><input id=\"barr\" name=\"barr\" value=\"barrel:0-6\"></li>");
+        response->print("<li><input id=\"task\" name=\"task\" value=\"fill-1-mix-2-store-3-drain-4\"></li>");
+        response->print("<li><input id=\"ammo\" name=\"ammo\" value=\"ammount>0\"></li>");
+        response->print("<li>for storing task only:</li>");
+        response->print("<li><input id=\"dest\" name=\"dest\" value=\"destination-barr:0-6\"></li>");
         response->print("<li><input type=\"submit\" value=\"Go\">");
         response->print("</form>");
 
@@ -2227,12 +2292,38 @@ void setupServer()
                 int barr = request->arg("barr").toInt();
                 int task = request->arg("task").toInt();
                 int ammo = request->arg("ammo").toInt();
+                int dest = request->arg("dest").toInt();
                 // printing message
-                Serial.printf("[man]fmsd barr received: %i %i %i\r\n", barr, task, ammo);
+                Serial.printf("[man]fmsd barr received: %i %i %i %i\r\n", barr, task, ammo, dest);
                 // checking input is valid
-
-                // running the task
-///!!!!
+                if (barr > -1 && barr < 7 && task > 0 && task < 5 && ammo > 0 && ammo < 32768 && dest > -1 && dest < 7)
+                {
+                    Serial.println("man fmsd ok");
+                    // running the task
+                    switch (task)
+                    {
+                        case 1:
+                        Serial.printf("filling %i liters into barrel# %i\r\n", ammo, barr);
+                        Fill(barr, ammo);
+                        break;
+                        case 2:
+                        Serial.printf("mixing barrel# %i for %i minutes\r\n", barr, ammo);
+                        Mix(barr, ammo);
+                        break;
+                        case 3:
+                        Serial.printf("storing everyting from barrel# %i into barrel# %i\r\n", barr, dest);
+                        Store(barr, dest);
+                        break;
+                        case 4:
+                        Serial.printf("draining %i liters from barrel# %i\r\n", ammo, barr);
+                        Drain(barr, ammo);
+                        break;
+                    }
+                }
+                else
+                {
+                    Serial.println("[man fmsd][e]parameter out of range");
+                }
             }
         }
         else
@@ -2278,6 +2369,21 @@ void setupServer()
                 //sprintf (buf, "%05u", barrels.SonicMeasure(request->arg("n").toInt()));
                 //request->send(200, "text/html", buf);
                 barrels.SonicMeasure(request->arg("n").toInt(), 3, 500); // measure 3 times max 500 ms
+                request->redirect("/manual");
+            }
+        }
+        else
+            request->send(200, "text/plain", "n parameter missing");
+    });
+
+    server.on("/pressure", HTTP_GET, [](AsyncWebServerRequest *request) {
+        Serial.print("Requested: ");
+        Serial.println(request->url().c_str());
+        if (request->args() > 0)
+        { // Arguments were received
+            if (request->hasArg("n"))
+            {
+                pressure.measure(request->arg("n").toInt());
                 request->redirect("/manual");
             }
         }
@@ -2347,7 +2453,7 @@ void setupServer()
     // Start server
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     server.begin();
-    Serial.println(F("-Server init"));
+    Serial.print(F("-Server init\r\n\r\n"));
 } // void setupServer() end
 
 /*-------- NTP code ----------*/
