@@ -1,13 +1,15 @@
 /*
 bugs:
-NutrientsTransferCalc should also skip ip tempflow is 0
+system resets every time serial console connects/disconnects?
+    https://esp32.com/viewtopic.php?t=4988
 void store allways storing untill empty
     must give option to store only required ammount
 if mix stopped in the middle - it will count from start again
 pressure offset is redundant?
+[1126][measure] measuring pSensor 1 @pin36 calib:0 value:[1129][measure] 0
+[1280][ErrorSet] [E] Barr0:e16 should report sms?
 
 to implement:
-add measure button to pressure sens /manual
 
 an option to manually start fill mix store drain from webUI
     ---[mix]Status Stopped and not Manual. breaking.
@@ -15,8 +17,9 @@ an option to manually start fill mix store drain from webUI
     add a cancel button
         will webui hangs during long execution?
         webserver should run in a separate thread?
-            manual commands can leave a flag for fmsd to pick up
-should fmsd tasks return right away without starting if stopped and not manual?
+            manual commands can leave a flag for fmsTask to pick up
+                check line 2000
+fmsd functions should return right away without starting if stopped and not manual?
 
 test:
     fill huge ammount
@@ -101,14 +104,14 @@ manual apply sonic value to flow barrel volume on request.
 
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
     https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
-telnet server to send serial.prints + telnet client inside webui?
+telnet server to send LOG.prints + telnet client inside webui?
 allow to manually disable a barrel
     barrels.ErrorSet(barrel, BARREL_DISABLED)
 
 fmsTask - check fill mix if barrel 0 not error!? 
     who can set barrel 0 error?
 
-add Serial.println(__FUNCTION__); at every function start for debug
+add LOG.println(__FUNCTION__); at every function start for debug
     add uptime?
     typeid(*this).name() for class name?
         __FUNCTION__ is non standard, __func__ exists in C99 / C++11. The others (__LINE__ and __FILE__) are just fine.
@@ -266,7 +269,7 @@ add ... on serial.available to check module awake
 
 #define MUX_UNLOCKED 255 //valid shannels are 0-15
 
-#define OUT_PORT Serial   //SerialAndTelnet or file
+#define LOG Serial.printf("[%04i][%s] ", __LINE__, __FUNCTION__);Serial   //SerialAndTelnet or file
 #define SYNC_INTERVAL 600 // NTP sync - in seconds
 #define NTP_PACKET_SIZE 48
 // NTP time is in the first 48 bytes of message
@@ -292,6 +295,7 @@ add ... on serial.available to check module awake
 #define REPORT_DELAY 5000
 
 #define DEBUG
+
 
 // Globals
 FS *disk = &SPIFFS; // default
@@ -322,14 +326,14 @@ void initStorage()
     {
         if (SD.begin())
         {
-            OUT_PORT.println(F("SD card OK"));
+            LOG.println(F("SD card OK"));
             disk = &SD;
             isSD = true;
             break;
         }
         else
         {
-            OUT_PORT.println(F("Error: Failed to initialize SD card"));
+            LOG.println(F("Error: Failed to initialize SD card"));
             Alarm.delay(1000);
             retry--; // prevent dead loop
         }
@@ -341,12 +345,12 @@ void initStorage()
     {
         if (SPIFFS.begin())
         {
-            OUT_PORT.println(F("SPIFFS OK"));
+            LOG.println(F("SPIFFS OK"));
             break;
         }
         else
         {
-            OUT_PORT.println(F("Error: Failed to initialize SPIFFS"));
+            LOG.println(F("Error: Failed to initialize SPIFFS"));
             Alarm.delay(1000);
             retry--; // prevent dead loop
         }
@@ -358,18 +362,20 @@ void initStorage()
 bool Load(const char *fname, byte *stru_p, uint16_t len)
 {
     uint16_t count = 0;
-    OUT_PORT.printf("Loading %s\t", fname);
+    LOG.printf("Loading %s\t", fname);
     file = disk->open(fname, "r");
     if (!file)
-        OUT_PORT.print(F("unable to open file\r\n\r\n"));
+    {
+        LOG.print(F("unable to open file\r\n\r\n"));
+    }
     else
         for (; count < len; count++)
             if (file.available())
                 *(stru_p + count) = file.read();
 #ifdef DEBUG
-    OUT_PORT.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
+    LOG.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
 #else
-    OUT_PORT.println();
+    LOG.println();
 #endif
     file.close();
     return count == len;
@@ -379,17 +385,19 @@ bool Load(const char *fname, byte *stru_p, uint16_t len)
 bool Save(const char *fname, byte *stru_p, uint16_t len)
 {
     uint16_t count = 0;
-    OUT_PORT.printf("Saving %s\t", fname);
+    LOG.printf("Saving %s\t", fname);
     file = disk->open(fname, "w"); // creates the file of not exist
     //file.setTimeCallback(timeCallback);
     if (!file)
-        OUT_PORT.print(F("unable to open file\r\n\r\n"));
+    {
+        LOG.print(F("unable to open file\r\n\r\n"));
+    }
     else
         count = file.write(stru_p, len); // save Logic
 #ifdef DEBUG
-    OUT_PORT.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
+    LOG.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
 #else
-    OUT_PORT.println();
+    LOG.println();
 #endif
     file.close();
     return count == len;
@@ -398,7 +406,7 @@ bool Save(const char *fname, byte *stru_p, uint16_t len)
 // backup overwrites all files on SPIFFS
 byte Backup()
 {
-    Serial.println(F("Backing up all files from SD to SPIFFS"));
+    LOG.println(F("Backing up all files from SD to SPIFFS"));
     File dir = SD.open("/");
     File file = dir.openNextFile();
     size_t len = 0; // file chunk lenght at the buffer
@@ -407,13 +415,15 @@ byte Backup()
     {
         static byte buf[512];
         if (!file.size())
-            Serial.printf("skipping empty file %s\r\n", file.name());
+        {
+            LOG.printf("skipping empty file %s\r\n", file.name());
+        }
         else
         {
             // was unable to detect SD disconnection - file was true, name and size returned valid, only read returned zero.
             if (!file.read(buf, 512))
             {
-                Serial.println(F("[E][:231] SD not exist!!"));
+                LOG.println(F("[E] SD not exist!!"));
                 break;
             }             // protect against endless loop on SD error
             file.seek(0); // start from start
@@ -423,7 +433,7 @@ byte Backup()
                 len = file.read(buf, 512);
                 //stream.readBytes(buffer, length)
                 destFile.write(buf, len);
-                Serial.printf("copying %s from SD to SPIFFS %u bytes copied\r\n", destFile.name(), len);
+                LOG.printf("copying %s from SD to SPIFFS %u bytes copied\r\n", destFile.name(), len);
             }
             destFile.close();
             counter++;
@@ -432,14 +442,14 @@ byte Backup()
         file = dir.openNextFile();
     }
     dir.close();
-    Serial.printf("Backup finished. %u files copied\r\n", counter);
+    LOG.printf("Backup finished. %u files copied\r\n", counter);
     return counter;
 }
 
 // restore only files missing on SD card
 byte Restore()
 {
-    Serial.println(F("Restoring missing files from SPIFFS to SD"));
+    LOG.println(F("Restoring missing files from SPIFFS to SD"));
     File dir = SPIFFS.open("/");
     File file = dir.openNextFile();
     size_t len = 0; // file chunk lenght at the buffer
@@ -448,13 +458,17 @@ byte Restore()
     {
         //file.name() file.size());
         if (SD.exists(file.name()))
-            Serial.printf("file %s already exist on SD\r\n", file.name());
+        {
+            LOG.printf("file %s already exist on SD\r\n", file.name());
+        }
         else if (!file.size())
-            Serial.printf("skipping empty file %s\r\n", file.name());
+        {
+            LOG.printf("skipping empty file %s\r\n", file.name());
+        }
         else
         {
             File destFile = SD.open(file.name(), FILE_WRITE);
-            Serial.println(file.name());
+            LOG.println(file.name());
             if (destFile)
             {
                 static byte buf[512];
@@ -463,16 +477,18 @@ byte Restore()
                 {
                     len = file.read(buf, 512);
                     destFile.write(buf, len);
-                    Serial.printf("copying %s from SPIFFS to SD %u bytes copied\r\n", destFile.name(), len);
+                    LOG.printf("copying %s from SPIFFS to SD %u bytes copied\r\n", destFile.name(), len);
                 }
             }
             else
             {
-                Serial.println(F("Error writing to SD"));
+                LOG.println(F("Error writing to SD"));
             }
             destFile.close();
             if (file.size() != destFile.size())
-                Serial.printf("[E] file %s size mismatch!\r\n", file.name());
+            {
+                LOG.printf("[E] file %s size mismatch!\r\n", file.name());
+            }
             else
                 counter++;
         }
@@ -480,7 +496,7 @@ byte Restore()
         file = dir.openNextFile();
     }
     dir.close();
-    Serial.printf("Restore finished. %u files copied\r\n", counter);
+    LOG.printf("Restore finished. %u files copied\r\n", counter);
     return counter;
 }
 /*-------- Filesystem END ----------*/
@@ -529,12 +545,14 @@ public:
     {
 
         if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
-            OUT_PORT.printf("-MUX! previously locked to %u, %u is waiting\r\n", _muxLock, address);
+        {
+            LOG.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);
+        }
 
         while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
             Alarm.delay(1);
 
-        OUT_PORT.printf("-MUX! is free. locking to %u\r\n", address);
+        LOG.printf("MUX is free. locking to %u\r\n", address);
         _muxLock = address;
 
         for (byte i = 0; i < 4; i++)
@@ -551,11 +569,13 @@ public:
     {
         if (_muxLock != MUX_UNLOCKED)
         {
-            OUT_PORT.printf("-MUX! Unlocking %u\r\n", _muxLock);
+            LOG.printf("MUX Unlocking %u\r\n", _muxLock);
             _muxLock = MUX_UNLOCKED;
         }
         else
-            OUT_PORT.println(F("-MUX! already unlocked!"));
+        {
+            LOG.println(F("MUX already unlocked!"));
+        }
     }
 
     // set RGB LED according to mask (LED_YELLOW, LED_CYAN....)
@@ -642,9 +662,13 @@ public:
 void SendSMS(const char *message, byte item)
 { //byte item=0xFF moved to declaration BOF
     if (item != 0xFF)
-        OUT_PORT.printf("-sendsms: %s %u\r\n", message, item);
+    {
+        LOG.printf("sms: %s %u\r\n", message, item);
+    }
     else
-        OUT_PORT.printf("-sendsms: %s\r\n", message);
+    {
+        LOG.printf("sms: %s\r\n", message);
+    }
 
     expanders.setMUX(7);                          // modem is at port 7
     Alarm.delay(10);                              // wait until expander + mux did their job
@@ -711,14 +735,14 @@ void SendSMS(byte caller_function, byte error_number, byte item_number=0xFF){
 // set MUX to SIM_MUX_ADDRESS
 // send sms with error code description
 void SendSMS(String message){
-    OUT_PORT.print("-sendsms: ");
-    OUT_PORT.println(message);
+    LOG.print("-sendsms: ");
+    LOG.println(message);
     SendSMS(message.c_str());
 }*/
 
 void modemInit()
 {
-    OUT_PORT.println("-modem init");
+    LOG.println("-modem init");
     expanders.setMUX(7); // modem is at port 7
     Alarm.delay(10);     // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
@@ -846,7 +870,7 @@ void errorReportTask()
     { // loops untill error is empty
         if (newerrors & counter)
         { // try each error state bit one by one
-            Serial.printf("system error %u\r\n", counter);
+            LOG.printf("system error %u\r\n", counter);
             //SendSMS( SYSTEM_ERROR, counter );
             newerrors -= counter; // Subtract what already reported
             counter *= 2;         // next bit
@@ -922,7 +946,7 @@ public:
         else
         {
             fsensor[sens].counter = 0;
-            Serial.printf("Err: tried to decrease flowsensor%u below zero, with %u\r\n", sens + 1, value);
+            LOG.printf("Err: tried to decrease flowsensor%u below zero, with %u\r\n", sens + 1, value);
         }
     }
 
@@ -957,7 +981,7 @@ public:
     // attach interrupts
     void begin()
     {
-        Serial.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
+        LOG.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
         pinMode(FLOW_1_PIN, INPUT_PULLUP);
         pinMode(FLOW_2_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, FALLING);
@@ -1101,10 +1125,10 @@ public:
         // https://forum.arduino.cc/index.php?topic=571166.0
         analogRead(p->_sensorPin); // discard first value
         // convert analog value to pressure
-        Serial.printf("[pres]measuring pSensor %u @pin%u calib:%u value:", sens + 1, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
+        LOG.printf("measuring pSensor %u @pin%u calib:%u value:", sens + 1, p->_sensorPin, analogRead(p->_sensorPin)); // second value to serial mon
         uint16_t pres = (analogRead(p->_sensorPin) / p->_divider + p->_offset);                                    // third value goes into evaluation
         p->_last_pressure = pres; // storing value for reuse
-        Serial.println(pres);
+        LOG.println(pres);
 
         //2  overpressure
         if (pres > p->_max_pressure && pres < 255)
@@ -1115,7 +1139,7 @@ public:
             expanders.Protect(true);
             // set error
             p->_ErrorState = 2;
-            Serial.printf("[e][pressure] sensor %u overpressure\r\n", sens + 1);
+            LOG.printf("[E] sensor %u overpressure\r\n", sens + 1);
             SendSMS("Overpressure @pressure sensor", sens + 1);
             return pres; // exits here
         }
@@ -1129,7 +1153,7 @@ public:
             expanders.Protect(true);
             // set error
             p->_ErrorState = 4;
-            Serial.printf("[e][pressure] sensor %u short circuit\r\n", sens + 1);
+            LOG.printf("[E] sensor %u short circuit\r\n", sens + 1);
             //send sms
             SendSMS("short circuit @pressure sensor", sens + 1);
             return pres; // exits here
@@ -1144,7 +1168,7 @@ public:
             expanders.Protect(true);
             // set error
             p->_ErrorState = 3;
-            Serial.printf("[e][pressure] sensor %u disconnected\r\n", sens + 1);
+            LOG.printf("[E] sensor %u disconnected\r\n", sens + 1);
             //send sms
             SendSMS("lost connection @pressure sensor", sens + 1);
             return pres; // exits here
@@ -1255,7 +1279,7 @@ public:
     void ErrorSet(byte barrel, byte mask)
     {
         myBarrel[barrel]._ErrorState |= mask;
-        Serial.printf("[E] Barr%u:e%u\r\n", barrel, mask);
+        LOG.printf("[E] Barr%u:e%u\r\n", barrel, mask);
     }
     void ErrorUnset(byte barrel, byte mask) { myBarrel[barrel]._ErrorState &= ~mask; }
     void ErrorReset(byte barrel) { myBarrel[barrel]._ErrorState = 0; }
@@ -1278,16 +1302,18 @@ public:
         uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
         if (tempflow)
         {
-            Serial.printf("[barrels][FreshwaterFillCalc] tempflow so far: %u\r\n", tempflow);
+            LOG.printf("tempflow so far: %u\r\n", tempflow);
             tempflow /= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // integral part, fractional part discarded.
-            Serial.printf("[barrels][FreshwaterFillCalc] tempflow in liters: %u\r\n", tempflow);
+            LOG.printf("tempflow in liters: %u\r\n", tempflow);
             b->_VolumeFreshwater += tempflow;
             tempflow *= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // getting pulse count back - only the integral part
-            Serial.printf("[barrels][FreshwaterFillCalc] tempflow integral part: %u\r\n", tempflow);
+            LOG.printf("tempflow integral part: %u\r\n", tempflow);
             flow.CounterSubtract(FLOW_SENSOR_FRESHWATER, tempflow);              // counter 1 is freshwater
         }
         else
-            Serial.println("[barrels][FreshwaterFillCalc]0 flow so far. skipping");
+        {
+            LOG.println("0 flow so far. skipping");
+        }
         b->_VolumeFreshwaterLast = b->_VolumeFreshwater; // after
     }
 
@@ -1321,7 +1347,9 @@ public:
             b->_ConcentraionLast = b->_Concentraion;
         }
         else
-            Serial.println(F("[w] [barrels] ConcentrationRecalc called but already calculated"));
+        {
+            LOG.println(F("[W] ConcentrationRecalc called but already calculated"));
+        }
     }
 
     // checks if current barrel freshwater/nutrients level is at/above target
@@ -1377,28 +1405,38 @@ public:
             b->_ConcentraionLast = b->_Concentraion;
 
         uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
-        tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part, fractional part discarded.
-        Serial.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
-        Serial.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
-        // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
-        // recheck this implementation !!! should I calc before adding counter?
-        Serial.printf("concentration before: %f\r\n", b->_Concentraion);
-        b->_Concentraion = ((a->_Concentraion / 100 * tempflow) + (b->_Concentraion / 100 * b->_VolumeNutrients)) / (tempflow + b->_VolumeNutrients) * 100;
-        // recheck this implementation !!!
-        // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
-        // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
+        if (tempflow)
+        {
+            tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part, fractional part discarded.
+            LOG.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
+            LOG.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
+            // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
+            // recheck this implementation !!! should I calc before adding counter?
+            LOG.printf("concentration before: %f\r\n", b->_Concentraion);
+            b->_Concentraion = ((a->_Concentraion / 100 * tempflow) + (b->_Concentraion / 100 * b->_VolumeNutrients)) / (tempflow + b->_VolumeNutrients) * 100;
+            // recheck this implementation !!!
+            // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
+            // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
 
-        a->_VolumeNutrients -= tempflow;
-        b->_VolumeNutrients += tempflow;
-        tempflow *= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);     // getting pulse count back - only the integral part
-        flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, tempflow); // counter 2 is nutrients
+            a->_VolumeNutrients -= tempflow;
+            b->_VolumeNutrients += tempflow;
+            tempflow *= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);     // getting pulse count back - only the integral part
+            flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, tempflow); // counter 2 is nutrients
+        }
+        else
+        {
+            LOG.println("0 flow so far. skipping");
+        }
 
         a->_VolumeNutrientsLast = a->_VolumeNutrients;
         b->_VolumeNutrientsLast = b->_VolumeNutrients;
         a->_ConcentraionLast = a->_Concentraion;
         b->_ConcentraionLast = b->_Concentraion;
-        Serial.printf("source barrel %u after: %u, target barrel %u after: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
-        Serial.printf("concentration after: %f\r\n", b->_Concentraion);
+        if (tempflow)
+        {
+            LOG.printf("source barrel %u after: %u, target barrel %u after: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
+            LOG.printf("concentration after: %f\r\n", b->_Concentraion);
+        }
     }
 
     // decrements barrel by drained liters, Flowcounter2, global drain_requirement (except in manual mode)
@@ -1448,7 +1486,7 @@ public:
         uint32_t distanceAvearge = 0;  // avearge of x measurements
         uint16_t distanceMin = 0xffff; // highest for 16bit uint
         uint16_t distanceMax = 0;      // to calculate error
-        Serial.printf("[sonic][measure]measuring barrel# %u\r\n", barrel);
+        LOG.printf("measuring barrel# %u\r\n", barrel);
         expanders.setMUX(barrel);
         delay(1);
         for (byte x = 0; x < measure && retryLeft && timeLeft;)
@@ -1488,7 +1526,7 @@ public:
             if (((upper_data + lower_data) & 0xFF) == sum)
             {
                 uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
-                Serial.printf("Sonic:%u Distance:%umm measurement:%u time left:%u retries left:%u\r\n", barrel, distance, x, timeLeft, retryLeft);
+                LOG.printf("Sonic:%u Distance:%umm measurement:%u time left:%u retries left:%u\r\n", barrel, distance, x, timeLeft, retryLeft);
                 if (distance)
                 {
                     if (distance == 10555)
@@ -1513,7 +1551,7 @@ public:
             }
             else
             {
-                Serial.println("checksum error");
+                LOG.println("checksum error");
                 retryLeft--;
             }
             if (!retryLeft)
@@ -1530,7 +1568,7 @@ public:
             ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
             ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
             b->_SonicLastValue = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
-            Serial.printf("Distance min:%u, max:%u, diff:%u error:±%.3f percent\r\n",
+            LOG.printf("Distance min:%u, max:%u, diff:%u error:±%.3f percent\r\n",
                           distanceMin,
                           distanceMax,
                           distanceMax - distanceMin,
@@ -1549,7 +1587,7 @@ public:
             b->_SonicHighErrors--;
         else
             ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
-        Serial.printf("sonic %u finished\r\ntook %u measurements, value:%umm time:%ums, retried %u times\r\n",
+        LOG.printf("sonic %u finished\r\ntook %u measurements, value:%umm time:%ums, retried %u times\r\n",
                       barrel,
                       measure,
                       distanceAvearge,
@@ -1640,7 +1678,7 @@ public:
 // fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
 void Fill(byte barrel, uint16_t requirement)
 {
-    Serial.printf("[Fill]filling barrel:%u to %uL\r\n", barrel, requirement);
+    LOG.printf("filling barrel:%u to %uL\r\n", barrel, requirement);
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
@@ -1674,15 +1712,17 @@ void Fill(byte barrel, uint16_t requirement)
         // if barrel ammount is Full then stop
         if (barrels.isFull(barrel))
         {
-            Serial.printf("[E][Fill]barrel:%u full. breaking..\r\n", barrel);
+            LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
             break;
         }
 
         // STOP-BREAK
         // check if changed to STOPPED state
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
-            Serial.println("[fill]Status Stopped and not Manual. breaking.");
+        {
+            LOG.println("Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks if stopped set
+        }
 
 
         // SENSOR CHECK
@@ -1713,14 +1753,14 @@ void Fill(byte barrel, uint16_t requirement)
     barrels.FreshwaterFillCalc(barrel); 
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
-    Serial.printf("[Fill]END filling barrel:%u to %uL\r\n", barrel, requirement);
+    LOG.printf("END filling barrel:%u to %uL\r\n", barrel, requirement);
 }
 
 // will mix "barrel" untill "duration" minutes is over,
 // or before if state changed to stopped while we're not operating manual
 void Mix(byte barrel, uint16_t duration)
 {
-    Serial.printf("[Mix]mixing barrel:%u for %uMin.\r\n", barrel, duration);
+    LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, duration);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
@@ -1748,15 +1788,17 @@ void Mix(byte barrel, uint16_t duration)
         {
             duration--;
             sec = 0;
-            Serial.printf("[Mix]barrel:%u %uMin remaining\r\n", barrel, duration);
+            LOG.printf("barrel:%u %uMin remaining\r\n", barrel, duration);
         }
 
 
         // STOP-BREAK
         // break if stopped but not manual
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
-            Serial.println("[mix]Status Stopped and not Manual. breaking.");
+        {
+            LOG.println("Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
+        }
 
 
         // SENSOR CHECK
@@ -1787,7 +1829,7 @@ void Mix(byte barrel, uint16_t duration)
     expanders.StoringRelay(barrel, false);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
-    Serial.printf("[Mix]END mixing barrel:%u for %uMin.\r\n", barrel, duration);
+    LOG.printf("END mixing barrel:%u for %uMin.\r\n", barrel, duration);
 }
 
 // transfers nutrients from "barrel" to "target"
@@ -1795,12 +1837,12 @@ void Mix(byte barrel, uint16_t duration)
 // or untill "stopped" state set, except if system state also set to manual
 void Store(byte barrel, byte target)
 {
-    Serial.printf("[Store]storing from barrel:%u to target %u\r\n", barrel, target);
+    LOG.printf("storing from barrel:%u to target %u\r\n", barrel, target);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     if (barrel == target)
     {
-        Serial.println("Error! trying to store to itself.\r\nstoring function exit now.");
+        LOG.println("Error! trying to store to itself.\r\nstoring function exit now.");
         return;
     }
     // open barrel drain tap
@@ -1827,8 +1869,10 @@ void Store(byte barrel, byte target)
         // STOP-BREAK
         // break if stopped but not manual
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
-            Serial.println("[store]Status Stopped and not Manual. breaking.");
+        {
+            LOG.println("Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
+        }
 
         // SENSOR CHECK
         //evaluate pressure in loop
@@ -1867,14 +1911,14 @@ void Store(byte barrel, byte target)
     barrels.NutrientsTransferCalc(barrel, target);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
-    Serial.printf("[Store]END storing from barrel:%u to target %u\r\n", barrel, target);
+    LOG.printf("END storing from barrel:%u to target %u\r\n", barrel, target);
 }
 
 // draining from barrel, untill requirement liters is transferred, or barrel is empty
 // or untill state set to stopped except if state is also manual
 void Drain(byte barrel, uint16_t requirement)
 {
-    Serial.printf("[Drain]Draining %uL from barrel:%u\r\n", requirement, barrel);
+    LOG.printf("Draining %uL from barrel:%u\r\n", requirement, barrel);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
@@ -1906,9 +1950,10 @@ void Drain(byte barrel, uint16_t requirement)
         // STOP-BREAK
         // check for STOPPED state change
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
-            Serial.println("[drain]Status Stopped and not Manual. breaking.");
+        {
+            LOG.println("Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks the measure loop, stops pump, not decrement the x
-                                                                                              //stays in the while STOPPED above
+        }                                                                                     //stays in the while STOPPED above
 
         // SENSOR CHECK
         // check pressure in range
@@ -1943,18 +1988,18 @@ void Drain(byte barrel, uint16_t requirement)
         barrels.DrainLitrageSubtract(barrel, tempflow);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
-    Serial.printf("[Drain]END Draining %uL from barrel:%u\r\n", requirement, barrel);
+    LOG.printf("END Draining %uL from barrel:%u\r\n", requirement, barrel);
 }
 
 void fmsTask()
 { // Filling Mixing Storing Draining
-    Serial.printf("[FMSD task]system state:%u\r\n", SystemState.state_get());
+    LOG.printf("system state:%u\r\n", SystemState.state_get());
     while (true)
     {
         while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
             Alarm.delay(1000);                         // check every second
 
-        Serial.printf("[FMSD task]system state:%u\r\n", SystemState.state_get());
+        LOG.printf("system state:%u\r\n", SystemState.state_get());
         if (SystemState.state_check(FILLING_STATE))
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
@@ -1967,7 +2012,7 @@ void fmsTask()
             SaveStructs();
         }
 
-        Serial.printf("[FMSD task]system state:%u\r\n", SystemState.state_get());
+        LOG.printf("system state:%u\r\n", SystemState.state_get());
         if (SystemState.state_check(STORING_STATE))
         {
             // still have nutes to transfer
@@ -1995,7 +2040,7 @@ void fmsTask()
                 else
                 { // no more next - all full
                     expanders.setRGBLED(LED_CYAN);
-                    Serial.println("All barrels full. system stopped.");
+                    LOG.println("All barrels full. system stopped.");
                     // wait for drain request
                     while (!Transfers.drain_requirement)
                         Alarm.delay(1000);
@@ -2050,15 +2095,14 @@ void setupServer()
 
     // Route for root / web page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         request->redirect("/manual"); //untill implemented
         /*
         if(!SD.exists("/index.html")){
             SD.end();
-            Serial.println("trying to restart SD");
+            LOG.println("trying to restart SD");
             if(!SD.begin(22)){
-            Serial.println("unable to read form SD card");
+            LOG.println("unable to read form SD card");
             request->send(200, "text/html", "<html><body><center><h1>check SD Card please</h1></center></body></html>");
             }
             }
@@ -2070,27 +2114,26 @@ void setupServer()
         "/upload", HTTP_POST, [](AsyncWebServerRequest *request) {}, [](AsyncWebServerRequest *request, String filename, size_t index, byte *data, size_t len, bool final) {
             if(!index)
             {
-                Serial.printf("\r\nUpload Started: %s\r\n", filename.c_str());
+                LOG.printf("\r\nUpload Started: %s\r\n", filename.c_str());
                 // open the file on first call and store the file handle in the request object
                 request->_tempFile = disk->open("/"+filename, "w");
             }
             if(len) 
             {
-                Serial.printf("received chunk [from %u to %u]\r\n", index, len);
+                LOG.printf("received chunk [from %u to %u]\r\n", index, len);
                 // stream the incoming chunk to the opened file
                 request->_tempFile.write(data,len);
             }       
             if(final)
             {
-                Serial.printf("\r\nUpload Ended: %s, %u Bytes\r\n", filename.c_str(), index+len);
+                LOG.printf("\r\nUpload Ended: %s, %u Bytes\r\n", filename.c_str(), index+len);
                 request->_tempFile.close();
                 request->redirect("/list");
                 //request->send(200, "text/plain", "File Uploaded !");
             } });
 
     server.on("/list", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         File dir = disk->open("/");
         File file = dir.openNextFile();
@@ -2128,13 +2171,13 @@ void setupServer()
     server.on("/switchFS", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (isSD)
         {
-            Serial.println(F("switching to SPIFFS"));
+            LOG.println(F("switching to SPIFFS"));
             disk = &SPIFFS;
             isSD = false;
         }
         else
         { // IMPORTANT !! add check for filesystem availability
-            Serial.println(F("switching to SD Card"));
+            LOG.println(F("switching to SD Card"));
             disk = &SD;
             isSD = true;
         }
@@ -2142,31 +2185,31 @@ void setupServer()
     });
 
     server.on("/del", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         if (request->args() > 0)
         { // Arguments were received
             if (request->hasArg("f"))
             {
                 const char *file = request->arg("f").c_str();
-                Serial.printf("Deleting file %s ", file);
+                LOG.printf("Deleting file %s ", file);
                 disk->remove(file) ? Serial.println("Successfully") : Serial.println("Failed");
             }
         }
         else
-            Serial.println("*server: del received no args");
+        {
+            LOG.println("*server: del received no args");
+        }
         request->redirect("/list");
     });
 
     server.on("/down", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         if (request->args() > 0)
         { // Arguments were received
             if (request->hasArg("f"))
             {
                 const char *file = request->arg("f").c_str();
-                Serial.printf("Downloading file %s \r\n", file);
+                LOG.printf("Downloading file %s \r\n", file);
                 request->send(*disk, file, "text/plain");
             }
         }
@@ -2180,8 +2223,7 @@ void setupServer()
     });
 
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual control</h3><ul>");
         response->print("<span>Relays</span>");
@@ -2255,35 +2297,34 @@ void setupServer()
     });
 
     server.on("/man", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         if (request->args() > 0)
         { // Arguments were received
             if (request->hasArg("f"))
             {
                 int f = request->arg("f").toInt();
                 int o = request->arg("o").toInt();
-                Serial.printf("setting FillingRelay %i to %i\r\n", f, o);
+                LOG.printf("setting FillingRelay %i to %i\r\n", f, o);
                 expanders.FillingRelay(f, o);
             }
             if (request->hasArg("s"))
             {
                 int s = request->arg("s").toInt();
                 int o = request->arg("o").toInt();
-                Serial.printf("setting StoringRelay %i to %i\r\n", s, o);
+                LOG.printf("setting StoringRelay %i to %i\r\n", s, o);
                 expanders.StoringRelay(s, o);
             }
             if (request->hasArg("d"))
             {
                 int d = request->arg("d").toInt();
                 int o = request->arg("o").toInt();
-                Serial.printf("setting DrainingRelay %i to %i\r\n", d, o);
+                LOG.printf("setting DrainingRelay %i to %i\r\n", d, o);
                 expanders.DrainingRelay(d, o);
             }
             if (request->hasArg("rgb"))
             {
                 int rgb = request->arg("rgb").toInt();
-                Serial.printf("setting setRGBLED to %i\r\n", rgb);
+                LOG.printf("setting setRGBLED to %i\r\n", rgb);
                 expanders.setRGBLED(rgb);
             }
             if (request->hasArg("barr"))
@@ -2294,35 +2335,30 @@ void setupServer()
                 int ammo = request->arg("ammo").toInt();
                 int dest = request->arg("dest").toInt();
                 // printing message
-                Serial.printf("[man]fmsd barr received: %i %i %i %i\r\n", barr, task, ammo, dest);
+                LOG.printf("[man]fmsd barr received: barr%i task%i ammo%i dest%i\r\n", barr, task, ammo, dest);
                 // checking input is valid
                 if (barr > -1 && barr < 7 && task > 0 && task < 5 && ammo > 0 && ammo < 32768 && dest > -1 && dest < 7)
                 {
-                    Serial.println("man fmsd ok");
                     // running the task
                     switch (task)
                     {
                         case 1:
-                        Serial.printf("filling %i liters into barrel# %i\r\n", ammo, barr);
                         Fill(barr, ammo);
                         break;
                         case 2:
-                        Serial.printf("mixing barrel# %i for %i minutes\r\n", barr, ammo);
                         Mix(barr, ammo);
                         break;
                         case 3:
-                        Serial.printf("storing everyting from barrel# %i into barrel# %i\r\n", barr, dest);
                         Store(barr, dest);
                         break;
                         case 4:
-                        Serial.printf("draining %i liters from barrel# %i\r\n", ammo, barr);
                         Drain(barr, ammo);
                         break;
                     }
                 }
                 else
                 {
-                    Serial.println("[man fmsd][e]parameter out of range");
+                    LOG.println("[E] parameter out of range");
                 }
             }
         }
@@ -2332,15 +2368,13 @@ void setupServer()
     });
 
     server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         request->redirect("/manual");
         ESP.restart();
     });
 
     server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         //char buf [4];
         //sprintf (buf, "%03u", Backup());
         //request->send(200, "text/html", buf);
@@ -2349,8 +2383,7 @@ void setupServer()
     });
 
     server.on("/restore", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         //char buf [4];
         //sprintf (buf, "%03u", Restore());
         //request->send(200, "text/html", buf);
@@ -2359,8 +2392,7 @@ void setupServer()
     });
 
     server.on("/sonic", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         if (request->args() > 0)
         { // Arguments were received
             if (request->hasArg("n"))
@@ -2377,8 +2409,7 @@ void setupServer()
     });
 
     server.on("/pressure", HTTP_GET, [](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         if (request->args() > 0)
         { // Arguments were received
             if (request->hasArg("n"))
@@ -2399,8 +2430,7 @@ void setupServer()
     });
 
     server.onNotFound([](AsyncWebServerRequest *request) {
-        Serial.print("Requested: ");
-        Serial.println(request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->addHeader("Server", "ESP Async Web Server");
         response->printf("<!DOCTYPE html><html><head><title>Webpage at %s</title></head><body>", request->url().c_str());
@@ -2453,7 +2483,7 @@ void setupServer()
     // Start server
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     server.begin();
-    Serial.print(F("-Server init\r\n\r\n"));
+    LOG.print(F("-Server init\r\n\r\n"));
 } // void setupServer() end
 
 /*-------- NTP code ----------*/
@@ -2489,8 +2519,8 @@ time_t getNtpTime()
         ;                                       // discard any previously received packets
     WiFi.hostByName(NTP_HOSTNAME, ntpServerIP); // get a random server from the pool
 #ifdef DEBUG
-    OUT_PORT.print("NTP time request via ");
-    OUT_PORT.print(ntpServerIP);
+    LOG.print("NTP time request via ");
+    LOG.print(ntpServerIP);
 #endif
     sendNTPpacket(ntpServerIP, packetBuffer);
     uint32_t beginWait = millis();
@@ -2499,7 +2529,7 @@ time_t getNtpTime()
         byte size = UDP.parsePacket();
         if (size >= NTP_PACKET_SIZE)
         {
-            OUT_PORT.println(" Received NTP Response");
+            LOG.println(" Received NTP Response");
             UDP.read(packetBuffer, NTP_PACKET_SIZE); // read packet into the buffer
             unsigned long secsSince1900;
             // convert four bytes starting at location 40 to a long integer
@@ -2512,7 +2542,7 @@ time_t getNtpTime()
             return secsSince1900 - 2208988800UL + DTS + timeZone * 3600UL; // added DTS
         }
     }
-    OUT_PORT.println("No NTP Response :-(");
+    LOG.println("No NTP Response :-(");
     isTimeSync = false; // if failed - set back to false
     return 0;           // return 0 if unable to get the time
 }
@@ -2528,7 +2558,9 @@ void setupRTC (){
     RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
     if (!Rtc.IsDateTimeValid()) {
         if (Rtc.LastError() != 0) // communication error
-              Serial.println(Rtc.LastError());
+        {
+              LOG.println(Rtc.LastError());
+        }
         else // RTC lost confidence in the DateTime
             Rtc.SetDateTime(compiled);
     }
@@ -2546,10 +2578,10 @@ void testPrintRTC()
 {
     //RtcDateTime now = Rtc.GetDateTime();
     //printDateTime(now);
-    Serial.println(getDateTimeNow());
+    LOG.println(getDateTimeNow());
 	RtcTemperature temp = Rtc.GetTemperature();
-    Serial.print(temp.AsFloatDegC());
-    Serial.println(" *C");
+    LOG.print(temp.AsFloatDegC());
+    LOG.println(" *C");
 }
 
 
@@ -2578,26 +2610,34 @@ void LoadStructs()
 {
     if (isSD)
         Restore(); // in case something is missing in the SD
-    Serial.printf("Loading system from %s\r\n", isSD ? "SD" : "SPIFFS");
+    LOG.printf("Loading system from %s\r\n", isSD ? "SD" : "SPIFFS");
     if (disk->exists("/SysState.bin"))
         SystemState.LoadSD();
     else
-        OUT_PORT.println("/SysState.bin\tnot exist");
+    {
+        LOG.println("/SysState.bin\tnot exist");
+    }
 
     if (disk->exists("/Pressure.bin"))
         pressure.LoadSD();
     else
-        OUT_PORT.println("/Pressure.bin\tnot exist");
+    {
+        LOG.println("/Pressure.bin\tnot exist");
+    }
 
     if (disk->exists("/Flow.bin"))
         flow.LoadSD();
     else
-        OUT_PORT.println("/Flow.bin\tnot exist");
+    {
+        LOG.println("/Flow.bin\tnot exist");
+    }
 
     if (disk->exists("/Barrels.bin"))
         barrels.LoadSD();
     else
-        OUT_PORT.println("/Barrels.bin\tnot exist");
+    {
+        LOG.println("/Barrels.bin\tnot exist");
+    }
 }
 
 // reimplement later to save on demand only what
@@ -2607,32 +2647,32 @@ void LoadStructs()
 //and undo protect when finished.
 void SaveStructs()
 {
-    Serial.println(F("[save] all trigerred"));
+    LOG.println(F("save-all trigerred"));
     if (!isSaving)
     { // prevent concurrent saving
         isSaving = true;
         if (!isSD)
         {
-            Serial.println(F("SD card not ready - trying to restart"));
+            LOG.println(F("SD card not ready - trying to restart"));
             SD.end();
             if (SD.begin())
             {
-                OUT_PORT.println(F("SD card OK"));
+                LOG.println(F("SD card OK"));
                 disk = &SD;
                 isSD = true;
             }
             else
             {
-                Serial.println(F("SD failed. resorting to SPIFFS"));
+                LOG.println(F("SD failed. resorting to SPIFFS"));
                 SendSMS("SD card unable to save");
             }
         }
-        Serial.println(F("waiting for no flow.."));
+        LOG.println(F("waiting for no flow.."));
         while (flow.FlowGet(FLOW_SENSOR_FRESHWATER))
             ;
         while (flow.FlowGet(FLOW_SENSOR_NUTRIENTS))
             ;
-        Serial.println(F("no flow ok - saving..."));
+        LOG.println(F("no flow ok - saving..."));
         SystemState.SaveSD();
 
         // reimplement to save ondemand?
@@ -2640,7 +2680,7 @@ void SaveStructs()
         pressure.SaveSD();
         flow.SaveSD();
         isSaving = false;
-        Serial.println(F("all save finished."));
+        LOG.println(F("all save finished."));
     }
 }
 
@@ -2648,7 +2688,7 @@ void SaveStructs()
 void setup()
 {
     // initiate UART0 - serial output
-    OUT_PORT.begin(115200);
+    Serial.begin(115200);
 
     // initialize UART2 - serial MUX
     Serial2.begin(9600, SERIAL_8N1);
@@ -2658,7 +2698,7 @@ void setup()
     //wifiManager.resetSettings();
     wifiManager.setConfigPortalTimeout(180);  // 3 minutes
     wifiManager.autoConnect("AutoConnectAP"); // will stop here if no wifi connected
-    OUT_PORT.printf("ESSID: %s\r\n", WiFi.SSID().c_str());
+    LOG.printf("ESSID: %s\r\n", WiFi.SSID().c_str());
 
     //initiate expander ports - I2C wire
     expanders.Init();
@@ -2703,7 +2743,7 @@ void setup()
         int sleeptime;
         while (1) {
             sleeptime = (int)(esp_random()&0x0F);
-            Serial.println(String("Task ")+String(taskno)+String(" ")+String(sleeptime));
+            LOG.println(String("Task ")+String(taskno)+String(" ")+String(sleeptime));
             delay(500+sleeptime*100);
         }
     }
