@@ -1,33 +1,35 @@
 /*
 bugs:
+sendsms should not send if error already there!
+    should fmsd skip on error anyway?
+[1812][Mix][609] END mixing barrel:1 for 0Min.
+void mix time is inaccurate! 
+    shoud I count by millis() instead?
+    https://www.norwegiancreations.com/2018/10/arduino-tutorial-avoiding-the-overflow-issue-when-using-millis-and-micros/
 system resets every time serial console connects/disconnects?
     https://esp32.com/viewtopic.php?t=4988
 void store allways storing untill empty
     must give option to store only required ammount
 if mix stopped in the middle - it will count from start again
 pressure offset is redundant?
-[1126][measure] measuring pSensor 1 @pin36 calib:0 value:[1129][measure] 0
 [1280][ErrorSet] [E] Barr0:e16 should report sms?
 
-redundant else?
-        if (b->_VolumeFreshwaterLast != b->_VolumeFreshwater) // safeguard
-            b->_VolumeFreshwater = b->_VolumeFreshwaterLast;
-        else
-            b->_VolumeFreshwaterLast = b->_VolumeFreshwater;
-
 to implement:
+fmsd shoud return boolean of success
+    skip saveStructs on failure?
+    retry? stop? enter stopped state? +retry?
+    should I wait for repair inside fmsd? or in fmsdTask?
 
-an option to manually start fill mix store drain from webUI
-    ---[mix]Status Stopped and not Manual. breaking.
-        add "set manual mode on off" from /manual
-    add a cancel button
-        will webui hangs during long execution?
-        webserver should run in a separate thread?
-            manual commands can leave a flag for fmsTask to pick up
-                check line 2000
-        void fmsTask() instead can run on a separate thread
-            check no sendsms concurrency problem with sonic measure
+void deleteStructs and webui command in manual
+add auto start/stop to /manual
+
+reenable //SaveStructs(); //disabled for mow.... when ready
+
 fmsd functions should return right away without starting if stopped and not manual?
+
+check what happens if:
+fmsdTask running in auto mode, and fmsd keeps skipping
+    will it exaust the saveStructs?
 
 test:
     fill huge ammount
@@ -277,7 +279,7 @@ add ... on serial.available to check module awake
 
 #define MUX_UNLOCKED 255 //valid shannels are 0-15
 
-#define LOG Serial.printf("[%04i][%s] ", __LINE__, __FUNCTION__);Serial   //SerialAndTelnet or file
+#define LOG Serial.printf("[%04i][%s][%lli] ", __LINE__, __FUNCTION__, esp_timer_get_time() / 1000000);Serial   //SerialAndTelnet or file
 #define SYNC_INTERVAL 600 // NTP sync - in seconds
 #define NTP_PACKET_SIZE 48
 // NTP time is in the first 48 bytes of message
@@ -316,6 +318,7 @@ bool isSaving = false;
 bool isSD = false;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED; // for interrupts and xTasks
 char smsMessage[64];                             // filled by MessageFromDict from dictionary
+TaskHandle_t loop1; // fmsdTask handle
 
 //function declarations:
 bool Load(const char *fname, byte *stru_p, uint16_t len);
@@ -729,6 +732,15 @@ struct st
     uint32_t drain_counter = 0;                  //in liters - how much totally drained
     byte filling_barrel = 0;                  // mixer barrel
     byte storing_barrel = NUM_OF_BARRELS - 1; // last barrel (-1 cause we start from zero)
+    // 0 cancel
+    // 1 fill
+    // 2 mix
+    // 3 store
+    // 4 drain
+    byte manual_task = 0;
+    byte manual_src = 0;
+    byte manual_dest = 0;
+    byte manual_ammo = 0;
 } Transfers;
 
 /*-------- SystemState Begin ----------*/
@@ -1270,8 +1282,6 @@ public:
         myBR *b = &myBarrel[barrel];
         if (b->_VolumeFreshwaterLast != b->_VolumeFreshwater) // safeguard
             b->_VolumeFreshwater = b->_VolumeFreshwaterLast;
-        else
-            b->_VolumeFreshwaterLast = b->_VolumeFreshwater;
 
         uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
         if (tempflow)
@@ -1360,23 +1370,15 @@ public:
         // safeguards below
         if (a->_VolumeNutrientsLast != a->_VolumeNutrients)
             a->_VolumeNutrients = a->_VolumeNutrientsLast;
-        else
-            a->_VolumeNutrientsLast = a->_VolumeNutrients;
 
         if (b->_VolumeNutrientsLast != b->_VolumeNutrients)
             b->_VolumeNutrients = b->_VolumeNutrientsLast;
-        else
-            b->_VolumeNutrientsLast = b->_VolumeNutrients;
 
         if (a->_ConcentraionLast != a->_Concentraion)
             a->_Concentraion = a->_ConcentraionLast;
-        else
-            a->_ConcentraionLast = a->_Concentraion;
 
         if (b->_ConcentraionLast != b->_Concentraion)
             b->_Concentraion = b->_ConcentraionLast;
-        else
-            b->_ConcentraionLast = b->_Concentraion;
 
         uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
         if (tempflow)
@@ -1697,6 +1699,11 @@ void Fill(byte barrel, uint16_t requirement)
             LOG.println("Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks if stopped set
         }
+        if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
+        {
+            LOG.println("Status Manual and manual_task is 0. breaking.");
+            break;                                                                            // breaks if manual_task is 0
+        }
 
         // SENSOR CHECK
         // check flow - if no flow (but pressure) for 10 times (10 seconds)
@@ -1771,6 +1778,11 @@ void Mix(byte barrel, uint16_t duration)
             LOG.println("Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
         }
+        if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
+        {
+            LOG.println("Status Manual and manual_task is 0. breaking.");
+            break;                                                                            // breaks if manual_task is 0
+        }
 
         // SENSOR CHECK
         // check pressure in range
@@ -1841,6 +1853,11 @@ void Store(byte barrel, byte target)
         {
             LOG.println("Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
+        }
+        if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
+        {
+            LOG.println("Status Manual and manual_task is 0. breaking.");
+            break;                                                                            // breaks if manual_task is 0
         }
 
         // SENSOR CHECK
@@ -1922,6 +1939,11 @@ void Drain(byte barrel, uint16_t requirement)
             LOG.println("Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks the measure loop, stops pump, not decrement the x
         }                                                                                     //stays in the while STOPPED above
+        if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
+        {
+            LOG.println("Status Manual and manual_task is 0. breaking.");
+            break;                                                                            // breaks if manual_task is 0
+        }
 
         // SENSOR CHECK
         // check pressure in range
@@ -1959,25 +1981,50 @@ void Drain(byte barrel, uint16_t requirement)
     LOG.printf("END Draining %uL from barrel:%u\r\n", requirement, barrel);
 }
 
-void fmsTask()
+void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
-    LOG.printf("system state:%u\r\n", SystemState.state_get());
+    LOG.printf("fmsd begin\r\nsystem state:%u\r\nwatermark: ", SystemState.state_get());
+    LOG.println(uxTaskGetStackHighWaterMark(loop1)); // !! testing watermark
     while (true)
     {
-        while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
-            Alarm.delay(1000);                         // check every second
-
+        while (SystemState.state_check(STOPPED_STATE))
+        {
+            while (!SystemState.state_check(MANUAL_STATE)) // stay here if system stopped and not manual
+                Alarm.delay(1000);                         // check state every second
+            if (Transfers.manual_task == 1)
+            {
+                Fill(Transfers.manual_src, Transfers.manual_ammo);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            if (Transfers.manual_task == 2)
+            {
+                Mix(Transfers.manual_src, Transfers.manual_ammo);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            if (Transfers.manual_task == 3)
+            {
+                Store(Transfers.manual_src, Transfers.manual_dest);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            if (Transfers.manual_task == 4)
+            {
+                Drain(Transfers.manual_src, Transfers.manual_ammo);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            Alarm.delay(1000);                         // check manual_task every second
+        }
+        LOG.println("system exited stopped state");
         LOG.printf("system state:%u\r\n", SystemState.state_get());
         if (SystemState.state_check(FILLING_STATE))
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
             SystemState.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
             Fill(Transfers.filling_barrel, Transfers.afterfill_requirement);
-            SaveStructs();
+            //SaveStructs(); //disabled for mow....
             Mix(Transfers.filling_barrel, Transfers.mix_requirement);
             SystemState.state_set(STORING_STATE);
             SystemState.state_unset(FILLING_STATE);
-            SaveStructs();
+            //SaveStructs(); //disabled for mow....
         }
 
         LOG.printf("system state:%u\r\n", SystemState.state_get());
@@ -1991,6 +2038,7 @@ void fmsTask()
                 {
                     // drain untill empty or requirement satisfied.
                     Drain(Transfers.filling_barrel, Transfers.drain_requirement);
+                    //SaveStructs(); //disabled for mow....
                     if (barrels.isEmpty(Transfers.filling_barrel))
                         break; // if drained filling barrel to empty - break store loop
                 }
@@ -1999,7 +2047,10 @@ void fmsTask()
                 // excluding the case where all system was full and storing_barrel pointed to barrel 0
                 // skip barrel if disabled or errorous!
                 if (!barrels.isFull(Transfers.storing_barrel) && !barrels.ErrorGet(Transfers.storing_barrel) && Transfers.storing_barrel > 0)
+                {
                     Store(Transfers.filling_barrel, Transfers.storing_barrel);
+                    //SaveStructs(); //disabled for mow....
+                }
                 // target full - goto next barrel
                 else if (Transfers.storing_barrel > 1)
                 {
@@ -2016,6 +2067,7 @@ void fmsTask()
                     Transfers.storing_barrel = Transfers.filling_barrel;
                     // drain untill empty or requirement satisfied.
                     Drain(Transfers.filling_barrel, Transfers.drain_requirement);
+                    //SaveStructs(); //disabled for mow....
                 }
             } // got here cause filling_barrel is empty
             // or broke out of the loop cause all including mixer is full
@@ -2023,7 +2075,10 @@ void fmsTask()
             {
                 // storing_barrel not empty? not errorous? drain it
                 if (!barrels.isEmpty(Transfers.storing_barrel) && !barrels.ErrorGet(Transfers.storing_barrel))
+                {
                     Drain(Transfers.storing_barrel, Transfers.drain_requirement);
+                    //SaveStructs(); //disabled for mow....
+                }
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
                 else if (Transfers.storing_barrel < NUM_OF_BARRELS - 1)
                     Transfers.storing_barrel++;
@@ -2035,7 +2090,7 @@ void fmsTask()
             SystemState.state_set(FILLING_STATE);
             SystemState.state_unset(STORING_STATE);
 
-            SaveStructs();
+            //SaveStructs(); //disabled for mow....
         } // if storing_state
     }     // endless loop ends here
 }
@@ -2233,18 +2288,20 @@ void setupServer()
 
         response->print("<span>FMSD:</span>");
         response->print("<form action=\"/man\">");
-        response->print("<li><input id=\"barr\" name=\"barr\" value=\"barrel:0-6\"></li>");
         response->print("<li><input id=\"task\" name=\"task\" value=\"fill-1-mix-2-store-3-drain-4\"></li>");
         response->print("<li><input id=\"ammo\" name=\"ammo\" value=\"ammount>0\"></li>");
+        response->print("<li><input id=\"src\" name=\"src\" value=\"barrel:0-5\"></li>");
         response->print("<li>for storing task only:</li>");
-        response->print("<li><input id=\"dest\" name=\"dest\" value=\"destination-barr:0-6\"></li>");
-        response->print("<li><input type=\"submit\" value=\"Go\">");
+        response->print("<li><input id=\"dest\" name=\"dest\" value=\"destination-barr:0-5\"></li>");
+        response->print("<li><input type=\"submit\" value=\"Go\"><span> </span><button type=\"reset\" onclick=\"location=\'/man?man=3\'\">cancel fmsd</button>");
         response->print("</form>");
 
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
-        response->print("<button onclick=\"location=\'/reset\'\">reset</button><br>");
-        response->printf("<span>uptime: %lli seconds</span><br><br>", esp_timer_get_time() / 1000000);
+        response->print("<button onclick=\"location=\'/reset\'\">reset</button><span> </span>");
+        response->print("<button onclick=\"location=\'/man?man=1\'\">man mode on</button><span> </span>");
+        response->print("<button onclick=\"location=\'/man?man=2\'\">man mode off</button><br>");
+        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, SystemState.state_get());
         response->print("<button onclick=\"location=\'/list\'\">open list filesystem</button>");
         response->print("</body></html>");
         request->send(response);
@@ -2281,39 +2338,65 @@ void setupServer()
                 LOG.printf("setting setRGBLED to %i\r\n", rgb);
                 expanders.setRGBLED(rgb);
             }
-            if (request->hasArg("barr"))
+            if (request->hasArg("task"))
             {
                 // converting arguments
-                int barr = request->arg("barr").toInt();
                 int task = request->arg("task").toInt();
                 int ammo = request->arg("ammo").toInt();
+                int src = request->arg("src").toInt();
                 int dest = request->arg("dest").toInt();
                 // printing message
-                LOG.printf("[man]fmsd barr received: barr%i task%i ammo%i dest%i\r\n", barr, task, ammo, dest);
+                LOG.printf("[man]fmsd task received: task%i ammo%i src%i dest%i\r\n", task, ammo, src, dest);
                 // checking input is valid
-                if (barr > -1 && barr < 7 && task > 0 && task < 5 && ammo > 0 && ammo < 32768 && dest > -1 && dest < 7)
+                if (src > -1 && src < NUM_OF_BARRELS && task > 0 && task < 5 && ammo > 0 && ammo < 32768 && dest > -1 && dest < NUM_OF_BARRELS)
                 {
                     // running the task
+                    Transfers.manual_task = task;
+                    Transfers.manual_src = src;
+                    Transfers.manual_dest = dest;
+                    Transfers.manual_ammo = ammo;
+                    /*
                     switch (task)
                     {
                         case 1:
-                        Fill(barr, ammo);
+                        Fill(src, ammo);
                         break;
                         case 2:
-                        Mix(barr, ammo);
+                        Mix(src, ammo);
                         break;
                         case 3:
-                        Store(barr, dest);
+                        Store(src, dest);
                         break;
                         case 4:
-                        Drain(barr, ammo);
+                        Drain(src, ammo);
                         break;
                     }
+                    */
                 }
                 else
                 {
                     LOG.println("[E] parameter out of range");
                 }
+            }
+            if (request->hasArg("man"))
+            {
+                byte man = request->arg("man").toInt();
+                if (man==1) // manual on
+                {
+                    LOG.println("setting manual mode ON");
+                    SystemState.state_set(MANUAL_STATE);
+                }
+                if (man==2) // manual off
+                {
+                    LOG.println("setting manual mode OFF");
+                    SystemState.state_unset(MANUAL_STATE);
+                }
+                    // man canceling previous fmsd 
+                    LOG.println("man mode change triggered, canceling previous fmsd.");
+                    Transfers.manual_task = 0;
+                    Transfers.manual_src = 0;
+                    Transfers.manual_dest = 0;
+                    Transfers.manual_ammo = 0;
             }
         }
         else
@@ -2687,8 +2770,9 @@ void setup()
     // attach interrupts for flow sensors
 
     // Create tasks
+
+    xTaskCreatePinnedToCore(fmsTask, "loop1", 10000, (void *)1, 1, &loop1, ARDUINO_RUNNING_CORE);
     /*
-    xTaskCreatePinnedToCore(myTask, "loop1", 4096, (void *)1, 1, NULL, ARDUINO_RUNNING_CORE);
     xTaskCreatePinnedToCore(myTask, "loop2", 4096, (void *)2, 1, NULL, ARDUINO_RUNNING_CORE);
     xTaskCreatePinnedToCore(myTask, "loop3", 4096, (void *)3, 1, NULL, ARDUINO_RUNNING_CORE);
 
