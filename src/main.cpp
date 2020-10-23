@@ -9,6 +9,12 @@ pressure offset is redundant?
 [1126][measure] measuring pSensor 1 @pin36 calib:0 value:[1129][measure] 0
 [1280][ErrorSet] [E] Barr0:e16 should report sms?
 
+redundant else?
+        if (b->_VolumeFreshwaterLast != b->_VolumeFreshwater) // safeguard
+            b->_VolumeFreshwater = b->_VolumeFreshwaterLast;
+        else
+            b->_VolumeFreshwaterLast = b->_VolumeFreshwater;
+
 to implement:
 
 an option to manually start fill mix store drain from webUI
@@ -319,7 +325,7 @@ void IRAM_ATTR FlowSensor1Interrupt();
 void IRAM_ATTR FlowSensor2Interrupt();
 void SendSMS(const char *message, byte item = 0xFF);
 
-/*-------- Filesystem code ----------*/
+/*-------- Filesystem Begin ----------*/
 // SD Card and SPIFFS
 void initStorage()
 {
@@ -503,6 +509,7 @@ byte Restore()
 }
 /*-------- Filesystem END ----------*/
 
+/*-------- Expanders Begin ----------*/
 // declare I/O Expander ports and constants
 
 // MCP23017 with pin settings
@@ -659,7 +666,9 @@ public:
     }
 
 } expanders; // initiated globally
+/*-------- Expanders END ----------*/
 
+/*-------- Modem Begin ----------*/
 // message... item number (optional)
 void SendSMS(const char *message, byte item)
 { //byte item=0xFF moved to declaration BOF
@@ -696,52 +705,6 @@ AT+COPS=? – Return the list of operators present in the network.
 AT+CBC – will return the lipo battery state. The second number is the % full (in this case its 93%) and the third number is the actual voltage in mV (in this case, 3.877 V)
 */
 
-// !!! deprecate dict message below???
-/*
-//https://forum.arduino.cc/index.php?topic=451141.0
-// search file dictX, skip error_number commas, set value untill next comma to smsMessage[]
-// seaprate dictionary for each caller_function
-void MessageFromDict(byte caller_function, byte error_number){
-    // dictionary files:
-    // system
-    // barrels
-    // fmsd tasks
-    // time?
-    // filesystem?
-
-    char filename[8];
-    sprintf (filename, "dict%u", caller_function);
-    // smsMessage[64] to fill.
-}
-
-void SendSMS(byte caller_function, byte error_number, byte item_number=0xFF){
-    Serial.printf("[SendSMS] [caller_function:%u] [error_number:%u] [item_number:%u]\r\n", 
-        caller_function, error_number, item_number);
-    char buff[96]; // 64 message + else
-    // use dictionary from file - comma separated
-    MessageFromDict(caller_function, error_number);
-    if (item_number==0xFF) {
-        Serial.println(smsMessage);
-        SendSMS(smsMessage);
-    }
-    else {
-        sprintf (buff, "%s: %u", smsMessage, item_number);
-        Serial.println(buff);
-        SendSMS(buff);
-    }
-    //error from dict - item show as is - default item 255 - if default item - no item.
-    //[system] [error: overpressure sensor:] [1]
-    //[barrels] [warning: barrel disabled:] [4]
-}
-
-// set MUX to SIM_MUX_ADDRESS
-// send sms with error code description
-void SendSMS(String message){
-    LOG.print("-sendsms: ");
-    LOG.println(message);
-    SendSMS(message.c_str());
-}*/
-
 void modemInit()
 {
     LOG.println("-modem init");
@@ -752,6 +715,8 @@ void modemInit()
     Serial2.println("AT+CMGF=1"); // Configuring TEXT mode
     expanders.UnlockMUX();        // Must unlock after every use!!
 }
+/*-------- Modem END ----------*/
+
 
 struct st
 {
@@ -766,6 +731,7 @@ struct st
     byte storing_barrel = NUM_OF_BARRELS - 1; // last barrel (-1 cause we start from zero)
 } Transfers;
 
+/*-------- SystemState Begin ----------*/
 struct myST
 {
     //bit field
@@ -774,7 +740,7 @@ struct myST
     // F = Filling task on
     // M = Mixing task on
     // S = Storing task on
-    // E = Emptying task on - overrides f,m,s
+    // E = Emptying task on
     // X = stopped status on
     // 00NFMSEX
     byte _state_now = 17; // 00010001 - filling + waiting for nutes - initial system state
@@ -853,6 +819,7 @@ public:
     void error_reported() { myState._error_before = myState._error_now; }
 
 } SystemState;
+/*-------- SystemState END ----------*/
 
 // deprecate?? send sms on demand in each function?
 //what if need to send sms in middle of mux lock? sonic measurement?
@@ -882,6 +849,7 @@ void errorReportTask()
     SystemState.error_reported();
 }
 
+/*-------- FlowSensor Begin ----------*/
 // flow Sensors Pin Declarations
 // and Interrupt routines
 
@@ -1007,7 +975,9 @@ void IRAM_ATTR FlowSensor2Interrupt()
     flow.CounterInc(1);
     portEXIT_CRITICAL_ISR(&mux);
 }
+/*-------- FlowSensor END ----------*/
 
+/*-------- PressureSensor Begin ----------*/
 // Pressure Sensors Pin Declarations
 // and Analog reads
 // task pressure sensors - stops pumps on overpressure
@@ -1230,7 +1200,9 @@ public:
     }
 
 } pressure;
+/*-------- PressureSensor END ----------*/
 
+/*-------- Barrels Begin ----------*/
 struct myBR
 {
     //bit field
@@ -1672,9 +1644,9 @@ public:
     }
 
 } barrels;
+/*-------- Barrels END ----------*/
 
-
-
+/*-------- FMSD Begin ----------*/
 // receives barrel to fill, required water level
 // checks whatever clean water line have pressure
 // fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
@@ -1725,7 +1697,6 @@ void Fill(byte barrel, uint16_t requirement)
             LOG.println("Status Stopped and not Manual. breaking.");
             break;                                                                            // breaks if stopped set
         }
-
 
         // SENSOR CHECK
         // check flow - if no flow (but pressure) for 10 times (10 seconds)
@@ -1793,7 +1764,6 @@ void Mix(byte barrel, uint16_t duration)
             LOG.printf("barrel:%u %uMin remaining\r\n", barrel, duration);
         }
 
-
         // STOP-BREAK
         // break if stopped but not manual
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
@@ -1801,7 +1771,6 @@ void Mix(byte barrel, uint16_t duration)
             LOG.println("Status Stopped and not Manual. breaking.");
             break; // breaking the measure loop will close taps
         }
-
 
         // SENSOR CHECK
         // check pressure in range
@@ -1817,8 +1786,6 @@ void Mix(byte barrel, uint16_t duration)
             SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
             break;                                // breaks + sets stopped if sensor error
         }
-
-
     }
     // counter reached zero
     // stop pump
@@ -1948,7 +1915,6 @@ void Drain(byte barrel, uint16_t requirement)
             requirement -= tempflow;
         }
 
-
         // STOP-BREAK
         // check for STOPPED state change
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
@@ -2072,24 +2038,10 @@ void fmsTask()
             SaveStructs();
         } // if storing_state
     }     // endless loop ends here
-
-    //drain should be launched on-demand only?
-
-    // filling and mixing barrel always the same (barrel 0)
-    // storing and draining barrel always the same
-    // storing to last barrel, going down in barrels while we full
-    // if all full - storing barrel is mixing barrel
-    // going up barrels while we drain
-    // draining - last barrel empty - break - going back to fms,
-    // doing another cycle, draining again in the end of the cycle
-
-    // what should happen if trying to drain more than available?
-    // right now drain is looping endlessly
-    // can I pause drain and continue after one fms cycle?
 }
+/*-------- FMSD END ----------*/
 
-// WebServer
-
+/*-------- WebServer Begin ----------*/
 //https://github.com/me-no-dev/ESPAsyncWebServer
 
 void setupServer()
@@ -2486,9 +2438,10 @@ void setupServer()
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     server.begin();
     LOG.print(F("-Server init\r\n\r\n"));
-} // void setupServer() end
+}
+/*-------- WebServer END ----------*/
 
-/*-------- NTP code ----------*/
+/*-------- NTP Begin ----------*/
 // send an NTP request to the time server at the given address
 void sendNTPpacket(IPAddress &address, byte (&packetBuffer)[NTP_PACKET_SIZE])
 {
@@ -2604,9 +2557,8 @@ String getDateTimeNow(){
 alarm - needs an interrupt pin connected to RTC square wave / alarm pin (SQW) 
 https://github.com/Makuna/Rtc/wiki/RtcDS3231-AlarmOne
 https://techtutorialsx.com/2017/02/04/esp8266-ds3231-alarm-when-seconds-match/
-
-
 */
+/*-------- NTP END ----------*/
 
 void LoadStructs()
 {
