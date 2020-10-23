@@ -19,6 +19,8 @@ an option to manually start fill mix store drain from webUI
         webserver should run in a separate thread?
             manual commands can leave a flag for fmsTask to pick up
                 check line 2000
+        void fmsTask() instead can run on a separate thread
+            check no sendsms concurrency problem with sonic measure
 fmsd functions should return right away without starting if stopped and not manual?
 
 test:
@@ -541,7 +543,7 @@ public:
     //if bit set - setValue receives a positive value
     //otherwise sets setValue with 0
     //offset of 0 - expander 0x20 pins a0 a1 a2 a3
-    void setMUX(byte address)
+    void LockMUX(byte address)
     {
 
         if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
@@ -564,7 +566,7 @@ public:
     // who locks the mux?
     byte GetMUX() { return _muxLock; }
 
-    // very important to run this every time you ended up business with setMUX
+    // very important to run this every time you ended up business with LockMUX
     void UnlockMUX()
     {
         if (_muxLock != MUX_UNLOCKED)
@@ -670,7 +672,7 @@ void SendSMS(const char *message, byte item)
         LOG.printf("sms: %s\r\n", message);
     }
 
-    expanders.setMUX(7);                          // modem is at port 7
+    expanders.LockMUX(7);                          // modem is at port 7
     Alarm.delay(10);                              // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\""); //change ZZ with country code and xxxxxxxxxxx with phone number to sms
     Serial2.print(message);                       //text content
@@ -743,7 +745,7 @@ void SendSMS(String message){
 void modemInit()
 {
     LOG.println("-modem init");
-    expanders.setMUX(7); // modem is at port 7
+    expanders.LockMUX(7); // modem is at port 7
     Alarm.delay(10);     // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
     Serial2.println("AT");        //Once the handshake test is successful, it will back to OK
@@ -1487,7 +1489,7 @@ public:
         uint16_t distanceMin = 0xffff; // highest for 16bit uint
         uint16_t distanceMax = 0;      // to calculate error
         LOG.printf("measuring barrel# %u\r\n", barrel);
-        expanders.setMUX(barrel);
+        expanders.LockMUX(barrel);
         delay(1);
         for (byte x = 0; x < measure && retryLeft && timeLeft;)
         {
