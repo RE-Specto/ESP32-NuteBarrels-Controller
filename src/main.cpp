@@ -2,7 +2,6 @@
 bugs:
 sendsms should not send if error already there!
     should fmsd skip on error anyway?
-[1812][Mix][609] END mixing barrel:1 for 0Min.
 void mix time is inaccurate! 
     shoud I count by millis() instead?
     https://www.norwegiancreations.com/2018/10/arduino-tutorial-avoiding-the-overflow-issue-when-using-millis-and-micros/
@@ -15,17 +14,52 @@ pressure offset is redundant?
 [1280][ErrorSet] [E] Barr0:e16 should report sms?
 
 to implement:
-fmsd shoud return boolean of success
-    skip saveStructs on failure?
+*separate static settings from dynamic current-state (fmsd only?) values
+*move all checks from fmsd to fmsdTask?
+*fmsd chould run blindly untill state changes. (filling_state)
+    can be stopped only by exiting its state.
+    can trigger exit of state by fmsdTask if stopped_state
+        manual state not required? consider manual allways when stopped?
+
+
+fmsd stop on auto shoud wait instead of breaking?
+    not possible cause solenoids will stay open.
+    need to rerun on failure if not error
+        do i need to save state to rerun correctly?
+            f-no
+            mix- yes
+            store - no, but need to reimplement to allow partial store, then yes.
+            drain - yes.
+    add transfers.auto_ammount so fmsd reference it instead of receiving it as a parameter
+        fmsd can decrement it, and it can be used for retry if required
+
+
+how to allow stopping the system in auto fmsdTask loop, and being able to:
+    continue from where I stopped
+    running manual
+        can I move the while stopped+check-manual loop to another function
+        and run it every time I stop in fmstTask?
+
+fmsd skip saveStructs on failure?
     retry? stop? enter stopped state? +retry?
     should I wait for repair inside fmsd? or in fmsdTask?
+
+add setRGBLED to functions
+    white - system init
+    red - error
+    yellow - system stopped
+    green - running on auto
+    green blinking - fill mix running
+    cyan - system is full
+    blue blinking - store running
+    magenta blinking - drain running
+
+add watermark checks in fmsd and fmsdTask
 
 void deleteStructs and webui command in manual
 add auto start/stop to /manual
 
 reenable //SaveStructs(); //disabled for mow.... when ready
-
-fmsd functions should return right away without starting if stopped and not manual?
 
 check what happens if:
 fmsdTask running in auto mode, and fmsd keeps skipping
@@ -79,7 +113,6 @@ start/stop interrupts "use start-stop actions from evernote!"
     on stop:     pressure.SaveSD(); flow.SaveSD();
     // can set the bool to !bool to check if pressed twice - for reset and other system tasks
 
-add setRGBLED to functions
 
 work on system hardware - implement all changes to schematic!!
 change zeners to 3.3v? - check new zeners that arrived
@@ -1652,9 +1685,10 @@ public:
 // receives barrel to fill, required water level
 // checks whatever clean water line have pressure
 // fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
-void Fill(byte barrel, uint16_t requirement)
+bool Fill(byte barrel, uint16_t requirement)
 {
     LOG.printf("filling barrel:%u to %uL\r\n", barrel, requirement);
+    bool success = true;
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
@@ -1697,11 +1731,13 @@ void Fill(byte barrel, uint16_t requirement)
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
         {
             LOG.println("Status Stopped and not Manual. breaking.");
+            success = false; // return false for incompleted job
             break;                                                                            // breaks if stopped set
         }
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
             LOG.println("Status Manual and manual_task is 0. breaking.");
+            success = false; // return false for incompleted job
             break;                                                                            // breaks if manual_task is 0
         }
 
@@ -1722,6 +1758,7 @@ void Fill(byte barrel, uint16_t requirement)
             SystemState.error_set(ERR_WATER_NOFLOW);
             SendSMS("error: no water flow while [Filling]. check flowsensor 1, filling solenoid");
             SystemState.state_set(STOPPED_STATE); // untill separate error-handling reimplemented
+            success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if flowsensor error
         }
 
@@ -1734,13 +1771,15 @@ void Fill(byte barrel, uint16_t requirement)
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     LOG.printf("END filling barrel:%u to %uL\r\n", barrel, requirement);
+    return success;
 }
 
 // will mix "barrel" untill "duration" minutes is over,
 // or before if state changed to stopped while we're not operating manual
-void Mix(byte barrel, uint16_t duration)
+bool Mix(byte barrel, uint16_t duration)
 {
     LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, duration);
+    bool success = true;
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
@@ -1776,11 +1815,13 @@ void Mix(byte barrel, uint16_t duration)
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
         {
             LOG.println("Status Stopped and not Manual. breaking.");
+            success = false; // return false for incompleted job
             break; // breaking the measure loop will close taps
         }
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
             LOG.println("Status Manual and manual_task is 0. breaking.");
+            success = false; // return false for incompleted job
             break;                                                                            // breaks if manual_task is 0
         }
 
@@ -1796,6 +1837,7 @@ void Mix(byte barrel, uint16_t duration)
             SystemState.error_set(ERR_NUTRI_PRESSURE);
             SendSMS("error: no pressure while [Mixing]. check pump, solenoids, and sensors. barrel:", barrel);
             SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
+            success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if sensor error
         }
     }
@@ -1810,21 +1852,23 @@ void Mix(byte barrel, uint16_t duration)
     expanders.StoringRelay(barrel, false);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
-    LOG.printf("END mixing barrel:%u for %uMin.\r\n", barrel, duration);
+    LOG.printf("END mixing barrel:%u.\r\n", barrel);
+    return success;
 }
 
 // transfers nutrients from "barrel" to "target"
 // untill barrel is empty or untill target is full
 // or untill "stopped" state set, except if system state also set to manual
-void Store(byte barrel, byte target)
+bool Store(byte barrel, byte target)
 {
     LOG.printf("storing from barrel:%u to target %u\r\n", barrel, target);
+    bool success = true;
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     if (barrel == target)
     {
         LOG.println("Error! trying to store to itself.\r\nstoring function exit now.");
-        return;
+        return false; // exit right away
     }
     // open barrel drain tap
     expanders.DrainingRelay(barrel, true);
@@ -1852,11 +1896,13 @@ void Store(byte barrel, byte target)
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
         {
             LOG.println("Status Stopped and not Manual. breaking.");
+            success = false; // return false for incompleted job
             break; // breaking the measure loop will close taps
         }
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
             LOG.println("Status Manual and manual_task is 0. breaking.");
+            success = false; // return false for incompleted job
             break;                                                                            // breaks if manual_task is 0
         }
 
@@ -1872,6 +1918,7 @@ void Store(byte barrel, byte target)
             SystemState.error_set(ERR_NUTRI_PRESSURE);
             SendSMS("error: no pressure while [Storing]. check pump, solenoids, and sensors");
             SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
+            success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if flowsensor error
         }
         // in next version:
@@ -1898,13 +1945,15 @@ void Store(byte barrel, byte target)
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     LOG.printf("END storing from barrel:%u to target %u\r\n", barrel, target);
+    return success;
 }
 
 // draining from barrel, untill requirement liters is transferred, or barrel is empty
 // or untill state set to stopped except if state is also manual
-void Drain(byte barrel, uint16_t requirement)
+bool Drain(byte barrel, uint16_t requirement)
 {
     LOG.printf("Draining %uL from barrel:%u\r\n", requirement, barrel);
+    bool success = true;
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     // open barrel drain tap
@@ -1937,11 +1986,13 @@ void Drain(byte barrel, uint16_t requirement)
         if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
         {
             LOG.println("Status Stopped and not Manual. breaking.");
+            success = false; // return false for incompleted job
             break;                                                                            // breaks the measure loop, stops pump, not decrement the x
         }                                                                                     //stays in the while STOPPED above
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
             LOG.println("Status Manual and manual_task is 0. breaking.");
+            success = false; // return false for incompleted job
             break;                                                                            // breaks if manual_task is 0
         }
 
@@ -1957,6 +2008,7 @@ void Drain(byte barrel, uint16_t requirement)
             SystemState.error_set(ERR_NUTRI_PRESSURE);
             SendSMS("error: no pressure while [Draining]. check pump, solenoid, and sensors");
             SystemState.state_set(STOPPED_STATE); // untill separeate error-handling reimplemented
+            success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if flowsensor error
         }
 
@@ -1979,12 +2031,14 @@ void Drain(byte barrel, uint16_t requirement)
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     LOG.printf("END Draining %uL from barrel:%u\r\n", requirement, barrel);
+    return success;
 }
 
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
     LOG.printf("fmsd begin\r\nsystem state:%u\r\nwatermark: ", SystemState.state_get());
     LOG.println(uxTaskGetStackHighWaterMark(loop1)); // !! testing watermark
+    bool success = false; // for storing fmsd returns
     while (true)
     {
         while (SystemState.state_check(STOPPED_STATE))
@@ -2019,9 +2073,12 @@ void fmsTask(void * pvParameters)
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
             SystemState.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
-            Fill(Transfers.filling_barrel, Transfers.afterfill_requirement);
+            while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
+                Alarm.delay(1000);                         // check state every second
+            while (!success)
+                success = Fill(Transfers.filling_barrel, Transfers.afterfill_requirement);
             //SaveStructs(); //disabled for mow....
-            Mix(Transfers.filling_barrel, Transfers.mix_requirement);
+            success = Mix(Transfers.filling_barrel, Transfers.mix_requirement);
             SystemState.state_set(STORING_STATE);
             SystemState.state_unset(FILLING_STATE);
             //SaveStructs(); //disabled for mow....
@@ -2037,7 +2094,7 @@ void fmsTask(void * pvParameters)
                 if (Transfers.drain_requirement)
                 {
                     // drain untill empty or requirement satisfied.
-                    Drain(Transfers.filling_barrel, Transfers.drain_requirement);
+                    success = Drain(Transfers.filling_barrel, Transfers.drain_requirement);
                     //SaveStructs(); //disabled for mow....
                     if (barrels.isEmpty(Transfers.filling_barrel))
                         break; // if drained filling barrel to empty - break store loop
@@ -2048,7 +2105,7 @@ void fmsTask(void * pvParameters)
                 // skip barrel if disabled or errorous!
                 if (!barrels.isFull(Transfers.storing_barrel) && !barrels.ErrorGet(Transfers.storing_barrel) && Transfers.storing_barrel > 0)
                 {
-                    Store(Transfers.filling_barrel, Transfers.storing_barrel);
+                    success = Store(Transfers.filling_barrel, Transfers.storing_barrel);
                     //SaveStructs(); //disabled for mow....
                 }
                 // target full - goto next barrel
@@ -2066,7 +2123,7 @@ void fmsTask(void * pvParameters)
                     // drain the mixer first
                     Transfers.storing_barrel = Transfers.filling_barrel;
                     // drain untill empty or requirement satisfied.
-                    Drain(Transfers.filling_barrel, Transfers.drain_requirement);
+                    success = Drain(Transfers.filling_barrel, Transfers.drain_requirement);
                     //SaveStructs(); //disabled for mow....
                 }
             } // got here cause filling_barrel is empty
@@ -2076,7 +2133,7 @@ void fmsTask(void * pvParameters)
                 // storing_barrel not empty? not errorous? drain it
                 if (!barrels.isEmpty(Transfers.storing_barrel) && !barrels.ErrorGet(Transfers.storing_barrel))
                 {
-                    Drain(Transfers.storing_barrel, Transfers.drain_requirement);
+                    success = Drain(Transfers.storing_barrel, Transfers.drain_requirement);
                     //SaveStructs(); //disabled for mow....
                 }
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
