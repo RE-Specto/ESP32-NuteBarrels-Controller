@@ -1,5 +1,6 @@
 /*
 bugs:
+ultrasonic won't remeasure at error??
 sendsms should not send if error already there!
     should fmsd skip on error anyway?
 void mix time is inaccurate! 
@@ -11,14 +12,28 @@ void store allways storing untill empty
     must give option to store only required ammount
 if mix stopped in the middle - it will count from start again
 pressure offset is redundant?
-[1280][ErrorSet] [E] Barr0:e16 should report sms?
+
 
 to implement:
+untriger "protect" when pressure sensor back to normal?
+    already sheduled below
+sonic remeasure on high error±
+    ignore the one that is out of range? or remeasure all?
+struct Transfers have no save() function?
+-my structs
+Transfers (global)
+    rename to Defaults? Settings?
+myState (SystemState private) /SysState.bin
+    all dynamic - move transfers dynamic values over here?
+fsensor[2] (flow private) /Flow.bin
+psensor[2] (pressure private) /Pressure.bin
+myBarrel[6] (barrels private) /Barrels.bin
+
 *separate static settings from dynamic current-state (fmsd only?) values
-*move all checks from fmsd to fmsdTask?
+*move all checks from fmsd to fmsTask?
 *fmsd chould run blindly untill state changes. (filling_state)
     can be stopped only by exiting its state.
-    can trigger exit of state by fmsdTask if stopped_state
+    can trigger exit of state by fmsTask if stopped_state
         manual state not required? consider manual allways when stopped?
 
 
@@ -34,15 +49,15 @@ fmsd stop on auto shoud wait instead of breaking?
         fmsd can decrement it, and it can be used for retry if required
 
 
-how to allow stopping the system in auto fmsdTask loop, and being able to:
+how to allow stopping the system in auto fmsTask loop, and being able to:
     continue from where I stopped
     running manual
         can I move the while stopped+check-manual loop to another function
-        and run it every time I stop in fmstTask?
+        and run it every time I stop in fmsTask?
 
 fmsd skip saveStructs on failure?
     retry? stop? enter stopped state? +retry?
-    should I wait for repair inside fmsd? or in fmsdTask?
+    should I wait for repair inside fmsd? or in fmsTask?
 
 add setRGBLED to functions
     white - system init
@@ -54,7 +69,7 @@ add setRGBLED to functions
     blue blinking - store running
     magenta blinking - drain running
 
-add watermark checks in fmsd and fmsdTask
+add watermark checks in fmsd and fmsTask
 
 void deleteStructs and webui command in manual
 add auto start/stop to /manual
@@ -62,7 +77,7 @@ add auto start/stop to /manual
 reenable //SaveStructs(); //disabled for mow.... when ready
 
 check what happens if:
-fmsdTask running in auto mode, and fmsd keeps skipping
+fmsTask running in auto mode, and fmsd keeps skipping
     will it exaust the saveStructs?
 
 test:
@@ -84,7 +99,8 @@ serial print to telnet or to webui directly or via another board (esp8266?).
 -solder start-stop rgb led test cable
 -solder dummy pressure sensor
 
-add a way to reset pressure error "protect" mode - by pressing start?
+!!! add a way to reset pressure error "protect" mode - by pressing start?
+    use void pressure_sensor::ErrorReset(byte sens)
 use combination of SystemState.state_check and Transfers.inner_state
     on reset - sytem will remeasure using sonic 
         if diff too large - assign sonic value to 
@@ -154,11 +170,6 @@ allow to manually disable a barrel
 fmsTask - check fill mix if barrel 0 not error!? 
     who can set barrel 0 error?
 
-add LOG.println(__FUNCTION__); at every function start for debug
-    add uptime?
-    typeid(*this).name() for class name?
-        __FUNCTION__ is non standard, __func__ exists in C99 / C++11. The others (__LINE__ and __FILE__) are just fine.
-        It will always report the right file and line (and function if you choose to use __FUNCTION__/__func__). Optimization is a non-factor since it is a compile time macro expansion; it will never effect performance in any way.
 ------------------------------
 
 uint16_t DTS = 0;                                              //mySettings.DTS?3600UL:0;
@@ -194,6 +205,8 @@ check all uint values never go below zero!!
     anywhere else?
 
 implement mux lock timeout.
+    LockMUX should start an external timer and UnlockMUX should stop it
+    manual unlock via webUI
 
 measure all sonic on system start so sonic have all values ready?
 
@@ -213,6 +226,8 @@ optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
 optional:
+add LOG.println(__FUNCTION__); at every function start for debug
+
 add concentrationSet to barrels for manual?
 use filter instead of avearge for sonic?
 https://stackoverflow.com/questions/10338888/fast-median-filter-in-c-c-for-uint16-2d-array
@@ -312,7 +327,7 @@ add ... on serial.available to check module awake
 
 #define MUX_UNLOCKED 255 //valid shannels are 0-15
 
-#define LOG Serial.printf("[%04i][%s][%lli] ", __LINE__, __FUNCTION__, esp_timer_get_time() / 1000000);Serial   //SerialAndTelnet or file
+#define LOG Serial.printf("time[%06lli]line[%04i]func[%s] ", esp_timer_get_time() / 1000000, __LINE__, __FUNCTION__);Serial   //SerialAndTelnet or file
 #define SYNC_INTERVAL 600 // NTP sync - in seconds
 #define NTP_PACKET_SIZE 48
 // NTP time is in the first 48 bytes of message
@@ -351,7 +366,7 @@ bool isSaving = false;
 bool isSD = false;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED; // for interrupts and xTasks
 char smsMessage[64];                             // filled by MessageFromDict from dictionary
-TaskHandle_t loop1; // fmsdTask handle
+TaskHandle_t loop1; // fmsTask handle
 
 //function declarations:
 bool Load(const char *fname, byte *stru_p, uint16_t len);
@@ -490,7 +505,7 @@ byte Backup()
     return counter;
 }
 
-// restore only files missing on SD card
+// restore only files missing on SD card. do not override existing files
 byte Restore()
 {
     LOG.println(F("Restoring missing files from SPIFFS to SD"));
@@ -555,7 +570,7 @@ MCP23017 expander2(1); // Base Address + 1: 0x21
 class exp
 {
 private:
-    byte _muxLock = MUX_UNLOCKED; // unlocked
+    byte _muxLock = MUX_UNLOCKED; // unlocked initially
 
 public:
     void Init()
@@ -644,6 +659,7 @@ public:
         expander2.getPin(15).setValue(!state); // draining relay protect pin
         expander1.write();
         expander2.write();
+        LOG.printf("!! Protection %s\r\n", state ? "On!" : "Off");
     }
 
     // triggers filling relay
@@ -1122,6 +1138,8 @@ public:
     // returns last value measured by pressure sensor (sens)
     int16_t LastValue(byte sens)
     {
+        // sensors now start from 1 (but arrays from 0)
+        sens--;
         return psensor[sens]._last_pressure;
     }
 
@@ -1501,7 +1519,7 @@ public:
         for (byte x = 0; x < measure && retryLeft && timeLeft;)
         {
             // send data so sonic will reply
-            Serial2.write(0xFF);
+            Serial2.write(0x55);
             // wait untill some data is received
             while (!Serial2.available() && timeLeft)
             {
@@ -1526,13 +1544,14 @@ public:
                 // number of measurements so far (excluding the last "timed out" measurement)
                 measure = x;
                 ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
+                SendSMS("No signal @Ultrasonic ", barrel);
                 break;
             }
             byte upper_data = Serial2.read();
             byte lower_data = Serial2.read();
             byte sum = Serial2.read();
-            //Serial.printf("high %u low %u sum %u\r\n", upper_data, lower_data, sum);
-            if (((upper_data + lower_data) & 0xFF) == sum)
+            // Serial.printf("high %u low %u sum %u\r\n", upper_data, lower_data, sum); // for debug
+            if (((0xFF + upper_data + lower_data) & 0xFF) == sum) // fix to match JSN-SR04T-2.0 checksum calculation
             {
                 uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
                 LOG.printf("Sonic:%u Distance:%umm measurement:%u time left:%u retries left:%u\r\n", barrel, distance, x, timeLeft, retryLeft);
@@ -2036,8 +2055,7 @@ bool Drain(byte barrel, uint16_t requirement)
 
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
-    LOG.printf("fmsd begin\r\nsystem state:%u\r\nwatermark: ", SystemState.state_get());
-    LOG.println(uxTaskGetStackHighWaterMark(loop1)); // !! testing watermark
+    LOG.printf("\r\nfmsd begin\r\nsystem state:%u\r\nwatermark:%u\r\n", SystemState.state_get(), uxTaskGetStackHighWaterMark(loop1));
     bool success = false; // for storing fmsd returns
     while (true)
     {
