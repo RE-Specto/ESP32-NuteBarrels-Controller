@@ -1,5 +1,7 @@
 /*
 bugs:
+do Fill Mix Store Drain  SENSOR CHECK pressure.measure will break logic at pressure error?
+    need to close taps, wait in loop, and reopen using OpenTaps() once error cleared
 ultrasonic won't remeasure at error??
 sendsms should not send if error already there!
     should fmsd skip on error anyway?
@@ -325,7 +327,7 @@ add ... on serial.available to check module awake
 #define BARREL_NUTRIENTS 2
 
 
-#define MUX_UNLOCKED 255 //valid shannels are 0-15
+#define MUX_UNLOCKED 255 //valid channels are 0-15
 
 #define LOG Serial.printf("time[%06lli]line[%04i]func[%s] ", esp_timer_get_time() / 1000000, __LINE__, __FUNCTION__);Serial   //SerialAndTelnet or file
 #define SYNC_INTERVAL 600 // NTP sync - in seconds
@@ -338,6 +340,7 @@ add ... on serial.available to check module awake
 
 // load Object from Storage to Struct
 #define NUM_OF_BARRELS 6
+#define POOLS 6 // barrels from 0 to 5, pools out at number 6
 
 //Flow sensor Pin declarations
 #define FLOW_1_PIN 25
@@ -353,6 +356,7 @@ add ... on serial.available to check module awake
 #define REPORT_DELAY 5000
 
 #define DEBUG
+//#define DEBUG_SD
 
 
 // Globals
@@ -385,7 +389,9 @@ void initStorage()
     {
         if (SD.begin())
         {
+            #ifdef DEBUG_SD
             LOG.println(F("SD card OK"));
+            #endif
             disk = &SD;
             isSD = true;
             break;
@@ -404,7 +410,9 @@ void initStorage()
     {
         if (SPIFFS.begin())
         {
+            #ifdef DEBUG_SD
             LOG.println(F("SPIFFS OK"));
+            #endif
             break;
         }
         else
@@ -508,7 +516,9 @@ byte Backup()
 // restore only files missing on SD card. do not override existing files
 byte Restore()
 {
+    #ifdef DEBUG_SD
     LOG.println(F("Restoring missing files from SPIFFS to SD"));
+    #endif
     File dir = SPIFFS.open("/");
     File file = dir.openNextFile();
     size_t len = 0; // file chunk lenght at the buffer
@@ -518,11 +528,15 @@ byte Restore()
         //file.name() file.size());
         if (SD.exists(file.name()))
         {
+            #ifdef DEBUG_SD
             LOG.printf("file %s already exist on SD\r\n", file.name());
+            #endif
         }
         else if (!file.size())
         {
+            #ifdef DEBUG_SD
             LOG.printf("skipping empty file %s\r\n", file.name());
+            #endif
         }
         else
         {
@@ -555,7 +569,9 @@ byte Restore()
         file = dir.openNextFile();
     }
     dir.close();
+    #ifdef DEBUG_SD
     LOG.printf("Restore finished. %u files copied\r\n", counter);
+    #endif
     return counter;
 }
 /*-------- Filesystem END ----------*/
@@ -1701,6 +1717,31 @@ public:
 /*-------- Barrels END ----------*/
 
 /*-------- FMSD Begin ----------*/
+
+// open barrels taps and pump (source barrel, target barrel)
+void OpenTaps(byte drainBarrel, byte storeBarrel)
+{
+    // open barrel drain tap
+    expanders.DrainingRelay(drainBarrel, true);
+    // open barrel store tap
+    expanders.StoringRelay(storeBarrel, true);
+    // start pump
+    expanders.Pump(true);
+}
+
+// close barrels taps and pump (source barrel, target barrel)
+void CloseTaps(byte drainBarrel, byte storeBarrel)
+{
+    // stop pump
+    expanders.Pump(false);
+    // wait untill pressure released
+    Alarm.delay(100);
+    // close barrel drain tap
+    expanders.DrainingRelay(drainBarrel, false);
+    // close barrel store tap
+    expanders.StoringRelay(storeBarrel, false);
+}
+
 // receives barrel to fill, required water level
 // checks whatever clean water line have pressure
 // fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
@@ -1712,7 +1753,7 @@ bool Fill(byte barrel, uint16_t requirement)
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
     pressure.measure(PRES_SENSOR_FRESHWATER);      //freshwater at sensor 1
-    if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) == PRESSURE_NOPRESSURE)
+    if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) != PRESSURE_NORMAL)
     {
         // water line no pressure? stop, set error,
         SystemState.error_set(ERR_WATER_PRESSURE);
@@ -1747,11 +1788,17 @@ bool Fill(byte barrel, uint16_t requirement)
 
         // STOP-BREAK
         // check if changed to STOPPED state
-        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // wait if stopped but not manual
         {
-            LOG.println("Status Stopped and not Manual. breaking.");
-            success = false; // return false for incompleted job
-            break;                                                                            // breaks if stopped set
+            LOG.println(F("Status Stopped! auto is paused while filling"));
+            // close barrel filling tap until no "stopped state"
+            expanders.FillingRelay(barrel, false);
+            while (SystemState.state_check(STOPPED_STATE))
+            {
+                Alarm.delay(100); // sleep
+            }
+            // open back barrel filling tap
+            expanders.FillingRelay(barrel, true);
         }
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
@@ -1801,12 +1848,8 @@ bool Mix(byte barrel, uint16_t duration)
     bool success = true;
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
-    // open barrel drain tap
-    expanders.DrainingRelay(barrel, true);
-    // open barrel store tap
-    expanders.StoringRelay(barrel, true);
-    // start pump
-    expanders.Pump(true);
+    // open both taps of the same barrel to mix it :)
+    OpenTaps(barrel, barrel);
     // seconds
     byte sec = 0;    
     // loops with no pressure
@@ -1829,13 +1872,20 @@ bool Mix(byte barrel, uint16_t duration)
             LOG.printf("barrel:%u %uMin remaining\r\n", barrel, duration);
         }
 
+
         // STOP-BREAK
-        // break if stopped but not manual
-        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
+        // check if changed to STOPPED state
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // wait if stopped but not manual
         {
-            LOG.println("Status Stopped and not Manual. breaking.");
-            success = false; // return false for incompleted job
-            break; // breaking the measure loop will close taps
+            LOG.println(F("Status Stopped! auto is paused"));
+            // close barrels taps until no "stopped state"
+            CloseTaps(barrel, barrel);
+            while (SystemState.state_check(STOPPED_STATE))
+            {
+                Alarm.delay(100); // sleep
+            }
+            // open back barrels taps
+            OpenTaps(barrel, barrel);
         }
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
@@ -1861,14 +1911,7 @@ bool Mix(byte barrel, uint16_t duration)
         }
     }
     // counter reached zero
-    // stop pump
-    expanders.Pump(false);
-    // wait untill pressure released
-    Alarm.delay(100);
-    // close barrel drain tap
-    expanders.DrainingRelay(barrel, false);
-    // close barrel store tap
-    expanders.StoringRelay(barrel, false);
+    CloseTaps(barrel, barrel);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
     LOG.printf("END mixing barrel:%u.\r\n", barrel);
@@ -1889,13 +1932,9 @@ bool Store(byte barrel, byte target)
         LOG.println("Error! trying to store to itself.\r\nstoring function exit now.");
         return false; // exit right away
     }
-    // open barrel drain tap
-    expanders.DrainingRelay(barrel, true);
-    // open target store tap
-    expanders.StoringRelay(target, true);
-    // start pump
-    expanders.Pump(true);
-    byte nopres = 0; // loops with no pressure
+    // drain barrel into target
+    OpenTaps(barrel, target);
+    byte nopres = 0; // counter for loops with no pressure
     // loop - while source barrel not empty AND target not full
     while (!barrels.isEmpty(barrel) && !barrels.isFull(target))
     {
@@ -1911,12 +1950,18 @@ bool Store(byte barrel, byte target)
         }
 
         // STOP-BREAK
-        // break if stopped but not manual
-        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE))
+        // check if changed to STOPPED state
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // wait if stopped but not manual
         {
-            LOG.println("Status Stopped and not Manual. breaking.");
-            success = false; // return false for incompleted job
-            break; // breaking the measure loop will close taps
+            LOG.println(F("Status Stopped! auto is paused"));
+            // close barrels taps until no "stopped state"
+            CloseTaps(barrel, target);
+            while (SystemState.state_check(STOPPED_STATE))
+            {
+                Alarm.delay(100); // sleep
+            }
+            // open back barrels taps
+            OpenTaps(barrel, target);
         }
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
@@ -1951,14 +1996,7 @@ bool Store(byte barrel, byte target)
 
         Alarm.delay(100);
     }
-    // stop pump
-    expanders.Pump(false);
-    // wait untill pressure released
-    Alarm.delay(100);
-    // close barrel drain tap
-    expanders.DrainingRelay(barrel, false);
-    // close target store tap
-    expanders.StoringRelay(target, false);
+    CloseTaps(barrel, target);
     // calculate final ammount
     barrels.NutrientsTransferCalc(barrel, target);
     // reset flow counter 2
@@ -1975,12 +2013,8 @@ bool Drain(byte barrel, uint16_t requirement)
     bool success = true;
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
-    // open barrel drain tap
-    expanders.DrainingRelay(barrel, true);
-    // open pools "store" tap
-    expanders.StoringRelay(6, true); // store No6 is pools out
-    // start pump
-    expanders.Pump(true);
+    // open barrel, drain to pools
+    OpenTaps(barrel, POOLS);
     // loops with no pressure
     byte nopres = 0; 
     // liters temp
@@ -2001,13 +2035,19 @@ bool Drain(byte barrel, uint16_t requirement)
         }
 
         // STOP-BREAK
-        // check for STOPPED state change
-        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // break if stopped but not manual
+        // check if changed to STOPPED state
+        if (SystemState.state_check(STOPPED_STATE) && !SystemState.state_check(MANUAL_STATE)) // wait if stopped but not manual
         {
-            LOG.println("Status Stopped and not Manual. breaking.");
-            success = false; // return false for incompleted job
-            break;                                                                            // breaks the measure loop, stops pump, not decrement the x
-        }                                                                                     //stays in the while STOPPED above
+            LOG.println(F("Status Stopped! auto is paused"));
+            // close barrels taps until no "stopped state"
+            CloseTaps(barrel, POOLS);
+            while (SystemState.state_check(STOPPED_STATE))
+            {
+                Alarm.delay(100); // sleep
+            }
+            // open back barrels taps
+            OpenTaps(barrel, POOLS);
+        }                                                                                  //stays in the while STOPPED above
         if (SystemState.state_check(MANUAL_STATE) && Transfers.manual_task == 0)
         {
             LOG.println("Status Manual and manual_task is 0. breaking.");
@@ -2033,19 +2073,13 @@ bool Drain(byte barrel, uint16_t requirement)
 
         Alarm.delay(100);
     }
-    // stop pump
-    expanders.Pump(false);
-    // close barrel x tap
-    expanders.DrainingRelay(barrel, false);
-    // wait untill pressure released
-    Alarm.delay(100);
-    // close dOUT tap
-    expanders.StoringRelay(6, false);
+    // stop pump and taps
+    CloseTaps(barrel, POOLS);
     Alarm.delay(1000);
     // last flow calculation
     tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
     tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part in liters, fractional part discarded.
-    if (tempflow) // if more than liter - Subtract
+    if (tempflow) // if more than a liter - subtract
         barrels.DrainLitrageSubtract(barrel, tempflow);
     // reset flow counter 2
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
@@ -2055,7 +2089,7 @@ bool Drain(byte barrel, uint16_t requirement)
 
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
-    LOG.printf("\r\nfmsd begin\r\nsystem state:%u\r\nwatermark:%u\r\n", SystemState.state_get(), uxTaskGetStackHighWaterMark(loop1));
+    LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", SystemState.state_get(), uxTaskGetStackHighWaterMark(loop1));
     bool success = false; // for storing fmsd returns
     while (true)
     {
@@ -2467,7 +2501,7 @@ void setupServer()
                     SystemState.state_unset(MANUAL_STATE);
                 }
                     // man canceling previous fmsd 
-                    LOG.println("man mode change triggered, canceling previous fmsd.");
+                    LOG.println("man mode change triggered, canceling previous manual fmsd.");
                     Transfers.manual_task = 0;
                     Transfers.manual_src = 0;
                     Transfers.manual_dest = 0;
@@ -2595,7 +2629,7 @@ void setupServer()
     // Start server
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     server.begin();
-    LOG.print(F("-Server init\r\n\r\n"));
+    LOG.print(F("-Server init\r\n"));
 }
 /*-------- WebServer END ----------*/
 
@@ -2808,9 +2842,10 @@ void setup()
     //WiFiManager Local intialization. Once its business is done, there is no need to keep it around
     AsyncWiFiManager wifiManager(&server, &dns);
     //wifiManager.resetSettings();
+    wifiManager.setDebugOutput(false);
     wifiManager.setConfigPortalTimeout(180);  // 3 minutes
     wifiManager.autoConnect("AutoConnectAP"); // will stop here if no wifi connected
-    LOG.printf("ESSID: %s\r\n", WiFi.SSID().c_str());
+    LOG.printf("ESSID: %s IP: %s\r\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
 
     //initiate expander ports - I2C wire
     expanders.Init();
