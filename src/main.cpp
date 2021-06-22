@@ -1,7 +1,12 @@
 /*
 bugs:
+Fill escaping pressure critical error by pressing start
+    should remeasure instead, and lock again if not fixed
+        loop stopped? inside loop measure-fixed?
+pressing Start after manual does not cancel the manual
 do Fill Mix Store Drain  SENSOR CHECK pressure.measure will break logic at pressure error?
     need to close taps, wait in loop, and reopen using OpenTaps() once error cleared
+    ! also remeasures constantly at Fill first measure if sensor error
 ultrasonic won't remeasure at error??
 sendsms should not send if error already there!
     should fmsd skip on error anyway?
@@ -17,6 +22,9 @@ pressure offset is redundant?
 
 
 to implement:
+print state_print after each state change?
+    use main Loop()?
+do I need separate manual fmsd? or can I run fmsd recursively?
 untriger "protect" when pressure sensor back to normal?
     already sheduled below
 sonic remeasure on high error±
@@ -30,6 +38,9 @@ myState (SystemState private) /SysState.bin
 fsensor[2] (flow private) /Flow.bin
 psensor[2] (pressure private) /Pressure.bin
 myBarrel[6] (barrels private) /Barrels.bin
+
+should I use vTaskDelay instead of Alarm.delay?
+    do I need that TimeAlarms library at all?
 
 *separate static settings from dynamic current-state (fmsd only?) values
 *move all checks from fmsd to fmsTask?
@@ -98,7 +109,6 @@ barr error set shoud save to sd? or save after each use in code?
 
 serial print to telnet or to webui directly or via another board (esp8266?).
 
--solder start-stop rgb led test cable
 -solder dummy pressure sensor
 
 !!! add a way to reset pressure error "protect" mode - by pressing start?
@@ -352,6 +362,10 @@ add ... on serial.available to check module awake
 #define PRESSUR_2_PIN 34
 //#define PRESSUR_3_PIN 35
 
+// Start-Stop Buttons
+#define START_PIN 4
+#define STOP_PIN 2
+
 // delay for SMS error report
 #define REPORT_DELAY 5000
 
@@ -378,7 +392,13 @@ bool Save(const char *fname, byte *stru_p, uint16_t len);
 void SaveStructs();
 void IRAM_ATTR FlowSensor1Interrupt();
 void IRAM_ATTR FlowSensor2Interrupt();
+void IRAM_ATTR StartButtonInterrupt();
+void IRAM_ATTR StopButtonInterrupt();
 void SendSMS(const char *message, byte item = 0xFF);
+bool Fill(byte barrel, uint16_t requirement);
+bool Mix(byte barrel, uint16_t duration);
+bool Store(byte barrel, byte target);
+bool Drain(byte barrel, uint16_t requirement);
 
 /*-------- Filesystem Begin ----------*/
 // SD Card and SPIFFS
@@ -758,7 +778,7 @@ void SendSMS(const char *message, byte item)
     Serial2.write(26); // send ctrl+z end of message
     //Serial2.print((char)26); // if the above won't work - thy this one instead
     expanders.UnlockMUX();
-    Serial.println(); // add newline after sendsms for log readability
+    //Serial.println(); // add newline after sendsms for log readability
 }
 
 /*
@@ -859,10 +879,10 @@ public:
     byte state_get() { return myState._state_now; }
 
     // set state using mask (FILLING_STALE,STORING_STATE....)
-    void state_set(byte mask) { myState._state_now |= mask; }
+    void IRAM_ATTR state_set(byte mask) { myState._state_now |= mask; }
 
     // unset mask from state  (FILLING_STALE,STORING_STATE....)
-    void state_unset(uint16_t mask) { myState._state_now &= ~mask; }
+    void IRAM_ATTR state_unset(uint16_t mask) { myState._state_now &= ~mask; }
 
     // preserve prevoius state
     void state_save() { myState._state_before = myState._state_now; }
@@ -872,6 +892,25 @@ public:
 
     // returns true if state have "mask-bit" state on. ex: return_state(MIXING_STATE);
     bool state_check(byte mask) { return myState._state_now & mask; }
+
+    void state_print()
+    {
+        LOG.printf("system state:%u ", state_get());
+        // keep it simple
+        if (state_check(MANUAL_STATE))
+            Serial.print(F("MANUAL "));
+        if (state_check(FILLING_STATE))
+            Serial.print(F("FILLING "));
+        if (state_check(MIXING_STATE))
+            Serial.print(F("MIXING "));
+        if (state_check(STORING_STATE))
+            Serial.print(F("STORING "));
+        if (state_check(DRAINIG_STATE))
+            Serial.print(F("DRAINIG "));
+        if (state_check(STOPPED_STATE))
+            Serial.print(F("STOPPED "));
+        Serial.println();
+    }
 
     // returns error state
     uint16_t error_get() { return myState._error_now; }
@@ -895,7 +934,31 @@ public:
 
     void error_reported() { myState._error_before = myState._error_now; }
 
+    void begin()
+    {
+        LOG.printf("-System: init start stop at pins %u, %u\r\n", START_PIN, STOP_PIN);
+        pinMode(START_PIN, INPUT_PULLUP);
+        pinMode(STOP_PIN, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(START_PIN), StartButtonInterrupt, FALLING);
+        attachInterrupt(digitalPinToInterrupt(STOP_PIN), StopButtonInterrupt, FALLING);
+    }
+
 } SystemState;
+
+void IRAM_ATTR StartButtonInterrupt()
+{
+    portENTER_CRITICAL_ISR(&mux);
+    SystemState.state_unset(STOPPED_STATE);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
+void IRAM_ATTR StopButtonInterrupt()
+{
+    portENTER_CRITICAL_ISR(&mux);
+    SystemState.state_set(STOPPED_STATE);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
 /*-------- SystemState END ----------*/
 
 // deprecate?? send sms on demand in each function?
@@ -1189,9 +1252,13 @@ public:
             Alarm.delay(100);
             expanders.Protect(true);
             // set error
-            p->_ErrorState = 2;
-            LOG.printf("[E] sensor %u overpressure\r\n", sens + 1);
-            SendSMS("Overpressure @pressure sensor", sens + 1);
+            SystemState.state_set(STOPPED_STATE); // pauses auto fmsd
+            if (p->_ErrorState != PRESSURE_OVERPRESSURE)
+            {
+                p->_ErrorState = PRESSURE_OVERPRESSURE;
+                LOG.printf("[E] sensor %u overpressure\r\n", sens + 1);
+                SendSMS("Overpressure @pressure sensor", sens + 1);
+            }
             return pres; // exits here
         }
 
@@ -1203,10 +1270,13 @@ public:
             Alarm.delay(100);
             expanders.Protect(true);
             // set error
-            p->_ErrorState = 4;
-            LOG.printf("[E] sensor %u short circuit\r\n", sens + 1);
-            //send sms
-            SendSMS("short circuit @pressure sensor", sens + 1);
+            SystemState.state_set(STOPPED_STATE); // pauses auto fmsd
+            if (p->_ErrorState != PRESSURE_SHORTCIRCUIT)
+            {
+                p->_ErrorState = PRESSURE_SHORTCIRCUIT;
+                LOG.printf("[E] sensor %u short circuit\r\n", sens + 1);
+                SendSMS("short circuit @pressure sensor", sens + 1);
+            }
             return pres; // exits here
         }
 
@@ -1218,22 +1288,25 @@ public:
             Alarm.delay(100);
             expanders.Protect(true);
             // set error
-            p->_ErrorState = 3;
-            LOG.printf("[E] sensor %u disconnected\r\n", sens + 1);
-            //send sms
-            SendSMS("lost connection @pressure sensor", sens + 1);
+            SystemState.state_set(STOPPED_STATE); // pauses auto fmsd
+            if (p->_ErrorState != PRESSURE_DISCONNECT)
+            {
+                p->_ErrorState = PRESSURE_DISCONNECT;
+                LOG.printf("[E] sensor %u disconnected\r\n", sens + 1);
+                SendSMS("lost connection @pressure sensor", sens + 1);
+            }
             return pres; // exits here
         }
 
         //1  no pressure
         if (pres < p->_min_pressure)
-            if (p->_ErrorState == 0)
-                p->_ErrorState = 1;
+            if (p->_ErrorState == PRESSURE_NORMAL)
+                p->_ErrorState = PRESSURE_NOPRESSURE;
 
         //0  normal pressure range is here - reset errors?
         if (pres > p->_min_pressure && pres < p->_max_pressure)
-            if (p->_ErrorState == 1)
-                p->_ErrorState = 0;
+            if (p->_ErrorState == PRESSURE_NOPRESSURE)
+                p->_ErrorState = PRESSURE_NORMAL;
 
         // "add global pressure error here" - what is this??
         if (p->_ErrorState > 1)
@@ -1560,7 +1633,6 @@ public:
                 // number of measurements so far (excluding the last "timed out" measurement)
                 measure = x;
                 ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
-                SendSMS("No signal @Ultrasonic ", barrel);
                 break;
             }
             byte upper_data = Serial2.read();
@@ -1638,6 +1710,11 @@ public:
                       temptimeout - timeLeft,
                       tempretry - retryLeft);
         //return distanceAvearge;
+        if (!timeLeft)
+        {
+            // moved over here to prevent MUX Deadlock
+            SendSMS("No signal @Ultrasonic ", barrel);
+        }
     } // end SonicMeasure
 
     uint16_t SonicLastMM(byte barrel) { return myBarrel[barrel]._SonicLastValue; }
@@ -1742,6 +1819,55 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
     expanders.StoringRelay(storeBarrel, false);
 }
 
+void ServiceManual()
+{
+    //LOG.println("test");
+    switch (Transfers.manual_task)
+    {
+        case 1:
+        //Serial.println("test man case 1");
+        Fill(Transfers.manual_src, Transfers.manual_ammo);
+        break;
+        case 2:
+        //Serial.println("test man case 2");
+        Mix(Transfers.manual_src, Transfers.manual_ammo);
+        break;
+        case 3:
+        //Serial.println("test man case 3");
+        Store(Transfers.manual_src, Transfers.manual_dest);
+        break;
+        case 4:
+        //Serial.println("test man case 4");
+        Drain(Transfers.manual_src, Transfers.manual_ammo);
+        break;
+    }
+    Transfers.manual_task = 0; // important - no double-run
+    LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
+
+    /*
+                if (Transfers.manual_task == 1)
+            {
+                Fill(Transfers.manual_src, Transfers.manual_ammo);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            if (Transfers.manual_task == 2)
+            {
+                Mix(Transfers.manual_src, Transfers.manual_ammo);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            if (Transfers.manual_task == 3)
+            {
+                Store(Transfers.manual_src, Transfers.manual_dest);
+                Transfers.manual_task = 0; // important - no double-run
+            }
+            if (Transfers.manual_task == 4)
+            {
+                Drain(Transfers.manual_src, Transfers.manual_ammo);
+                Transfers.manual_task = 0; // important - no double-run
+            } 
+    */
+}
+
 // receives barrel to fill, required water level
 // checks whatever clean water line have pressure
 // fills clean water until level is reached, or barrel is full, or until flowsensor malfunction detected
@@ -1753,14 +1879,22 @@ bool Fill(byte barrel, uint16_t requirement)
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
     pressure.measure(PRES_SENSOR_FRESHWATER);      //freshwater at sensor 1
-    if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) != PRESSURE_NORMAL)
+    if (SystemState.state_check(STOPPED_STATE))
+    {
+        LOG.print(F("system entered stopped state after p sens error?\r\n\r\n"));
+    }
+    while(SystemState.state_check(STOPPED_STATE))
+    {
+        Alarm.delay(1000);
+    }
+    if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) == PRESSURE_NOPRESSURE)
     {
         // water line no pressure? stop, set error,
         SystemState.error_set(ERR_WATER_PRESSURE);
         // sendsms
         SendSMS("no water pressure. system paused.");
-        // recheck in loop - if ok - clear error
-        while (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) != PRESSURE_NORMAL)
+        // stop, recheck p sensor untill ok, clear error
+        while (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) == PRESSURE_NOPRESSURE)
         {
             Alarm.delay(1000);
             pressure.measure(PRES_SENSOR_FRESHWATER);
@@ -1795,6 +1929,7 @@ bool Fill(byte barrel, uint16_t requirement)
             expanders.FillingRelay(barrel, false);
             while (SystemState.state_check(STOPPED_STATE))
             {
+                ServiceManual();
                 Alarm.delay(100); // sleep
             }
             // open back barrel filling tap
@@ -1882,6 +2017,7 @@ bool Mix(byte barrel, uint16_t duration)
             CloseTaps(barrel, barrel);
             while (SystemState.state_check(STOPPED_STATE))
             {
+                ServiceManual();
                 Alarm.delay(100); // sleep
             }
             // open back barrels taps
@@ -1958,6 +2094,7 @@ bool Store(byte barrel, byte target)
             CloseTaps(barrel, target);
             while (SystemState.state_check(STOPPED_STATE))
             {
+                ServiceManual();
                 Alarm.delay(100); // sleep
             }
             // open back barrels taps
@@ -2043,6 +2180,7 @@ bool Drain(byte barrel, uint16_t requirement)
             CloseTaps(barrel, POOLS);
             while (SystemState.state_check(STOPPED_STATE))
             {
+                ServiceManual();
                 Alarm.delay(100); // sleep
             }
             // open back barrels taps
@@ -2093,40 +2231,18 @@ void fmsTask(void * pvParameters)
     bool success = false; // for storing fmsd returns
     while (true)
     {
-        while (SystemState.state_check(STOPPED_STATE))
-        {
-            while (!SystemState.state_check(MANUAL_STATE)) // stay here if system stopped and not manual
-                Alarm.delay(1000);                         // check state every second
-            if (Transfers.manual_task == 1)
-            {
-                Fill(Transfers.manual_src, Transfers.manual_ammo);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            if (Transfers.manual_task == 2)
-            {
-                Mix(Transfers.manual_src, Transfers.manual_ammo);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            if (Transfers.manual_task == 3)
-            {
-                Store(Transfers.manual_src, Transfers.manual_dest);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            if (Transfers.manual_task == 4)
-            {
-                Drain(Transfers.manual_src, Transfers.manual_ammo);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            Alarm.delay(1000);                         // check manual_task every second
-        }
-        LOG.println("system exited stopped state");
-        LOG.printf("system state:%u\r\n", SystemState.state_get());
+        SystemState.state_print();
         if (SystemState.state_check(FILLING_STATE))
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
+            LOG.print(F("system running auto - waiting for nutes\r\n\r\n"));
             SystemState.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
             while (SystemState.state_check(STOPPED_STATE)) // stay here if system stopped
+            {
+                ServiceManual();
                 Alarm.delay(1000);                         // check state every second
+            }
+
             while (!success)
                 success = Fill(Transfers.filling_barrel, Transfers.afterfill_requirement);
             //SaveStructs(); //disabled for mow....
@@ -2135,8 +2251,9 @@ void fmsTask(void * pvParameters)
             SystemState.state_unset(FILLING_STATE);
             //SaveStructs(); //disabled for mow....
         }
+        ServiceManual(); // take the opportunity
+        SystemState.state_print();
 
-        LOG.printf("system state:%u\r\n", SystemState.state_get());
         if (SystemState.state_check(STORING_STATE))
         {
             // still have nutes to transfer
@@ -2171,7 +2288,10 @@ void fmsTask(void * pvParameters)
                     LOG.println("All barrels full. system stopped.");
                     // wait for drain request
                     while (!Transfers.drain_requirement)
+                    {
+                        ServiceManual();
                         Alarm.delay(1000);
+                    }
                     // drain the mixer first
                     Transfers.storing_barrel = Transfers.filling_barrel;
                     // drain untill empty or requirement satisfied.
@@ -2201,7 +2321,7 @@ void fmsTask(void * pvParameters)
 
             //SaveStructs(); //disabled for mow....
         } // if storing_state
-    }     // endless loop ends here
+    }     // endless loop ends here :)
 }
 /*-------- FMSD END ----------*/
 
@@ -2226,6 +2346,11 @@ void setupServer()
             }
         request->send(SD, "/index2.html", String(), false);
         */
+    });
+
+    server.on("/index", HTTP_GET, [](AsyncWebServerRequest *request) {
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
+            request->send(*disk, "/index.html", String(), false);
     });
 
     server.on(
@@ -2464,23 +2589,6 @@ void setupServer()
                     Transfers.manual_src = src;
                     Transfers.manual_dest = dest;
                     Transfers.manual_ammo = ammo;
-                    /*
-                    switch (task)
-                    {
-                        case 1:
-                        Fill(src, ammo);
-                        break;
-                        case 2:
-                        Mix(src, ammo);
-                        break;
-                        case 3:
-                        Store(src, dest);
-                        break;
-                        case 4:
-                        Drain(src, ammo);
-                        break;
-                    }
-                    */
                 }
                 else
                 {
@@ -2516,6 +2624,7 @@ void setupServer()
     server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         request->redirect("/manual");
+        vTaskDelay(100); // to prevent reset before redirect
         ESP.restart();
     });
 
@@ -2859,12 +2968,13 @@ void setup()
     pressure.setSensor(PRES_SENSOR_FRESHWATER, PRESSUR_1_PIN);
     pressure.setSensor(PRES_SENSOR_NUTRIENTS, PRESSUR_2_PIN);
 
+    // attach interrupts for flow sensors
     flow.begin();
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 
-    //bug? testing..
-    expanders.UnlockMUX();
+    // attach interrupts for start-stop buttons 
+    SystemState.begin();
 
     // initialize uart2 SIM800L modem at MUX port 7?
     modemInit();
@@ -2877,7 +2987,7 @@ void setup()
     ArduinoOTA.begin();
     //mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     MDNS.addService("http", "tcp", 80); // add mDNS http port
-    // attach interrupts for flow sensors
+
 
     // Create tasks
 
@@ -2904,6 +3014,7 @@ void setup()
 
     */
 
+   expanders.setRGBLED(LED_OFF);
     //SendSMS("System Started");
 }
 
