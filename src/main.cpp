@@ -22,8 +22,6 @@ pressure offset is redundant?
 
 
 to implement:
-print state_print after each state change?
-    use main Loop()?
 do I need separate manual fmsd? or can I run fmsd recursively?
 untriger "protect" when pressure sensor back to normal?
     already sheduled below
@@ -912,6 +910,18 @@ public:
         Serial.println();
     }
 
+    // detects and prints system state change
+    bool state_change_check()
+    {
+        if (myState._state_now != myState._state_before)
+        {
+            state_save();
+            state_print();
+            return true;
+        }
+        return false;
+    }
+
     // returns error state
     uint16_t error_get() { return myState._error_now; }
 
@@ -1632,7 +1642,6 @@ public:
             {
                 // number of measurements so far (excluding the last "timed out" measurement)
                 measure = x;
-                ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
                 break;
             }
             byte upper_data = Serial2.read();
@@ -1713,7 +1722,11 @@ public:
         if (!timeLeft)
         {
             // moved over here to prevent MUX Deadlock
-            SendSMS("No signal @Ultrasonic ", barrel);
+            if (!ErrorCheck(barrel, BARREL_SONIC_TIMEOUT))
+            {
+                ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
+                SendSMS("No signal @Ultrasonic ", barrel);
+            }
         }
     } // end SonicMeasure
 
@@ -1821,51 +1834,31 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
 
 void ServiceManual()
 {
-    //LOG.println("test");
-    switch (Transfers.manual_task)
+    if (Transfers.manual_task)
     {
-        case 1:
-        //Serial.println("test man case 1");
-        Fill(Transfers.manual_src, Transfers.manual_ammo);
-        break;
-        case 2:
-        //Serial.println("test man case 2");
-        Mix(Transfers.manual_src, Transfers.manual_ammo);
-        break;
-        case 3:
-        //Serial.println("test man case 3");
-        Store(Transfers.manual_src, Transfers.manual_dest);
-        break;
-        case 4:
-        //Serial.println("test man case 4");
-        Drain(Transfers.manual_src, Transfers.manual_ammo);
-        break;
+        //LOG.println("test");
+        switch (Transfers.manual_task)
+        {
+            case 1:
+            //Serial.println("test man case 1");
+            Fill(Transfers.manual_src, Transfers.manual_ammo);
+            break;
+            case 2:
+            //Serial.println("test man case 2");
+            Mix(Transfers.manual_src, Transfers.manual_ammo);
+            break;
+            case 3:
+            //Serial.println("test man case 3");
+            Store(Transfers.manual_src, Transfers.manual_dest);
+            break;
+            case 4:
+            //Serial.println("test man case 4");
+            Drain(Transfers.manual_src, Transfers.manual_ammo);
+            break;
+        }
+        Transfers.manual_task = 0; // important - no double-run
+        LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
     }
-    Transfers.manual_task = 0; // important - no double-run
-    LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
-
-    /*
-                if (Transfers.manual_task == 1)
-            {
-                Fill(Transfers.manual_src, Transfers.manual_ammo);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            if (Transfers.manual_task == 2)
-            {
-                Mix(Transfers.manual_src, Transfers.manual_ammo);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            if (Transfers.manual_task == 3)
-            {
-                Store(Transfers.manual_src, Transfers.manual_dest);
-                Transfers.manual_task = 0; // important - no double-run
-            }
-            if (Transfers.manual_task == 4)
-            {
-                Drain(Transfers.manual_src, Transfers.manual_ammo);
-                Transfers.manual_task = 0; // important - no double-run
-            } 
-    */
 }
 
 // receives barrel to fill, required water level
@@ -1878,6 +1871,7 @@ bool Fill(byte barrel, uint16_t requirement)
     // reset flow counter 1
     flow.CounterReset(FLOW_SENSOR_FRESHWATER);
     byte waited_for_flow = 0; // number of seconds without flow
+    /* temporary disabled pressure checks - for hardware testing
     pressure.measure(PRES_SENSOR_FRESHWATER);      //freshwater at sensor 1
     if (SystemState.state_check(STOPPED_STATE))
     {
@@ -1902,7 +1896,7 @@ bool Fill(byte barrel, uint16_t requirement)
         }
         SystemState.error_unset(ERR_WATER_PRESSURE);
     }
-
+    */
     // open barrel filling tap
     expanders.FillingRelay(barrel, true);
 
@@ -1944,7 +1938,7 @@ bool Fill(byte barrel, uint16_t requirement)
 
         // SENSOR CHECK
         // check flow - if no flow (but pressure) for 10 times (10 seconds)
-        pressure.measure(PRES_SENSOR_FRESHWATER); // will stop at overpressure
+        //pressure.measure(PRES_SENSOR_FRESHWATER); // will stop at overpressure
         if (!flow.FlowGet(FLOW_SENSOR_FRESHWATER)) // noflow
             if (pressure.ErrorGet(PRES_SENSOR_FRESHWATER) == PRESSURE_NORMAL) // normal pressure
             {
@@ -1957,10 +1951,11 @@ bool Fill(byte barrel, uint16_t requirement)
         if (waited_for_flow >= 10)
         { // 10 seconds or more
             SystemState.error_set(ERR_WATER_NOFLOW);
-            SendSMS("error: no water flow while [Filling]. check flowsensor 1, filling solenoid");
+            SendSMS("error: no water flow while Filling. check flowsensor 1, filling solenoid ", barrel);
             SystemState.state_set(STOPPED_STATE); // untill separate error-handling reimplemented
-            success = false; // return false for incompleted job
-            break;                                // breaks + sets stopped if flowsensor error
+            // will trap @while loop 
+            //success = false; // return false for incompleted job
+            //break;                                // breaks + sets stopped if flowsensor error
         }
 
         Alarm.delay(1000);
@@ -1988,7 +1983,7 @@ bool Mix(byte barrel, uint16_t duration)
     // seconds
     byte sec = 0;    
     // loops with no pressure
-    byte nopres = 0;
+    //byte nopres = 0;
     // loop - while counter > 0
     while (duration)
     {
@@ -2032,6 +2027,7 @@ bool Mix(byte barrel, uint16_t duration)
 
         // SENSOR CHECK
         // check pressure in range
+        /* temporary disabled
         pressure.measure(PRES_SENSOR_NUTRIENTS); 
         if (pressure.ErrorGet(PRES_SENSOR_NUTRIENTS) == PRESSURE_NOPRESSURE)
             nopres++; // increment every cycle (second) of no pressure
@@ -2045,6 +2041,7 @@ bool Mix(byte barrel, uint16_t duration)
             success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if sensor error
         }
+        */
     }
     // counter reached zero
     CloseTaps(barrel, barrel);
@@ -2070,7 +2067,7 @@ bool Store(byte barrel, byte target)
     }
     // drain barrel into target
     OpenTaps(barrel, target);
-    byte nopres = 0; // counter for loops with no pressure
+    //byte nopres = 0; // counter for loops with no pressure
     // loop - while source barrel not empty AND target not full
     while (!barrels.isEmpty(barrel) && !barrels.isFull(target))
     {
@@ -2108,6 +2105,7 @@ bool Store(byte barrel, byte target)
         }
 
         // SENSOR CHECK
+        /* temporary disabled for hardware check
         //evaluate pressure in loop
         pressure.measure(PRES_SENSOR_NUTRIENTS); //nutrients at sensor 2
         if (pressure.ErrorGet(PRES_SENSOR_NUTRIENTS) == PRESSURE_NOPRESSURE)
@@ -2122,6 +2120,7 @@ bool Store(byte barrel, byte target)
             success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if flowsensor error
         }
+        */
         // in next version:
         //if overpressure error - set target barrel error
         //goto next barrel, clear overpressure error
@@ -2153,7 +2152,7 @@ bool Drain(byte barrel, uint16_t requirement)
     // open barrel, drain to pools
     OpenTaps(barrel, POOLS);
     // loops with no pressure
-    byte nopres = 0; 
+    //byte nopres = 0; 
     // liters temp
     uint32_t tempflow = 0;
     // loop while drain counter > 0 and barrel x not empty
@@ -2194,6 +2193,7 @@ bool Drain(byte barrel, uint16_t requirement)
         }
 
         // SENSOR CHECK
+        /* temporary disabled for hardware check
         // check pressure in range
         pressure.measure(PRES_SENSOR_NUTRIENTS); 
         if (pressure.ErrorGet(PRES_SENSOR_NUTRIENTS) == PRESSURE_NOPRESSURE)
@@ -2208,7 +2208,7 @@ bool Drain(byte barrel, uint16_t requirement)
             success = false; // return false for incompleted job
             break;                                // breaks + sets stopped if flowsensor error
         }
-
+        */
         Alarm.delay(100);
     }
     // stop pump and taps
@@ -2231,7 +2231,6 @@ void fmsTask(void * pvParameters)
     bool success = false; // for storing fmsd returns
     while (true)
     {
-        SystemState.state_print();
         if (SystemState.state_check(FILLING_STATE))
         {
             //Fill(Transfers.filling_barrel, Transfers.prefill_requirement);
@@ -2252,7 +2251,6 @@ void fmsTask(void * pvParameters)
             //SaveStructs(); //disabled for mow....
         }
         ServiceManual(); // take the opportunity
-        SystemState.state_print();
 
         if (SystemState.state_check(STORING_STATE))
         {
@@ -3021,4 +3019,6 @@ void setup()
 void loop()
 {
     ArduinoOTA.handle();
+    SystemState.state_change_check();
+    vTaskDelay(1);
 }
