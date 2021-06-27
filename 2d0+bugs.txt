@@ -1,10 +1,6 @@
 bugs:
-mixing state not unsetting while storing
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
-Fill escaping pressure critical error by pressing start
-    should remeasure instead, and lock again if not fixed
-        loop stopped? inside loop measure-fixed?
 pressing Start after manual does not cancel the manual
 do Fill Mix Store Drain  SENSOR CHECK pressure.measure will break logic at pressure error?
     need to close taps, wait in loop, and reopen using OpenTaps() once error cleared
@@ -19,49 +15,22 @@ pressure offset is redundant?
 
 
 to implement:
-move Settings globals to SystemState public Globals
-    finish code dealing with structs
-    replace Settings.* with the proper functions
 start should trigger unprotect?
 separate manual fmsd from auto
-separate pressure checks from fmsd?
-deprecate manual_state - use a combination of Stopped + Settings.manual_task
-"or broke out of the loop cause all including mixer is full" still relevant? 2check
 untriger "protect" when pressure sensor back to normal?
     already sheduled below
     add an option to disable sensor checks from WebUI
 sonic remeasure on high error±
     ignore the one that is out of range? or remeasure all?
 -my structs
-Settings (global)
-    struct Settings have no save() function
-myState (SystemState private) /SysState.bin
-    all dynamic - move Settings dynamic values over here?
-        SystemState is private - need a function to set/retreive
+myState (System private) /SysState.bin
 fsensor[2] (flow private) /Flow.bin
 psensor[2] (pressure private) /Pressure.bin
 myBarrel[6] (barrels private) /Barrels.bin
 
-should I use vTaskDelay instead of Alarm.delay?
-    do I need that TimeAlarms library at all?
-
-add setRGBLED to functions
-    white - system init
-    red - error
-    yellow blinking - fill running
-    green blinking - mix running
-    cyan blinking - store running
-    blue blinking - drain running
-    magenta - system is full
-
 void deleteStructs and webui command in manual
-add auto start/stop to /manual
 
 reenable //SaveStructs(); //disabled for mow.... when ready
-
-check what happens if:
-fmsTask running in auto mode, and fmsd keeps skipping
-    will it exaust the saveStructs?
 
 test:
     fill huge ammount
@@ -83,21 +52,8 @@ serial print to telnet or to webui directly or via another board (esp8266?).
 
 !!! add a way to reset pressure error "protect" mode - by pressing start?
     use void pressure_sensor::ErrorReset(byte sens)
-use combination of SystemState.state_check and Settings.inner_state
-    on reset - sytem will remeasure using sonic 
-        if diff too large - assign sonic value to 
-            VolumeNutrients or VolumeFreshwater depending on last substate
-            if sub-state was nutri transfer - recalc concentration?
-                make concentration calc function universal?
-    system will continue from last substate
 
-!! need debaunce!! - once pressed loop check if high 50 ms, check if still pressed?
-    from within receiving functions only?
-        interrupts only sets variables?
-             each task checks for this flag, loop-measure for 50ms
-                break loop if released
-                acts accordingly otherwise
-                https://www.evernote.com/shard/s544/nl/96519974/8b3f9bc9-551e-4f13-b3cd-98f8cc75c980
+---- checked untill here ----
 
 start/stop interrupts "use start-stop actions from evernote!" 
     start sets canMix global boolean? 

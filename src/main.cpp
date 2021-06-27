@@ -19,7 +19,6 @@ more info and license - soon
 #include <ArduinoOTA.h>
 #include "ESPmDNS.h"
 //https://github.com/jandrassy/TelnetStream
-#include "TimeAlarms.h"
 
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
@@ -37,7 +36,6 @@ more info and license - soon
 #define ERR_BARRELS 0x40
 
 //hex codes for "state" bit field
-#define MANUAL_STATE 0x20  // manual mode on
 #define FILLING_STATE 0X10 // F = filling task on
 #define MIXING_STATE 0x08  // M = mixing task on
 #define STORING_STATE 0x04 // S = storing task on
@@ -420,7 +418,7 @@ void initStorage()
         else
         {
             LOG.println(F("Error: Failed to initialize SD card"));
-            Alarm.delay(1000);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
             retry--; // prevent dead loop
         }
     }
@@ -439,7 +437,7 @@ void initStorage()
         else
         {
             LOG.println(F("Error: Failed to initialize SPIFFS"));
-            Alarm.delay(1000);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
             retry--; // prevent dead loop
         }
     }
@@ -634,21 +632,14 @@ void ExpClass::Init()
 //offset of 0 - expander 0x20 pins a0 a1 a2 a3
 void ExpClass::LockMUX(byte address)
 {
-
     if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
-    {
         LOG.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);
-    }
-
     while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
-        Alarm.delay(1);
-
+        vTaskDelay(1);
     LOG.printf("MUX is free. locking to %u\r\n", address);
     _muxLock = address;
-
     for (byte i = 0; i < 4; i++)
         expander1.getPin(i + 0).setValue(address & (1 << i));
-
     expander1.write();
 }
 
@@ -763,7 +754,7 @@ void SendSMS(const char *message, byte item)
     }
 
     expanders.LockMUX(7);                          // modem is at port 7
-    Alarm.delay(10);                              // wait until expander + mux did their job
+    vTaskDelay(10);                                 // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\""); //change ZZ with country code and xxxxxxxxxxx with phone number to sms
     Serial2.print(message);                       //text content
     if (item != 0xFF)
@@ -790,7 +781,7 @@ void modemInit()
 {
     LOG.println("-modem init");
     expanders.LockMUX(7); // modem is at port 7
-    Alarm.delay(10);     // wait until expander + mux did their job
+    vTaskDelay(10);     // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
     Serial2.println("AT");        //Once the handshake test is successful, it will back to OK
     Serial2.println("AT+CMGF=1"); // Configuring TEXT mode
@@ -825,8 +816,6 @@ void STClass::state_print()
 {
     LOG.printf("system state:%u ", state_get());
     // keep it simple
-    if (state_check(MANUAL_STATE))
-        Serial.print(F("MANUAL "));
     if (state_check(FILLING_STATE))
         Serial.print(F("FILLING "));
     if (state_check(MIXING_STATE))
@@ -979,36 +968,7 @@ void IRAM_ATTR StopButtonInterrupt()
     System.manual_task_reset();
     portEXIT_CRITICAL_ISR(&mux);
 }
-
 /*-------- System END ----------*/
-
-// deprecate?? send sms on demand in each function?
-//what if need to send sms in middle of mux lock? sonic measurement?
-// Task 0 - Error reporting task
-void errorReportTask()
-{
-    // while there is no new errors
-    while (!System.error_getnew())
-    {
-        Alarm.delay(REPORT_DELAY); //wait - endless loop untill error status changes
-    }
-
-    // goes here if there is an error to report
-    uint16_t newerrors = System.error_getnew();
-    uint16_t counter = 1;
-    while (newerrors)
-    { // loops untill error is empty
-        if (newerrors & counter)
-        { // try each error state bit one by one
-            LOG.printf("system error %u\r\n", counter);
-            //SendSMS( SYSTEM_ERROR, counter );
-            newerrors -= counter; // Subtract what already reported
-            counter *= 2;         // next bit
-        }
-    }
-    // clear error after all being reported
-    System.error_reported();
-}
 
 /*-------- FlowSensor Begin ----------*/
 // flow Sensors Pin Declarations
@@ -1231,7 +1191,7 @@ int16_t PSClass::measure(byte sens)
     {
         // stop pump
         expanders.Pump(false);
-        Alarm.delay(100);
+        vTaskDelay(100);
         expanders.Protect(true);
         // set error
         if (p->_ErrorState != PRESSURE_SHORTCIRCUIT)
@@ -1248,7 +1208,7 @@ int16_t PSClass::measure(byte sens)
     {
         // stop pump
         expanders.Pump(false);
-        Alarm.delay(100);
+        vTaskDelay(100);
         expanders.Protect(true);
         // set error
         if (p->_ErrorState != PRESSURE_DISCONNECT)
@@ -1265,7 +1225,7 @@ int16_t PSClass::measure(byte sens)
     {
         // stop pump
         expanders.Pump(false);
-        Alarm.delay(100);
+        vTaskDelay(100);
         expanders.Protect(true);
         // set error
         if (p->_ErrorState != PRESSURE_OVERPRESSURE)
@@ -1529,7 +1489,7 @@ void BARRClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
     uint16_t distanceMax = 0;      // to calculate error
     LOG.printf("measuring barrel# %u\r\n", barrel);
     expanders.LockMUX(barrel);
-    delay(1);
+    vTaskDelay(10);
     for (byte x = 0; x < measure && retryLeft && timeLeft;)
     {
         // send data so sonic will reply
@@ -1537,19 +1497,19 @@ void BARRClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         // wait untill some data is received
         while (!Serial2.available() && timeLeft)
         {
-            delay(1);
+            vTaskDelay(1);
             timeLeft--;
         };
         // discard data untill begin of packet (0xFF)
         while (Serial2.read() != 0xFF && timeLeft)
         {
-            delay(1);
+            vTaskDelay(1);
             timeLeft--;
         };
         // wait for all data to be buffered
         while (Serial2.available() < 3 && timeLeft)
         {
-            delay(1);
+            vTaskDelay(1);
             timeLeft--;
         };
         // timed out waiting for 3 packats above
@@ -1745,7 +1705,7 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
     // stop pump
     expanders.Pump(false);
     // wait untill pressure released
-    Alarm.delay(100);
+    vTaskDelay(100);
     // close barrel drain tap
     expanders.DrainingRelay(drainBarrel, false);
     // close barrel store tap
@@ -1779,16 +1739,14 @@ void ServiceManual()
         //move to tasks - System.manual_task_reset(); // important - no double-run
         LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
     }
+    vTaskDelay(100);
 }
 
 // loops untill stopped state is unset
 void StoppedWait()
 {
-while (System.state_check(STOPPED_STATE))
-    {
+    while (System.state_check(STOPPED_STATE))
         ServiceManual();
-        Alarm.delay(100); // sleep
-    }
 }
 
 // closes barrels taps 
@@ -1870,9 +1828,9 @@ void FlowCheck(byte sens)
 
 void blinkDelay(unsigned long ms, byte color)
 {
-    Alarm.delay(ms/2);
+    vTaskDelay(ms / 2 / portTICK_PERIOD_MS);
     expanders.setRGBLED(LED_OFF);
-    Alarm.delay(ms/2);
+    vTaskDelay(ms / 2 / portTICK_PERIOD_MS);
     expanders.setRGBLED(color);
 }
 
@@ -1998,7 +1956,7 @@ void Drain(byte barrel, uint16_t requirement)
         blinkDelay(1000, LED_BLUE);
     }
     CloseTaps(barrel, POOLS); // stop pump and taps
-    Alarm.delay(1000);
+    vTaskDelay(1000);
     System.drain_substract(barrel); // last flow calculation
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
     LOG.printf("END Draining %uL from barrel:%u\r\n", barrel_before - barrels.NutriGet(barrel), barrel);
@@ -2014,29 +1972,20 @@ void fmsTask(void * pvParameters)
             LOG.print(F("system running auto - waiting for nutes\r\n\r\n"));
             System.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
             while (System.state_check(STOPPED_STATE)) // stay here if system stopped
-            {
                 ServiceManual();
-                Alarm.delay(1000);                         // check state every second
-            }
             Fill(System.fill_barrel(), System.fill_req_get());
             System.state_set(MIXING_STATE);
             System.state_unset(FILLING_STATE);
             //SaveStructs(); //disabled for mow....
         }
 
-        ServiceManual(); // take the opportunity
-        vTaskDelay(1000 / portTICK_PERIOD_MS);   
-
         if (System.state_check(MIXING_STATE))
         {
             Mix(System.fill_barrel());
             System.state_set(STORING_STATE);
-            System.state_unset(FILLING_STATE);
+            System.state_unset(MIXING_STATE);
             //SaveStructs(); //disabled for mow....
         }
-
-        ServiceManual(); // take the opportunity
-        vTaskDelay(1000 / portTICK_PERIOD_MS);   
 
         if (System.state_check(STORING_STATE))
         {
@@ -2080,10 +2029,7 @@ void fmsTask(void * pvParameters)
                     LOG.println("All barrels full. system stopped. drain to continue");
                     // wait for drain request
                     while (!System.drain_needed())
-                    {
                         ServiceManual();
-                        Alarm.delay(1000);
-                    }
                     // drain the mixer first
                     System.store_barrel_set(System.fill_barrel());
                     // drain untill empty or requirement satisfied.
@@ -2092,7 +2038,7 @@ void fmsTask(void * pvParameters)
                 }
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
             } // got here cause filling_barrel is empty
-            // or broke out of the loop cause all including mixer is full --check this again cause system changed!!
+
             while (System.drain_needed())
             {
                 System.state_set(DRAINIG_STATE);
@@ -2320,6 +2266,8 @@ void setupServer()
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><span> </span>");
+        response->print("<button onclick=\"location=\'/man?start\'\">start</button><span> </span>");
+        response->print("<button onclick=\"location=\'/man?stop\'\">stop</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, System.state_get());
@@ -2417,6 +2365,16 @@ void setupServer()
                 LOG.printf("setting setRGBLED to %i\r\n", rgb);
                 expanders.setRGBLED(rgb);
             }
+            if (request->hasArg("start"))
+            {
+                System.state_unset(STOPPED_STATE);
+                System.manual_task_reset();
+            }
+            if (request->hasArg("stop"))
+            {
+                System.state_set(STOPPED_STATE);
+                System.manual_task_reset();
+            }
         }
         else
             request->send(200, "text/plain", "no args!");
@@ -2426,7 +2384,7 @@ void setupServer()
     server.on("/reset", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         request->redirect("/manual");
-        vTaskDelay(100); // to prevent reset before redirect
+        vTaskDelay(100 / portTICK_PERIOD_MS); // to prevent reset before redirect
         ESP.restart();
     });
 
