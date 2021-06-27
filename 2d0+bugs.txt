@@ -1,0 +1,240 @@
+bugs:
+mixing state not unsetting while storing
+fmsTask sonic 0 timeout after sonic >0 error while storing
+    do sonics need time after mux switch?
+Fill escaping pressure critical error by pressing start
+    should remeasure instead, and lock again if not fixed
+        loop stopped? inside loop measure-fixed?
+pressing Start after manual does not cancel the manual
+do Fill Mix Store Drain  SENSOR CHECK pressure.measure will break logic at pressure error?
+    need to close taps, wait in loop, and reopen using OpenTaps() once error cleared
+    ! also remeasures constantly at Fill first measure if sensor error
+system resets every time serial console connects/disconnects?
+    https://esp32.com/viewtopic.php?t=4988
+void store allways storing untill empty
+    must give option to store only required ammount
+if mix stopped in the middle - it will count from start again
+    separate mix_requirement to requirement and counter
+pressure offset is redundant?
+
+
+to implement:
+move Settings globals to SystemState public Globals
+    finish code dealing with structs
+    replace Settings.* with the proper functions
+start should trigger unprotect?
+separate manual fmsd from auto
+separate pressure checks from fmsd?
+deprecate manual_state - use a combination of Stopped + Settings.manual_task
+"or broke out of the loop cause all including mixer is full" still relevant? 2check
+untriger "protect" when pressure sensor back to normal?
+    already sheduled below
+    add an option to disable sensor checks from WebUI
+sonic remeasure on high error±
+    ignore the one that is out of range? or remeasure all?
+-my structs
+Settings (global)
+    struct Settings have no save() function
+myState (SystemState private) /SysState.bin
+    all dynamic - move Settings dynamic values over here?
+        SystemState is private - need a function to set/retreive
+fsensor[2] (flow private) /Flow.bin
+psensor[2] (pressure private) /Pressure.bin
+myBarrel[6] (barrels private) /Barrels.bin
+
+should I use vTaskDelay instead of Alarm.delay?
+    do I need that TimeAlarms library at all?
+
+add setRGBLED to functions
+    white - system init
+    red - error
+    yellow blinking - fill running
+    green blinking - mix running
+    cyan blinking - store running
+    blue blinking - drain running
+    magenta - system is full
+
+void deleteStructs and webui command in manual
+add auto start/stop to /manual
+
+reenable //SaveStructs(); //disabled for mow.... when ready
+
+check what happens if:
+fmsTask running in auto mode, and fmsd keeps skipping
+    will it exaust the saveStructs?
+
+test:
+    fill huge ammount
+    mix huge ammount
+    fill 0
+    fill 6
+    store to itself
+    store from 0 to 6
+    store from 6 to 0
+    drain 0
+    drain 6
+
+barr error set shoud save to sd? or save after each use in code?
+    implement error unset from webui
+
+serial print to telnet or to webui directly or via another board (esp8266?).
+
+-solder dummy pressure sensor
+
+!!! add a way to reset pressure error "protect" mode - by pressing start?
+    use void pressure_sensor::ErrorReset(byte sens)
+use combination of SystemState.state_check and Settings.inner_state
+    on reset - sytem will remeasure using sonic 
+        if diff too large - assign sonic value to 
+            VolumeNutrients or VolumeFreshwater depending on last substate
+            if sub-state was nutri transfer - recalc concentration?
+                make concentration calc function universal?
+    system will continue from last substate
+
+!! need debaunce!! - once pressed loop check if high 50 ms, check if still pressed?
+    from within receiving functions only?
+        interrupts only sets variables?
+             each task checks for this flag, loop-measure for 50ms
+                break loop if released
+                acts accordingly otherwise
+                https://www.evernote.com/shard/s544/nl/96519974/8b3f9bc9-551e-4f13-b3cd-98f8cc75c980
+
+start/stop interrupts "use start-stop actions from evernote!" 
+    start sets canMix global boolean? 
+    if stopped also pressed - do something else
+    if status = stopped: clear stopped. else if no status: set mixing. else do start-button extra action
+        task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
+    stop sets shouldStop global boolean?
+    if start also pressed - do something else
+    if status not stopped - set stopped + save. else save + extra stopped action
+        task or loop reads the bool - changes RGB immediately, triggers stop and save
+    on stop:     pressure.SaveSD(); flow.SaveSD();
+    // can set the bool to !bool to check if pressed twice - for reset and other system tasks
+
+
+work on system hardware - implement all changes to schematic!!
+change zeners to 3.3v? - check new zeners that arrived
+
+check what modem returns if error - if valid check - implement SMS error
+
+add calibration edit for all sensors to manual: 
+use separate <forms> for each one?
+    SystemState.state_set
+    SystemState.state_unset
+    SystemState.error_set
+    SystemState.error_unset
+    flow.MultSet(sens,mult)
+    pressure.DividerSet
+    pressure.OffsetSet
+    pressure.MaxSet
+    pressure.MinSet
+    barrels.ErrorSet
+    barrels.ErrorUnset
+    barrels.ErrorReset
+    barrels.SonicOffsetSet
+    barrels.SonicMLinMMSet
+    Settings.prefill_requirement
+    Settings.afterfill_requirement deprecate??
+    Settings.mix_requirement
+    Settings.drain_requirement
+    Settings.filling_barrel
+    Settings.storing_barrel
+    NTP Timezone + DTS
+
+manual apply sonic value to flow barrel volume on request.
+
+WebUI from "1-pump idea test (1).png" file with overlays and jQuery
+    https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
+telnet server to send LOG.prints + telnet client inside webui?
+allow to manually disable a barrel
+    barrels.ErrorSet(barrel, BARREL_DISABLED)
+
+fmsTask - check fill mix if barrel 0 not error!? 
+    who can set barrel 0 error?
+
+------------------------------
+
+uint16_t DTS = 0;                                              //mySettings.DTS?3600UL:0;
+uint16_t timeZone = 3;    
+
+limit all data from webUI to valid range - ie. no "measure barrel 27"
+
+variables that survives reboot?? :)
+try RTC_NOINIT_ATTR?
+https://github.com/highno/rtcvars/issues/3
+
+recheck concentration float is accurate
+"Do not use float to represent whole numbers."
+http://www.cplusplus.com/forum/general/67783/
+    check my possible ranges:
+    test on another esp32
+concentration float check if ok.
+
+make pressure sensor check constantly so i can turn off the pump on overpressure
+    task loop inside other cpu core? or inside filling loop itself?
+    ps2 only when pump working?
+    ps1 only once before sol open + once if no flow + once at system start?
+
+reset all sensor values on system start? flow only? or remeber who to assing to and assign on start?
+    is it important at all? how much water can flow between assignments?
+
+deprecate RTC? replace with ntp + timeAlarms?
+
+set Overpressure global error only if error occurs with multiple solenoids
+
+check all uint values never go below zero!!
+    expected in sensor measurements
+    anywhere else?
+
+implement mux lock timeout.
+    LockMUX should start an external timer and UnlockMUX should stop it
+    manual unlock via webUI
+
+measure all sonic on system start so sonic have all values ready?
+
+change sonic 10555  to retry--
+    BARREL_SONIC_OUTOFRANGE only if all 10555
+
+handle reset in the middle of flow sensor transfer
+    calculate by last values?
+    lock thread mux so it executes quick? https://esp32.com/viewtopic.php?t=1703
+
+deprecate error reporting task and sendsms dictionary?
+
+add to schematic:
+12v to 5v change to switching regulator? move power supply out of the main board?
+12v line add polyfuze
+optional: doser on expander x20 pin A7? serial scale mux#14?
+
+
+optional:
+drain_log file
+    needs accurate clock
+add LOG.println(__FUNCTION__); at every function start for debug
+
+add concentrationSet to barrels for manual?
+use filter instead of avearge for sonic?
+https://stackoverflow.com/questions/10338888/fast-median-filter-in-c-c-for-uint16-2d-array
+restore to sd if spiffs date newer? fix timestamp
+barrel busy flag?
+add option to continue on pressure sensor1 error if flow1 ok
+continue on ps2 error if flow2 is in range: 0 < flow2 < "flow2 with no load"
+continue on flow error if sonic is rising
+continue on sonic error if flow counted barrel volume is ok
+continue to next barrel if barrel solenoids error
+only unrecoverable errors: pump, main barrel solenoids
+add start-stop from webUI
+
+server.on("/mdns" check mdns broadcast
+switchFS add fs check, try to restart filesystem on failure
+add ... on serial.available to check module awake
+"[E][vfs_api.cpp:22] open(): File system is not mounted" nice error reporting format 
+
+// pressure - in next version:
+//if overpressure error - set target barrel error
+//goto next barrel, clear overpressure error
+//if all barrels error - set pump error - clear all barrel overpressure errors
+//  except manually-disabled barrels "error"
+//if no pressure - loop-measure for a while
+//if still no pressure - check flow
+//no flow - set pump error.
