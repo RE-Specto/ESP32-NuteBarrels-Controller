@@ -113,6 +113,7 @@ more info and license - soon
 
 #define DEBUG
 //#define DEBUG_SD
+//define DEBUG_MORE
 
 
 // Globals
@@ -143,7 +144,7 @@ void Store(byte barrel, byte target);
 void Drain(byte barrel, uint16_t requirement);
 
 //structs
-struct myST
+struct sSystem
 {
     //bit field
     //00NFMSEX
@@ -192,7 +193,7 @@ struct myST
     uint16_t _manual_ammo = 0;
 };
 
-struct myBR
+struct sBarrel
 {
     //bit field
     //76543210
@@ -226,7 +227,7 @@ struct myBR
     uint16_t _SonicOffset = 1000; // mm to barrel's full point
 };
 
-struct myPS
+struct sPressure
 {
     //0 normal pressure
     //1 no pressure
@@ -243,16 +244,16 @@ struct myPS
     bool _enabled = false;
 };
 
-struct myFSENS
+struct sFlow
 {
-    volatile uint32_t counter = 0;
-    uint16_t conversion_divider = 450;
-    volatile uint32_t flow = 0;
-    volatile uint32_t lastMilis = 0;
+    volatile uint32_t _counter = 0;
+    uint16_t _conversion_divider = 450;
+    volatile uint32_t _flow = 0;
+    volatile uint32_t _lastMilis = 0;
 };
 
 //classes
-class ExpClass
+class ExpaClass
 {
 private:
     byte _muxLock = MUX_UNLOCKED; // unlocked initially
@@ -272,57 +273,55 @@ public:
     void Pump(bool state);
 } expanders; // initiated globally
 
-class STClass
+class StatClass
 {
 private:
-    myST myState;
+    sSystem iState;
 public:
     bool LoadSD();
     bool SaveSD();
-    byte state_get();
-    void IRAM_ATTR state_set(byte mask);
-    void IRAM_ATTR state_unset(uint16_t mask);
-    void state_save();
-    void state_load();
-    bool state_check(byte mask);
-    void state_print();
-    bool state_change_check();
-    uint16_t error_get();
-    bool error_check(uint16_t error);
-    void error_set(uint16_t error);
-    void error_unset(uint16_t error);
-    uint16_t error_getnew();
-    void error_reported();
+    byte Get();
+    void IRAM_ATTR Set(byte mask);
+    void IRAM_ATTR Unset(uint16_t mask);
+    void Apply();
+    void Revert();
+    bool Check(byte mask);
+    void Print();
+    bool isChanged();
+    uint16_t Errors();
+    bool isError(uint16_t error);
+    void SetError(uint16_t error);
+    void UnsetError(uint16_t error);
     void begin();
-    uint16_t fill_req_get();
-    void fill_req_set(uint16_t req);
-    byte fill_barrel();
-    void fill_barrel_set(byte barrel);
-    uint16_t mix_req_get();
-    void mix_req_set(uint16_t req);
-    uint16_t mix_needed();
-    void mix_less();
-    void mix_reset();
-    byte store_barrel();
-    void store_barrel_set(byte barrel);
-    void store_barrel_up();
-    void store_barrel_down();
-    void drain_req_set(uint16_t req);
-    uint16_t drain_needed();
-    void drain_substract(byte barrel);
-    void manual_task_set(byte task, byte src, byte dest, uint16_t ammo);
-    void IRAM_ATTR manual_task_reset();
-    byte manual_task();
-    byte manual_from();
-    byte manual_to();
-    uint16_t manual_howmuch();
+    uint16_t FillRequirement();
+    void SetFillReq(uint16_t req);
+    byte FillBarrel();
+    void SetFillBarrel(byte barrel);
+    uint16_t MixRequirement();
+    void SetMixReq(uint16_t req);
+    uint16_t MixTimer();
+    void MixLess();
+    void MixReset();
+    byte StoreBarrel();
+    void SetStoreBarrel(byte barrel);
+    void MoveStoreUp();
+    void MoveStoreDown();
+    void SetDrainReq(uint16_t req);
+    uint16_t DrainMore();
+    void DrainRecalc(byte barrel);
+    void SetManual(byte task, byte src, byte dest, uint16_t ammo);
+    void IRAM_ATTR ResetManual();
+    byte ManualTask();
+    byte ManualSource();
+    byte ManualDestination();
+    uint16_t ManualAmmount();
 
-} System;
+} State;
 
-class BARRClass
+class BarrClass
 {
 private:
-    myBR myBarrel[8];
+    sBarrel iBarrel[8];
 public:
     bool LoadSD();
     bool SaveSD();
@@ -360,7 +359,7 @@ public:
 class FSClass
 {
 private:
-    myFSENS fsensor[2]; // two sensors
+    sFlow iFsens[2]; // two sensors
 public:
     uint16_t FlowGet(byte sens);
     void IRAM_ATTR CounterInc(byte sens);
@@ -377,7 +376,7 @@ public:
 class PSClass
 {
 private:
-    myPS psensor[2]; // two sensor
+    sPressure iPsens[2]; // two sensor
 public:
     void setSensor(byte sens, byte sensorPin);
     byte DividerGet(byte sens);
@@ -602,7 +601,7 @@ byte Restore()
 MCP23017 expander1(0); // Base Address + 0: 0x20
 MCP23017 expander2(1); // Base Address + 1: 0x21
 
-void ExpClass::Init()
+void ExpaClass::Init()
 {
     // initialize TwoWire communication
     Wire.begin();
@@ -630,7 +629,7 @@ void ExpClass::Init()
 //if bit set - setValue receives a positive value
 //otherwise sets setValue with 0
 //offset of 0 - expander 0x20 pins a0 a1 a2 a3
-void ExpClass::LockMUX(byte address)
+void ExpaClass::LockMUX(byte address)
 {
     if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
         LOG.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);
@@ -644,10 +643,10 @@ void ExpClass::LockMUX(byte address)
 }
 
 // who locks the mux?
-byte ExpClass::GetMUX() { return _muxLock; }
+byte ExpaClass::GetMUX() { return _muxLock; }
 
 // very important to run this every time you ended up business with LockMUX
-void ExpClass::UnlockMUX()
+void ExpaClass::UnlockMUX()
 {
     if (_muxLock != MUX_UNLOCKED)
     {
@@ -661,7 +660,7 @@ void ExpClass::UnlockMUX()
 }
 
 // set RGB LED according to mask (LED_YELLOW, LED_CYAN....)
-void ExpClass::setRGBLED(byte address)
+void ExpaClass::setRGBLED(byte address)
 {
     for (byte i = 0; i < 3; i++)
     {
@@ -673,7 +672,7 @@ void ExpClass::setRGBLED(byte address)
 }
 
 // setting true will disable all relays
-void ExpClass::Protect(bool state)
+void ExpaClass::Protect(bool state)
 {
     // triggers last relay in each relay board to disconnect 12v line
     expander1.getPin(15).setValue(!state); // filling relay protect pin
@@ -685,7 +684,7 @@ void ExpClass::Protect(bool state)
 }
 
 // triggers filling relay
-void ExpClass::FillingRelay(byte address, bool state)
+void ExpaClass::FillingRelay(byte address, bool state)
 {
     //offset of 8 - expander 0x20 pins b0-b7
     expander1.getPin(address + 8).setValue(!state);
@@ -693,7 +692,7 @@ void ExpClass::FillingRelay(byte address, bool state)
 }
 
 // get filling relay state
-byte ExpClass::FillingRelayGet(byte address)
+byte ExpaClass::FillingRelayGet(byte address)
 {
     //offset of 8 - expander 0x20 pins b0-b7
     //expander1.read();
@@ -701,7 +700,7 @@ byte ExpClass::FillingRelayGet(byte address)
 }
 
 // triggers storing relay
-void ExpClass::StoringRelay(byte address, bool state)
+void ExpaClass::StoringRelay(byte address, bool state)
 {
     //offset of 0 - expander 0x21 pins a0-a7
     expander2.getPin(address).setValue(!state);
@@ -709,7 +708,7 @@ void ExpClass::StoringRelay(byte address, bool state)
 }
 
 // get storing relay state
-byte ExpClass::StoringRelayGet(byte address)
+byte ExpaClass::StoringRelayGet(byte address)
 {
     //offset of 8 - expander 0x20 pins b0-b7
     //expander1.read();
@@ -717,7 +716,7 @@ byte ExpClass::StoringRelayGet(byte address)
 }
 
 // triggers draining relay
-void ExpClass::DrainingRelay(byte address, bool state)
+void ExpaClass::DrainingRelay(byte address, bool state)
 {
     //offset of 8 - expander 0x21 pins b0-b7
     expander2.getPin(address + 8).setValue(!state);
@@ -725,7 +724,7 @@ void ExpClass::DrainingRelay(byte address, bool state)
 }
 
 // get draining relay state
-byte ExpClass::DrainingRelayGet(byte address)
+byte ExpaClass::DrainingRelayGet(byte address)
 {
     //offset of 8 - expander 0x20 pins b0-b7
     //expander1.read();
@@ -733,7 +732,7 @@ byte ExpClass::DrainingRelayGet(byte address)
 }
 
 // starts/stops the pump
-void ExpClass::Pump(bool state)
+void ExpaClass::Pump(bool state)
 {
     expander1.getPin(14).setValue(!state); // filling relay pump pin
     expander1.write();
@@ -779,7 +778,9 @@ AT+CBC – will return the lipo battery state. The second number is the % full (
 
 void modemInit()
 {
+    #ifdef DEBUG
     LOG.println("-modem init");
+    #endif
     expanders.LockMUX(7); // modem is at port 7
     vTaskDelay(10);     // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
@@ -789,186 +790,188 @@ void modemInit()
 }
 /*-------- Modem END ----------*/
 
-/*-------- System Begin ----------*/
-bool STClass::LoadSD() { return Load("/SysState.bin", (byte *)&myState, sizeof(myState)); }
+/*-------- State Begin ----------*/
+bool StatClass::LoadSD() { return Load("/SysState.bin", (byte *)&iState, sizeof(iState)); }
 
-bool STClass::SaveSD() { return Save("/SysState.bin", (byte *)&myState, sizeof(myState)); }
+bool StatClass::SaveSD() { return Save("/SysState.bin", (byte *)&iState, sizeof(iState)); }
 
 // returns system state raw integer value (0=uninitiated)
-byte STClass::state_get() { return myState._state_now; }
+byte StatClass::Get() { return iState._state_now; }
 
 // set state using mask (FILLING_STALE,STORING_STATE....)
-void IRAM_ATTR STClass::state_set(byte mask) { myState._state_now |= mask; }
+void IRAM_ATTR StatClass::Set(byte mask) { iState._state_now |= mask; }
 
 // unset mask from state  (FILLING_STALE,STORING_STATE....)
-void IRAM_ATTR STClass::state_unset(uint16_t mask) { myState._state_now &= ~mask; }
+void IRAM_ATTR StatClass::Unset(uint16_t mask) { iState._state_now &= ~mask; }
 
 // preserve prevoius state
-void STClass::state_save() { myState._state_before = myState._state_now; }
+void StatClass::Apply() { iState._state_before = iState._state_now; }
 
 // restore previous state
-void STClass::state_load() { myState._state_now = myState._state_before; }
+void StatClass::Revert() { iState._state_now = iState._state_before; }
 
-// returns true if state have "mask-bit" state on. ex: state_check(MIXING_STATE);
-bool STClass::state_check(byte mask) { return myState._state_now & mask; }
+// returns true if state have "mask-bit" state on. ex: Check(MIXING_STATE);
+bool StatClass::Check(byte mask) { return iState._state_now & mask; }
 
-void STClass::state_print()
+void StatClass::Print()
 {
-    LOG.printf("system state:%u ", state_get());
+    LOG.printf("system state:%u ", Get());
     // keep it simple
-    if (state_check(FILLING_STATE))
+    if (Check(FILLING_STATE))
         Serial.print(F("FILLING "));
-    if (state_check(MIXING_STATE))
+    if (Check(MIXING_STATE))
         Serial.print(F("MIXING "));
-    if (state_check(STORING_STATE))
+    if (Check(STORING_STATE))
         Serial.print(F("STORING "));
-    if (state_check(DRAINIG_STATE))
+    if (Check(DRAINIG_STATE))
         Serial.print(F("DRAINIG "));
-    if (state_check(STOPPED_STATE))
+    if (Check(STOPPED_STATE))
         Serial.print(F("STOPPED "));
     Serial.println();
 }
 
 // detects and prints system state change
-bool STClass::state_change_check()
+bool StatClass::isChanged()
 {
-    if (myState._state_now != myState._state_before)
+    if (iState._state_now != iState._state_before)
     {
-        state_save();
-        state_print();
+        Apply();
+        Print();
+        //SaveStructs(); // disabled untill webUI implemented
         return true;
     }
     return false;
 }
 
 // returns error state
-uint16_t STClass::error_get() { return myState._error_now; }
+uint16_t StatClass::Errors() { return iState._error_now; }
 
-// returns true if error have "mask-bit" state on. ex: error_check(ERR_WATER_NOFLOW);
-bool STClass::error_check(uint16_t error) { return myState._error_now & error; }
+// returns true if error have "mask-bit" state on. ex: Error(ERR_WATER_NOFLOW);
+bool StatClass::isError(uint16_t error) { return iState._error_now & error; }
 
 // set error using mask
-void STClass::error_set(uint16_t error) { myState._error_now |= error; }
+void StatClass::SetError(uint16_t error) { iState._error_now |= error; }
 
 // unset error using mask
-void STClass::error_unset(uint16_t error) { myState._error_now &= ~error; }
+void StatClass::UnsetError(uint16_t error) { iState._error_now &= ~error; }
 
-//returns the difference between current and last error states
-// !! need to reimplement to return either the new error position
-// so I dont have to use uint16_t for return
-// or either if two errors should be reported at once - a while loop that solves them one by one
-uint16_t STClass::error_getnew()
+void StatClass::begin()
 {
-    // bitwise - diff between "before" and "now",
-    // compare with "now" to extract new bits only
-    return (myState._error_now ^ myState._error_before) & myState._error_now;
-}
-
-void STClass::error_reported() { myState._error_before = myState._error_now; }
-
-void STClass::begin()
-{
+    #ifdef DEBUG_MORE
     LOG.printf("-System: init start stop at pins %u, %u\r\n", START_PIN, STOP_PIN);
+    #endif
     pinMode(START_PIN, INPUT_PULLUP);
     // pinMode(STOP_PIN, INPUT_PULLUP); // already pulled up by hardware
     attachInterrupt(digitalPinToInterrupt(START_PIN), StartButtonInterrupt, FALLING);
     attachInterrupt(digitalPinToInterrupt(STOP_PIN), StopButtonInterrupt, FALLING);
 }
 
-uint16_t STClass::fill_req_get() {return myState._fill_req;}
+uint16_t StatClass::FillRequirement() {return iState._fill_req;}
 
-void STClass::fill_req_set(uint16_t req) {myState._fill_req = req;}
+void StatClass::SetFillReq(uint16_t req) {iState._fill_req = req;}
 
-byte STClass::fill_barrel() {return myState._filling_barrel;}
+byte StatClass::FillBarrel() {return iState._filling_barrel;}
 
-void STClass::fill_barrel_set(byte barrel) {myState._filling_barrel = barrel;}
+void StatClass::SetFillBarrel(byte barrel) {iState._filling_barrel = barrel;}
 
-uint16_t STClass::mix_req_get() {return myState._mix_req;}
+uint16_t StatClass::MixRequirement() {return iState._mix_req;}
 
-void STClass::mix_req_set(uint16_t req) {myState._mix_req = req;}
+void StatClass::SetMixReq(uint16_t req) {iState._mix_req = req;}
 
-// returns true if still need to mix 
-uint16_t STClass::mix_needed() {return myState._mix_timer;}
+// returns time left to mix
+uint16_t StatClass::MixTimer() {return iState._mix_timer;}
 
 // decreases mix timer
-void STClass::mix_less() {myState._mix_timer--;}
-
-// returns mix timer to default value
-void STClass::mix_reset() {myState._mix_timer = myState._mix_req;}
-
-byte STClass::store_barrel() {return myState._storing_barrel;}
-
-void STClass::store_barrel_set(byte barrel) {myState._storing_barrel = barrel;}
-
-void STClass::store_barrel_up() 
+void StatClass::MixLess() 
 {
-    myState._storing_barrel++;
-    LOG.printf("Storing barrel inc, now barrel#%u\r\n", myState._storing_barrel);
+    if (iState._mix_timer) // prevent integer overflow
+        iState._mix_timer--;
 }
 
-void STClass::store_barrel_down()
+// resets mix timer to default value
+void StatClass::MixReset() {iState._mix_timer = iState._mix_req;}
+
+byte StatClass::StoreBarrel() {return iState._storing_barrel;}
+
+void StatClass::SetStoreBarrel(byte barrel) {iState._storing_barrel = barrel;}
+
+void StatClass::MoveStoreUp() 
 {
-    myState._storing_barrel--;
-    LOG.printf("Storing barrel dec, now barrel#%u\r\n", myState._storing_barrel);
+    iState._storing_barrel++;
+    LOG.printf("Storing barrel inc, now barrel#%u\r\n", iState._storing_barrel);
 }
 
-void STClass::drain_req_set(uint16_t req) {myState._drain_req = req;}
+void StatClass::MoveStoreDown()
+{
+    if (iState._storing_barrel) // prevent integer overflow
+    {
+        iState._storing_barrel--;
+        LOG.printf("Storing barrel dec, now barrel#%u\r\n", iState._storing_barrel);
+    }
+    else
+        LOG.println("[e] trying to decrease store barrel below zero!!");
+}
 
-// returns true if still need to drain
-uint16_t STClass::drain_needed() {return myState._drain_req;}
+void StatClass::SetDrainReq(uint16_t req) {iState._drain_req = req;}
+
+// returns how much to drain
+uint16_t StatClass::DrainMore() {return iState._drain_req;}
 
 // substract flow sensor counted liters from drain requirement
 // increase total counted drain
 // substract counted ammount from flow counter
-void STClass::drain_substract(byte barrel)
+void StatClass::DrainRecalc(byte barrel)
 {
+    #ifdef DEBUG_MORE
+    LOG.println(__FUNCTION__);
+    #endif
     // flow counter may be increased during calculation 
     // because flowsensor works on interrupts
     // so capturing only the current state for count
     uint32_t liters = flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS);
-    if (myState._drain_req) // prevent integer overflow
-        myState._drain_req -= liters;
-    if (myState._drain_total<UINT32_MAX) // prevent integer overflow
-        myState._drain_total += liters;
+    if (iState._drain_req) // prevent integer overflow
+        iState._drain_req -= liters;
+    if (iState._drain_total<UINT32_MAX) // prevent integer overflow
+        iState._drain_total += liters;
     barrels.NutriLess(barrel, liters);
     // decrement flow counter by "counted so far" pulses (liters times divider)
     flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, liters * flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
 }
 
-void STClass::manual_task_set(byte task, byte src, byte dest, uint16_t ammo)
+void StatClass::SetManual(byte task, byte src, byte dest, uint16_t ammo)
 {
-    myState._manual_task=task;
-    myState._manual_src=src;
-    myState._manual_dest=dest;
-    myState._manual_ammo=ammo;
+    iState._manual_task=task;
+    iState._manual_src=src;
+    iState._manual_dest=dest;
+    iState._manual_ammo=ammo;
 }
 
-void IRAM_ATTR STClass::manual_task_reset(){myState._manual_task=0;}
+void IRAM_ATTR StatClass::ResetManual(){iState._manual_task=0;}
 
-byte STClass::manual_task() {return myState._manual_task;}
+byte StatClass::ManualTask() {return iState._manual_task;}
 
-byte STClass::manual_from() {return myState._manual_src;}
+byte StatClass::ManualSource() {return iState._manual_src;}
 
-byte STClass::manual_to() {return myState._manual_dest;}
+byte StatClass::ManualDestination() {return iState._manual_dest;}
 
-uint16_t STClass::manual_howmuch() {return myState._manual_ammo;}
+uint16_t StatClass::ManualAmmount() {return iState._manual_ammo;}
 
 void IRAM_ATTR StartButtonInterrupt()
 {
     portENTER_CRITICAL_ISR(&mux);
-    System.state_unset(STOPPED_STATE);
-    System.manual_task_reset();
+    State.Unset(STOPPED_STATE);
+    State.ResetManual();
     portEXIT_CRITICAL_ISR(&mux);
 }
 
 void IRAM_ATTR StopButtonInterrupt()
 {
     portENTER_CRITICAL_ISR(&mux);
-    System.state_set(STOPPED_STATE);
-    System.manual_task_reset();
+    State.Set(STOPPED_STATE);
+    State.ResetManual();
     portEXIT_CRITICAL_ISR(&mux);
 }
-/*-------- System END ----------*/
+/*-------- State END ----------*/
 
 /*-------- FlowSensor Begin ----------*/
 // flow Sensors Pin Declarations
@@ -992,17 +995,17 @@ uint16_t FSClass::FlowGet(byte sens)
     // sensors now start from 1 (but arrays from 0)
     sens--;
     // measurement older than 1 second means no flow
-    if ((millis() - fsensor[sens].lastMilis) > 1000)
+    if ((millis() - iFsens[sens]._lastMilis) > 1000)
         return 0;
-    return ((1000000 / (fsensor[sens].flow ? fsensor[sens].flow : 1)) / fsensor[sens].conversion_divider); // in mililiters per second
+    return ((1000000 / (iFsens[sens]._flow ? iFsens[sens]._flow : 1)) / iFsens[sens]._conversion_divider); // in mililiters per second
 }                                                                                                          // Guru Meditation Error: Core  1 panic'ed (IntegerDivideByZero). Exception was unhandled.
 
 // executed by interrupt to increase counter
 void IRAM_ATTR FSClass::CounterInc(byte sens)
 {
-    fsensor[sens].counter++;
-    fsensor[sens].flow = millis() - fsensor[sens].lastMilis; // interval in miliseconds from the last call
-    fsensor[sens].lastMilis = millis();
+    iFsens[sens]._counter++;
+    iFsens[sens]._flow = millis() - iFsens[sens]._lastMilis; // interval in miliseconds from the last call
+    iFsens[sens]._lastMilis = millis();
 }
 
 // get raw flow counter pulses
@@ -1010,7 +1013,7 @@ uint32_t FSClass::CounterGet(byte sens)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return fsensor[sens].counter; 
+    return iFsens[sens]._counter; 
 }
 
 // Subtracts count from sensor (after we applied the count to target barrel)
@@ -1018,11 +1021,11 @@ void FSClass::CounterSubtract(byte sens, uint32_t value)
 {
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    if (fsensor[sens].counter >= value)
-        fsensor[sens].counter -= value;
+    if (iFsens[sens]._counter >= value)
+        iFsens[sens]._counter -= value;
     else
     {
-        fsensor[sens].counter = 0;
+        iFsens[sens]._counter = 0;
         LOG.printf("Err: tried to decrease flowsensor%u below zero, with %u\r\n", sens + 1, value);
     }
 }
@@ -1032,7 +1035,7 @@ void FSClass::CounterReset(uint_fast8_t sens)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    fsensor[sens].counter = 0; 
+    iFsens[sens]._counter = 0; 
 }
 
 // returns pulses to liter
@@ -1040,7 +1043,7 @@ uint16_t FSClass::DividerGet(byte sens)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return fsensor[sens].conversion_divider; 
+    return iFsens[sens]._conversion_divider; 
 }
 
 // set pulses to liter (sensor number, divider)
@@ -1048,17 +1051,19 @@ void FSClass::DividerSet(byte sens, uint16_t div)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    fsensor[sens].conversion_divider = div; 
+    iFsens[sens]._conversion_divider = div; 
 }
 
-bool FSClass::LoadSD() { return Load("/Flow.bin", (byte *)&fsensor, sizeof(fsensor)); }
+bool FSClass::LoadSD() { return Load("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
 
-bool FSClass::SaveSD() { return Save("/Flow.bin", (byte *)&fsensor, sizeof(fsensor)); }
+bool FSClass::SaveSD() { return Save("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
 
 // attach interrupts
 void FSClass::begin()
 {
+    #ifdef DEBUG_MORE
     LOG.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
+    #endif
     pinMode(FLOW_1_PIN, INPUT_PULLUP);
     pinMode(FLOW_2_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, FALLING);
@@ -1092,7 +1097,7 @@ void PSClass::setSensor(byte sens, byte sensorPin)
 {
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    psensor[sens]._sensorPin = sensorPin;
+    iPsens[sens]._sensorPin = sensorPin;
     pinMode(sensorPin, INPUT); // initialize analog pin for the sensor
 }
 
@@ -1100,68 +1105,68 @@ byte PSClass::DividerGet(byte sens)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return psensor[sens]._divider; 
+    return iPsens[sens]._divider; 
 }
 
 void PSClass::DividerSet(byte sens, byte div) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    psensor[sens]._divider = div; 
+    iPsens[sens]._divider = div; 
 }
 
 int16_t PSClass::OffsetGet(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return psensor[sens]._offset; 
+    return iPsens[sens]._offset; 
 }
 
 void PSClass::OffsetSet(byte sens, int16_t offs) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    psensor[sens]._offset = offs; 
+    iPsens[sens]._offset = offs; 
 }
 
 byte PSClass::MaxGet(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return psensor[sens]._max_pressure; 
+    return iPsens[sens]._max_pressure; 
 }
 
 void PSClass::MaxSet(byte sens, byte max) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    psensor[sens]._max_pressure = max; 
+    iPsens[sens]._max_pressure = max; 
 }
 
 byte PSClass::MinGet(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return psensor[sens]._min_pressure; 
+    return iPsens[sens]._min_pressure; 
 }
 
 void PSClass::MinSet(byte sens, byte min) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    psensor[sens]._min_pressure = min; 
+    iPsens[sens]._min_pressure = min; 
 }
 
-bool PSClass::LoadSD() { return Load("/Pressure.bin", (byte *)&psensor, sizeof(psensor)); }
+bool PSClass::LoadSD() { return Load("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
 
-bool PSClass::SaveSD() { return Save("/Pressure.bin", (byte *)&psensor, sizeof(psensor)); }
+bool PSClass::SaveSD() { return Save("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
 
 // returns last value measured by pressure sensor (sens)
 int16_t PSClass::LastValue(byte sens)
 {
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return psensor[sens]._last_pressure;
+    return iPsens[sens]._last_pressure;
 }
 
 // read sensor (sens) - converts analog value to pressure
@@ -1177,7 +1182,7 @@ int16_t PSClass::measure(byte sens)
     */
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    myPS *p = &psensor[sens];
+    sPressure *p = &iPsens[sens];
     // https://forum.arduino.cc/index.php?topic=571166.0
     analogRead(p->_sensorPin); // discard first value
     // convert analog value to pressure
@@ -1239,22 +1244,22 @@ int16_t PSClass::measure(byte sens)
 
     //1  no pressure
     if (pres < p->_min_pressure)
-        if (p->_ErrorState == PRESSURE_NORMAL)
-            p->_ErrorState = PRESSURE_NOPRESSURE;
+        //if (p->_ErrorState == PRESSURE_NORMAL)
+        p->_ErrorState = PRESSURE_NOPRESSURE;
 
     //0  normal pressure range is here
     if (pres > p->_min_pressure && pres < p->_max_pressure)
-        if (p->_ErrorState == PRESSURE_NOPRESSURE)
-            p->_ErrorState = PRESSURE_NORMAL;
+        //if (p->_ErrorState == PRESSURE_NOPRESSURE)
+        p->_ErrorState = PRESSURE_NORMAL;
 
     // set system-wide pressure error if critical error
     if (p->_ErrorState > 1)
     {
         expanders.setRGBLED(LED_RED);
         if (sens == 0)
-            System.error_set(ERR_WATER_PRESSURE);
+            State.SetError(ERR_WATER_PRESSURE);
         else
-            System.error_set(ERR_NUTRI_PRESSURE);
+            State.SetError(ERR_NUTRI_PRESSURE);
     }
     return pres;
 }
@@ -1269,7 +1274,7 @@ byte PSClass::ErrorGet(byte sens)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return psensor[sens]._ErrorState; 
+    return iPsens[sens]._ErrorState; 
 }
 
 // disable protect
@@ -1279,57 +1284,58 @@ void PSClass::ErrorReset(byte sens)
 {
     // sensors now start from 1 (but arrays from 0)
     sens--;
+    LOG.printf("removing pressure error @sensor:%u", sens);
     expanders.Protect(false);
-    psensor[sens]._ErrorState = 0;
+    iPsens[sens]._ErrorState = 0;
     if (!sens) // sensor-0 freshwater
-        System.error_unset(ERR_WATER_PRESSURE);
+        State.UnsetError(ERR_WATER_PRESSURE);
     else // sensor-1 nutrients
-        System.error_unset(ERR_NUTRI_PRESSURE);
+        State.UnsetError(ERR_NUTRI_PRESSURE);
     // back to one - cause we calling function that also counts from one
     sens++;
     measure(sens);
 }
 
-bool PSClass::Enabled(byte sens) { return psensor->_enabled; }
+bool PSClass::Enabled(byte sens) { return iPsens->_enabled; }
 
-void PSClass::Enable(byte sens) { psensor[sens]._enabled = true; }
+void PSClass::Enable(byte sens) { iPsens[sens]._enabled = true; }
 
-void PSClass::Disable(byte sens) { psensor[sens]._enabled = false; }
+void PSClass::Disable(byte sens) { iPsens[sens]._enabled = false; }
 
 /*-------- PressureSensor END ----------*/
 
 /*-------- Barrels Begin ----------*/
-bool BARRClass::LoadSD() { return Load("/Barrels.bin", (byte *)&myBarrel, sizeof(myBarrel)); }
+bool BarrClass::LoadSD() { return Load("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
 
-bool BARRClass::SaveSD() { return Save("/Barrels.bin", (byte *)&myBarrel, sizeof(myBarrel)); }
+bool BarrClass::SaveSD() { return Save("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
 
 // error handling
-byte BARRClass::ErrorGet(byte barrel) { return myBarrel[barrel]._ErrorState; }
-bool BARRClass::ErrorCheck(byte barrel, byte mask) { return myBarrel[barrel]._ErrorState & mask; }
-void BARRClass::ErrorSet(byte barrel, byte mask)
+byte BarrClass::ErrorGet(byte barrel) { return iBarrel[barrel]._ErrorState; }
+bool BarrClass::ErrorCheck(byte barrel, byte mask) { return iBarrel[barrel]._ErrorState & mask; }
+void BarrClass::ErrorSet(byte barrel, byte mask)
 {
-    myBarrel[barrel]._ErrorState |= mask;
+    iBarrel[barrel]._ErrorState |= mask;
     LOG.printf("[E] Barr%u:e%u\r\n", barrel, mask);
 }
-void BARRClass::ErrorUnset(byte barrel, byte mask) { myBarrel[barrel]._ErrorState &= ~mask; }
-void BARRClass::ErrorReset(byte barrel) { myBarrel[barrel]._ErrorState = 0; }
+void BarrClass::ErrorUnset(byte barrel, byte mask) { iBarrel[barrel]._ErrorState &= ~mask; }
+void BarrClass::ErrorReset(byte barrel) { iBarrel[barrel]._ErrorState = 0; }
 
 // freshwater counted by flow for (barrel)
-uint16_t BARRClass::FreshGet(byte barrel) { return myBarrel[barrel]._VolumeFreshwater; }
+uint16_t BarrClass::FreshGet(byte barrel) { return iBarrel[barrel]._VolumeFreshwater; }
 
 // nutrients counted by flow for (barrel)
-uint16_t BARRClass::NutriGet(byte barrel) { return myBarrel[barrel]._VolumeNutrients; }
+uint16_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._VolumeNutrients; }
 
 // decrease barrel by drained ammount
-void BARRClass::NutriLess(byte barrel, uint32_t liters)
+void BarrClass::NutriLess(byte barrel, uint32_t liters)
 {
-    myBarrel[barrel]._VolumeNutrients -= liters;
+    iBarrel[barrel]._VolumeNutrients -= liters;
 }
 
 // add fresh flow couter to barrel, then Subtract it from flowsensor
-void BARRClass::FreshwaterFillCalc(byte barrel)
+void BarrClass::FreshwaterFillCalc(byte barrel)
 {
-    myBR *b = &myBarrel[barrel];
+    sBarrel *b = &iBarrel[barrel];
     if (b->_VolumeFreshwaterLast != b->_VolumeFreshwater) // safeguard
         b->_VolumeFreshwater = b->_VolumeFreshwaterLast;
 
@@ -1357,9 +1363,9 @@ void BARRClass::FreshwaterFillCalc(byte barrel)
 // concB is allways 0 ( b is freshwater) since that is irrelevant, so:
 // (concA/100 *LitersA)  / LitersA + LitersB  * 100%
 // concA * LitersA  / LitersA + LitersB
-float BARRClass::ConcentrationTotal(byte barrel)
+float BarrClass::ConcentrationTotal(byte barrel)
 {
-    myBR *b = &myBarrel[barrel];
+    sBarrel *b = &iBarrel[barrel];
     if (!b->_VolumeNutrients && !b->_VolumeFreshwater)
         return 0; // empty barrels - prevent Divide By Zero!
     else
@@ -1368,9 +1374,9 @@ float BARRClass::ConcentrationTotal(byte barrel)
 
 // calc new concentration:
 // counts all as nutrinets after calculation, at concentration X
-void BARRClass::ConcentrationRecalc(byte barrel)
+void BarrClass::ConcentrationRecalc(byte barrel)
 {
-    myBR *b = &myBarrel[barrel];
+    sBarrel *b = &iBarrel[barrel];
     if (b->_VolumeFreshwater)
     {
         if (b->_ConcentraionLast != b->_Concentraion)
@@ -1389,9 +1395,9 @@ void BARRClass::ConcentrationRecalc(byte barrel)
 // checks if current barrel freshwater/nutrients level is at/above target
 // uses barrel current level + flow counted level
 // does not apply or decrease flow count!
-bool BARRClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
+bool BarrClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
 {
-    myBR *b = &myBarrel[barrel];
+    sBarrel *b = &iBarrel[barrel];
     uint16_t tempLiters = 0;
     //check target barrel current state
     if (type == BARREL_FRESHWATER)
@@ -1406,10 +1412,10 @@ bool BARRClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
 
 // Subtracting flowcount from source, adding to destination, recalculating concentration @destination
 // run less often for concentration accuracy
-void BARRClass::NutrientsTransferCalc(byte from, byte to)
+void BarrClass::NutrientsTransferCalc(byte from, byte to)
 {
-    myBR *a = &myBarrel[from];
-    myBR *b = &myBarrel[to];
+    sBarrel *a = &iBarrel[from];
+    sBarrel *b = &iBarrel[to];
     // calc new concentration before transer so transfeting only nutrients @concentration
     if (a->_VolumeFreshwater)
         ConcentrationRecalc(from);
@@ -1465,22 +1471,22 @@ void BARRClass::NutrientsTransferCalc(byte from, byte to)
     }
 }
 
-uint16_t BARRClass::VolumeMax(byte barrel)
+uint16_t BarrClass::VolumeMax(byte barrel)
 {
-    return myBarrel[barrel]._VolumeMax;
+    return iBarrel[barrel]._VolumeMax;
 }
 
-uint16_t BARRClass::VolumeMin(byte barrel)
+uint16_t BarrClass::VolumeMin(byte barrel)
 {
-    return myBarrel[barrel]._VolumeMin;
+    return iBarrel[barrel]._VolumeMin;
 }
 
 // contact the sensor via UART, measure, return distance in mm
-void BARRClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte retryLeft)
+void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte retryLeft)
 { // the hedgehog :P
     uint16_t temptimeout = timeLeft;
     byte tempretry = retryLeft;
-    myBR *b = &myBarrel[barrel];
+    sBarrel *b = &iBarrel[barrel];
     // collect "measure" successful measurements to calculate total
     // wait "timeLeft" ms total time for sonic data
     // try "retryLeft" times on no data or checksum error
@@ -1498,19 +1504,22 @@ void BARRClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         while (!Serial2.available() && timeLeft)
         {
             vTaskDelay(1);
-            timeLeft--;
+            if (timeLeft) // prevent integer overflow
+                timeLeft--;
         };
         // discard data untill begin of packet (0xFF)
         while (Serial2.read() != 0xFF && timeLeft)
         {
             vTaskDelay(1);
-            timeLeft--;
+            if (timeLeft) // prevent integer overflow
+                timeLeft--;
         };
         // wait for all data to be buffered
         while (Serial2.available() < 3 && timeLeft)
         {
             vTaskDelay(1);
-            timeLeft--;
+            if (timeLeft) // prevent integer overflow
+                timeLeft--;
         };
         // timed out waiting for 3 packats above
         if (!timeLeft)
@@ -1548,12 +1557,17 @@ void BARRClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
                 }
             }
             else
-                retryLeft--;
+            {
+                if (retryLeft) // prevent integer overflow
+                    retryLeft--;
+            }
+                
         }
         else
         {
             LOG.println("checksum error");
-            retryLeft--;
+            if (retryLeft) // prevent integer overflow
+                retryLeft--;
         }
         if (!retryLeft)
         {
@@ -1612,20 +1626,20 @@ void BARRClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
     }
 } // end SonicMeasure
 
-uint16_t BARRClass::SonicLastMM(byte barrel) { return myBarrel[barrel]._SonicLastValue; }
-int16_t BARRClass::SonicLastMMfromEmpty(byte barrel) { return myBarrel[barrel]._SonicOffset - myBarrel[barrel]._SonicLastValue; }
-uint16_t BARRClass::SonicOffsetGet(byte barrel) { return myBarrel[barrel]._SonicOffset; }
-uint16_t BARRClass::SonicMLinMMGet(byte barrel) { return myBarrel[barrel]._SonicMLinMM; }
-void BARRClass::SonicOffsetSet(byte barrel, uint16_t offs) { myBarrel[barrel]._SonicOffset = offs; }
-void BARRClass::SonicMLinMMSet(byte barrel, uint16_t coef) { myBarrel[barrel]._SonicMLinMM = coef; }
+uint16_t BarrClass::SonicLastMM(byte barrel) { return iBarrel[barrel]._SonicLastValue; }
+int16_t BarrClass::SonicLastMMfromEmpty(byte barrel) { return iBarrel[barrel]._SonicOffset - iBarrel[barrel]._SonicLastValue; }
+uint16_t BarrClass::SonicOffsetGet(byte barrel) { return iBarrel[barrel]._SonicOffset; }
+uint16_t BarrClass::SonicMLinMMGet(byte barrel) { return iBarrel[barrel]._SonicMLinMM; }
+void BarrClass::SonicOffsetSet(byte barrel, uint16_t offs) { iBarrel[barrel]._SonicOffset = offs; }
+void BarrClass::SonicMLinMMSet(byte barrel, uint16_t coef) { iBarrel[barrel]._SonicMLinMM = coef; }
 
 // sonic calculate liters of last measurement
-int16_t BARRClass::SonicCalcLiters(byte barrel)
+int16_t BarrClass::SonicCalcLiters(byte barrel)
 {
     // _SonicOffset = empty barrel (full barrel lenght) in mm
     // "full barrel lenght" - SonicMeasure = water level from empty in mm
     // lenght * _SonicMLinMM / 1000mlINliter ) = current barrel volume in liters from sonic
-    myBR *b = &myBarrel[barrel];
+    sBarrel *b = &iBarrel[barrel];
     //Serial.printf("barrel %u (offset %u - value %u) * MLinMM %u / 1000ml\r\n", barrel, b->_SonicOffset, b->_SonicLastValue, b->_SonicMLinMM);
     if (!b->_SonicLastValue)
         return 0;
@@ -1633,18 +1647,18 @@ int16_t BARRClass::SonicCalcLiters(byte barrel)
         return (b->_SonicOffset - b->_SonicLastValue) * b->_SonicMLinMM / 1000; // 1000ml in liter
 }                                                                               // should I still return positive value for empty, but not dry barrel??
 
-// barrel current volume in percent by sonic the hedgehog
+// barrel volume in percents, measured by sonic sensor
 // no need to remeasure each call - needed real-time only at transfer - so updated anyway by transfer volume checkers below
 // 100% * "current liters above min point" / "total liters above min point"
-int8_t BARRClass::BarrelPercents(byte barrel)
+int8_t BarrClass::BarrelPercents(byte barrel)
 {
-    return 100 * (SonicCalcLiters(barrel) - myBarrel[barrel]._VolumeMin) / (myBarrel[barrel]._VolumeMax - myBarrel[barrel]._VolumeMin);
+    return 100 * (SonicCalcLiters(barrel) - iBarrel[barrel]._VolumeMin) / (iBarrel[barrel]._VolumeMax - iBarrel[barrel]._VolumeMin);
     // exclude unusable percents below Min point
 }
 
 // total liters in all barrels excluding mixing barrel and barrels with errors
 // should I remeasure all sonics before?
-int16_t BARRClass::SonicLitersTotal()
+int16_t BarrClass::SonicLitersTotal()
 {
     int16_t result = 0;
     for (byte x = 1; x < NUM_OF_BARRELS; x++)
@@ -1655,34 +1669,34 @@ int16_t BARRClass::SonicLitersTotal()
 
 // same as above but exclude unusable liters from below draining point.
 // should I remeasure all sonics before?
-int16_t BARRClass::SonicLitersUsable()
+int16_t BarrClass::SonicLitersUsable()
 {
     int16_t result = 0;
     for (byte x = 1; x < NUM_OF_BARRELS; x++)
         if (!ErrorGet(x))                                            // if no errors at all
-            result += (SonicCalcLiters(x) - myBarrel[x]._VolumeMin); // add this barrel content minux wasted liters to sum
+            result += (SonicCalcLiters(x) - iBarrel[x]._VolumeMin); // add this barrel content minux wasted liters to sum
     return result;
 }
 
 // totally empty (by ultrasonic)
-bool BARRClass::isDry(byte barrel)
+bool BarrClass::isDry(byte barrel)
 {
     SonicMeasure(barrel);
     return SonicCalcLiters(barrel) < 2; // +1 spare as a safeguard
 }
 
 // reached min level (by ultrasonic)
-bool BARRClass::isEmpty(byte barrel)
+bool BarrClass::isEmpty(byte barrel)
 {
     SonicMeasure(barrel);
-    return SonicCalcLiters(barrel) <= myBarrel[barrel]._VolumeMin;
+    return SonicCalcLiters(barrel) <= iBarrel[barrel]._VolumeMin;
 }
 
 // reached max level (by ultrasonic)
-bool BARRClass::isFull(byte barrel)
+bool BarrClass::isFull(byte barrel)
 {
     SonicMeasure(barrel);
-    return SonicCalcLiters(barrel) >= myBarrel[barrel]._VolumeMax;
+    return SonicCalcLiters(barrel) >= iBarrel[barrel]._VolumeMax;
 }
 /*-------- Barrels END ----------*/
 
@@ -1691,6 +1705,9 @@ bool BARRClass::isFull(byte barrel)
 // open barrels taps and pump (source barrel, target barrel)
 void OpenTaps(byte drainBarrel, byte storeBarrel)
 {
+    #ifdef DEBUG_MORE
+    LOG.println(__FUNCTION__);
+    #endif
     // open barrel drain tap
     expanders.DrainingRelay(drainBarrel, true);
     // open barrel store tap
@@ -1702,6 +1719,9 @@ void OpenTaps(byte drainBarrel, byte storeBarrel)
 // close barrels taps and pump (source barrel, target barrel)
 void CloseTaps(byte drainBarrel, byte storeBarrel)
 {
+    #ifdef DEBUG_MORE
+    LOG.println(__FUNCTION__);
+    #endif
     // stop pump
     expanders.Pump(false);
     // wait untill pressure released
@@ -1714,10 +1734,10 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
 
 void ServiceManual()
 {
-    if (System.manual_task())
+    if (State.ManualTask())
     {
         //LOG.println("test");
-        switch (System.manual_task())
+        switch (State.ManualTask())
         {
             case 1:
             Serial.println("test man case 1");
@@ -1736,7 +1756,7 @@ void ServiceManual()
             //DrainManual
             break;
         }
-        //move to tasks - System.manual_task_reset(); // important - no double-run
+        //move to tasks - State.ResetManual(); // important - no double-run
         LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
     }
     vTaskDelay(100);
@@ -1745,7 +1765,7 @@ void ServiceManual()
 // loops untill stopped state is unset
 void StoppedWait()
 {
-    while (System.state_check(STOPPED_STATE))
+    while (State.Check(STOPPED_STATE))
         ServiceManual();
 }
 
@@ -1754,9 +1774,8 @@ void StoppedWait()
 // opens taps back
 void fmsPause(byte Source, byte Destination)
 {
-    //SaveStructs(); //disabled for mow....
     LOG.println(F("Status Stopped! auto is paused"));
-    System.state_print();
+    // State.Print(); // should print by state_change_check anyway
     // if no source barrel = we are filling
     if (Source == 0xFF)
     {
@@ -1785,12 +1804,12 @@ void PressureCheck(byte sens)
         vTaskDelay(5000 / portTICK_PERIOD_MS);
         pressure.measure(sens);
         if (pressure.ErrorGet(sens) == PRESSURE_NOPRESSURE)
-            System.state_set(STOPPED_STATE);
+            State.Set(STOPPED_STATE);
         break;
         case PRESSURE_OVERPRESSURE:            
         case PRESSURE_DISCONNECT:            
         case PRESSURE_SHORTCIRCUIT:            
-        System.state_set(STOPPED_STATE);
+        State.Set(STOPPED_STATE);
         break;
     }
 }
@@ -1804,21 +1823,21 @@ void FlowCheck(byte sens)
         vTaskDelay(5000 / portTICK_PERIOD_MS);
         if (!flow.FlowGet(FLOW_SENSOR_FRESHWATER))
         {
-            System.state_set(STOPPED_STATE);
+            State.Set(STOPPED_STATE);
             expanders.setRGBLED(LED_RED);
             if (sens == FLOW_SENSOR_FRESHWATER)
             {
-                if (System.error_check(ERR_WATER_NOFLOW))
+                if (State.isError(ERR_WATER_NOFLOW))
                 {
-                    System.error_set(ERR_WATER_NOFLOW);
+                    State.SetError(ERR_WATER_NOFLOW);
                     SendSMS("error: no water flow while Filling. check flowsensor 1, filling solenoid");                
                 }
             }
             else
             {
-                if (System.error_check(ERR_NUTRI_NOFLOW))
+                if (State.isError(ERR_NUTRI_NOFLOW))
                 {
-                    System.error_set(ERR_NUTRI_NOFLOW);
+                    State.SetError(ERR_NUTRI_NOFLOW);
                     SendSMS("error: no nutrients flow. check pump, flowsensor 2, solenoids");                
                 }
             }
@@ -1854,7 +1873,7 @@ void Fill(byte barrel, uint16_t requirement)
             break;
         }
         // STOP-CHECK
-        if (System.state_check(STOPPED_STATE))
+        if (State.Check(STOPPED_STATE))
             fmsPause(0xff, barrel);
         // SENSOR CHECK
         if (pressure.Enabled(PRES_SENSOR_FRESHWATER))
@@ -1872,31 +1891,31 @@ void Fill(byte barrel, uint16_t requirement)
 // or before if state changed to stopped while we're not operating manual
 void Mix(byte barrel)
 {
-    LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, System.mix_needed());
+    LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, State.MixTimer());
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
     OpenTaps(barrel, barrel); // open both taps of the same barrel to mix it :)
     // loop - while mix timer > 0
-    while (System.mix_needed())
+    while (State.MixTimer())
     {
         // LOGIC
         for (byte s=0;s<60;s++)
         {
             // STOP-CHECK
-            if (System.state_check(STOPPED_STATE))
+            if (State.Check(STOPPED_STATE))
                 fmsPause(barrel, POOLS);
             // SENSOR CHECK
             if (pressure.Enabled(PRES_SENSOR_NUTRIENTS))
                 PressureCheck(PRES_SENSOR_NUTRIENTS);
             blinkDelay(1000, LED_GREEN);
         }
-        System.mix_less();// decrement counter every minute
-        LOG.printf("barrel:%u %uMin remaining\r\n", barrel, System.mix_needed());
+        State.MixLess();// decrement counter every minute
+        LOG.printf("barrel:%u %uMin remaining\r\n", barrel, State.MixTimer());
     }
     CloseTaps(barrel, barrel); // counter reached zero
     // report mixed ammount
     LOG.printf("mixed %u liters\r\n", flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
-    System.mix_reset(); // reset mix timer for next run
+    State.MixReset(); // reset mix timer for next run
     LOG.printf("END mixing barrel:%u.\r\n", barrel);
 }
 
@@ -1921,7 +1940,7 @@ void Store(byte barrel, byte target)
         if (flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS) > 50)
             barrels.NutrientsTransferCalc(barrel, target);
         // STOP-CHECK
-        if (System.state_check(STOPPED_STATE))
+        if (State.Check(STOPPED_STATE))
             fmsPause(barrel, POOLS);
         // SENSOR CHECK
         if (pressure.Enabled(PRES_SENSOR_NUTRIENTS))
@@ -1939,16 +1958,16 @@ void Store(byte barrel, byte target)
 void Drain(byte barrel, uint16_t requirement)
 {
     uint16_t barrel_before = barrels.NutriGet(barrel);
-    LOG.printf("Draining %uL from barrel:%u (%uL)\r\n", System.drain_needed(), barrel, barrel_before);
+    LOG.printf("Draining %uL from barrel:%u (%uL)\r\n", State.DrainMore(), barrel, barrel_before);
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
     OpenTaps(barrel, POOLS); // open barrel, drain to pools
     // loop while drain counter > 0 and barrel x not empty
-    while (System.drain_needed() && !barrels.isEmpty(barrel))
+    while (State.DrainMore() && !barrels.isEmpty(barrel))
     {
         // LOGIC
-        System.drain_substract(barrel);
+        State.DrainRecalc(barrel);
         // STOP-CHECK
-        if (System.state_check(STOPPED_STATE))
+        if (State.Check(STOPPED_STATE))
             fmsPause(barrel, POOLS);
         // SENSOR CHECK
         if (pressure.Enabled(PRES_SENSOR_NUTRIENTS))
@@ -1957,111 +1976,107 @@ void Drain(byte barrel, uint16_t requirement)
     }
     CloseTaps(barrel, POOLS); // stop pump and taps
     vTaskDelay(1000);
-    System.drain_substract(barrel); // last flow calculation
+    State.DrainRecalc(barrel); // last flow calculation
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
     LOG.printf("END Draining %uL from barrel:%u\r\n", barrel_before - barrels.NutriGet(barrel), barrel);
 }
 
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
-    LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", System.state_get(), uxTaskGetStackHighWaterMark(loop1));
+    LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
     while (true)
     {
-        if (System.state_check(FILLING_STATE))
+        if (State.Check(FILLING_STATE)) // Filling
         {
-            LOG.print(F("system running auto - waiting for nutes\r\n\r\n"));
-            System.state_set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
-            while (System.state_check(STOPPED_STATE)) // stay here if system stopped
+            LOG.print(F("system running auto - waiting for nutes\r\n"));
+            State.Set(STOPPED_STATE); // wait untill nutes loaded before filling+mixing
+            while (State.Check(STOPPED_STATE)) // stay here while system is waiting
                 ServiceManual();
-            Fill(System.fill_barrel(), System.fill_req_get());
-            System.state_set(MIXING_STATE);
-            System.state_unset(FILLING_STATE);
-            //SaveStructs(); //disabled for mow....
+            Fill(State.FillBarrel(), State.FillRequirement());
+            State.Set(MIXING_STATE);
+            State.Unset(FILLING_STATE);
         }
 
-        if (System.state_check(MIXING_STATE))
+        if (State.Check(MIXING_STATE)) // Mixing
         {
-            Mix(System.fill_barrel());
-            System.state_set(STORING_STATE);
-            System.state_unset(MIXING_STATE);
-            //SaveStructs(); //disabled for mow....
+            Mix(State.FillBarrel());
+            State.Set(STORING_STATE);
+            State.Unset(MIXING_STATE);
         }
 
-        if (System.state_check(STORING_STATE))
+        if (State.Check(STORING_STATE)) // Store + Drain
         {
             expanders.setRGBLED(LED_CYAN);
             // still have nutes to transfer
-            while (!barrels.isEmpty(System.fill_barrel()))
-            {
+            while (!barrels.isEmpty(State.FillBarrel()))
+            { // allways lands here first after fill mix
                 // first we drain if neccesery
-                if (System.drain_needed())
+                if (State.DrainMore())
                 {
-                    System.state_set(DRAINIG_STATE);
+                    State.Set(DRAINIG_STATE);
                     // drain untill empty or requirement satisfied.
-                    Drain(System.fill_barrel(), System.drain_needed());
-                    //SaveStructs(); //disabled for mow....
-                    if (barrels.isEmpty(System.fill_barrel()))
+                    Drain(State.FillBarrel(), State.DrainMore());
+                    //SaveStructs(); // disabled untill webUI implemented
+                    if (barrels.isEmpty(State.FillBarrel()))
                         break; // if drained filling barrel to empty - break store loop
                 }
                 else // no drain requirement
                 {
-                    System.state_unset(DRAINIG_STATE);                    
+                    State.Unset(DRAINIG_STATE);                    
                 }
 
                 // then we store what is left
                 // target not full - transfer into storing barrel
                 // excluding the case where all system was full and storing_barrel pointed to barrel 0
                 // skip barrel if disabled or errorous!
-                byte stor = System.store_barrel();
+                byte stor = State.StoreBarrel();
                 if (!barrels.isFull(stor) && !barrels.ErrorGet(stor) && stor > 0)
                 {
-                    Store(System.fill_barrel(), stor);
-                    //SaveStructs(); //disabled for mow....
+                    Store(State.FillBarrel(), stor);
+                    //SaveStructs(); // disabled untill webUI implemented
                 }
                 // target full - goto next barrel
                 else if (stor > 1)
                 {
-                    System.store_barrel_down();
+                    State.MoveStoreDown();
                 }
                 else
                 { // no more next - all full
                     expanders.setRGBLED(LED_MAGENTA);
                     LOG.println("All barrels full. system stopped. drain to continue");
                     // wait for drain request
-                    while (!System.drain_needed())
+                    while (!State.DrainMore())
                         ServiceManual();
                     // drain the mixer first
-                    System.store_barrel_set(System.fill_barrel());
+                    State.SetStoreBarrel(State.FillBarrel());
                     // drain untill empty or requirement satisfied.
-                    Drain(System.fill_barrel(), System.drain_needed());
-                    //SaveStructs(); //disabled for mow....
+                    Drain(State.FillBarrel(), State.DrainMore());
+                    //SaveStructs(); // disabled untill webUI implemented
                 }
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
             } // got here cause filling_barrel is empty
 
-            while (System.drain_needed())
+            while (State.DrainMore())
             {
-                System.state_set(DRAINIG_STATE);
+                State.Set(DRAINIG_STATE);
                 // storing_barrel not empty? not errorous? drain it
-                if (!barrels.isEmpty(System.store_barrel()) && !barrels.ErrorGet(System.store_barrel()))
+                if (!barrels.isEmpty(State.StoreBarrel()) && !barrels.ErrorGet(State.StoreBarrel()))
                 {
-                    Drain(System.store_barrel(), System.drain_needed());
-                    //SaveStructs(); //disabled for mow....
+                    Drain(State.StoreBarrel(), State.DrainMore());
+                    //SaveStructs(); // disabled untill webUI implemented
                 }
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
-                else if (System.store_barrel() < NUM_OF_BARRELS - 1)
-                    System.store_barrel_up();
+                else if (State.StoreBarrel() < NUM_OF_BARRELS - 1)
+                    State.MoveStoreUp();
                 // all storage barrels empty?
                 else
                     break; // totally empty - will do another cycle fms to refill
             }
-            if (!System.drain_needed())
-                System.state_unset(DRAINIG_STATE);
+            if (!State.DrainMore())
+                State.Unset(DRAINIG_STATE);
             // repeat the fms cycle if no draining required, or all barrels empty
-            System.state_set(FILLING_STATE);
-            System.state_unset(STORING_STATE);
-
-            //SaveStructs(); //disabled for mow....
+            State.Set(FILLING_STATE);
+            State.Unset(STORING_STATE);
         } // if storing_state
     }     // endless loop ends here :)
 }
@@ -2270,7 +2285,7 @@ void setupServer()
         response->print("<button onclick=\"location=\'/man?stop\'\">stop</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
-        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, System.state_get());
+        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
         request->send(response);
     });
@@ -2291,7 +2306,7 @@ void setupServer()
             if (src > -1 && src < NUM_OF_BARRELS && task > -1 && task < 5 && ammo > -1 && ammo < 32768 && dest > -1 && dest < NUM_OF_BARRELS)
             {
                 // running the task
-                System.manual_task_set(task, src, dest, ammo);
+                State.SetManual(task, src, dest, ammo);
                 status = 1;
             }
             else
@@ -2304,13 +2319,13 @@ void setupServer()
         response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual F.M.S.D.</h3><ul>");
         response->print("<form action=\"/fmsd\">");
         response->print("<li>fill-1 mix-2 store-3 drain-4</li>");
-        response->printf("<li><input id=\"task\" name=\"task\" value=\"%u\"></li>", System.manual_task());
+        response->printf("<li><input id=\"task\" name=\"task\" value=\"%u\"></li>", State.ManualTask());
         response->print("<li>how much</li>");
-        response->printf("<li><input id=\"ammo\" name=\"ammo\" value=\"%u\"></li>", System.manual_howmuch());
+        response->printf("<li><input id=\"ammo\" name=\"ammo\" value=\"%u\"></li>", State.ManualAmmount());
         response->print("<li>from</li>");
-        response->printf("<li><input id=\"src\" name=\"src\" value=\"%u\"></li>", System.manual_from());
+        response->printf("<li><input id=\"src\" name=\"src\" value=\"%u\"></li>", State.ManualSource());
         response->print("<li>to</li>");
-        response->printf("<li><input id=\"dest\" name=\"dest\" value=\"%u\"></li>", System.manual_to());
+        response->printf("<li><input id=\"dest\" name=\"dest\" value=\"%u\"></li>", State.ManualDestination());
         switch (status)
         {
             case 0:
@@ -2328,7 +2343,7 @@ void setupServer()
         response->print("</ul>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><br>");
-        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, System.state_get());
+        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
         request->send(response);
     });
@@ -2367,13 +2382,13 @@ void setupServer()
             }
             if (request->hasArg("start"))
             {
-                System.state_unset(STOPPED_STATE);
-                System.manual_task_reset();
+                State.Unset(STOPPED_STATE);
+                State.ResetManual();
             }
             if (request->hasArg("stop"))
             {
-                System.state_set(STOPPED_STATE);
-                System.manual_task_reset();
+                State.Set(STOPPED_STATE);
+                State.ResetManual();
             }
         }
         else
@@ -2627,7 +2642,7 @@ void LoadStructs()
         Restore(); // in case something is missing in the SD
     LOG.printf("Loading system from %s\r\n", isSD ? "SD" : "SPIFFS");
     if (disk->exists("/SysState.bin"))
-        System.LoadSD();
+        State.LoadSD();
     else
     {
         LOG.println("/SysState.bin\tnot exist");
@@ -2688,7 +2703,7 @@ void SaveStructs()
         while (flow.FlowGet(FLOW_SENSOR_NUTRIENTS))
             ;
         LOG.println(F("no flow ok - saving..."));
-        System.SaveSD();
+        State.SaveSD();
 
         // reimplement to save ondemand?
         barrels.SaveSD();
@@ -2726,7 +2741,7 @@ void setup()
     flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
 
     // attach interrupts for start-stop buttons 
-    System.begin();
+    State.begin();
 
     // initialize uart2 SIM800L modem at MUX port 7?
     modemInit();
@@ -2758,7 +2773,7 @@ void setup()
 void loop()
 {
     ArduinoOTA.handle();
-    System.state_change_check();
+    State.isChanged();
     vTaskDelay(1);
     //vTaskDelay(portMAX_DELAY); // wait as much as posible ...
 }

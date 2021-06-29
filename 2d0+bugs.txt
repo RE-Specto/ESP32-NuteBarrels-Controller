@@ -1,4 +1,5 @@
 bugs:
+MUX previously locked to 255, 7 is waiting
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
 pressing Start after manual does not cancel the manual
@@ -15,6 +16,7 @@ pressure offset is redundant?
 
 
 to implement:
+check: State.SetStoreBarrel(State.FillBarrel()); for bugs
 start should trigger unprotect?
 separate manual fmsd from auto
 untriger "protect" when pressure sensor back to normal?
@@ -22,11 +24,6 @@ untriger "protect" when pressure sensor back to normal?
     add an option to disable sensor checks from WebUI
 sonic remeasure on high error±
     ignore the one that is out of range? or remeasure all?
--my structs
-myState (System private) /SysState.bin
-fsensor[2] (flow private) /Flow.bin
-psensor[2] (pressure private) /Pressure.bin
-myBarrel[6] (barrels private) /Barrels.bin
 
 void deleteStructs and webui command in manual
 
@@ -53,23 +50,7 @@ serial print to telnet or to webui directly or via another board (esp8266?).
 !!! add a way to reset pressure error "protect" mode - by pressing start?
     use void pressure_sensor::ErrorReset(byte sens)
 
----- checked untill here ----
-
-start/stop interrupts "use start-stop actions from evernote!" 
-    start sets canMix global boolean? 
-    if stopped also pressed - do something else
-    if status = stopped: clear stopped. else if no status: set mixing. else do start-button extra action
-        task or loop reads the bool - changes RGB immediately, but start mixing task only when no tasks running
-    stop sets shouldStop global boolean?
-    if start also pressed - do something else
-    if status not stopped - set stopped + save. else save + extra stopped action
-        task or loop reads the bool - changes RGB immediately, triggers stop and save
-    on stop:     pressure.SaveSD(); flow.SaveSD();
-    // can set the bool to !bool to check if pressed twice - for reset and other system tasks
-
-
 work on system hardware - implement all changes to schematic!!
-change zeners to 3.3v? - check new zeners that arrived
 
 check what modem returns if error - if valid check - implement SMS error
 
@@ -96,6 +77,7 @@ use separate <forms> for each one?
     Settings.filling_barrel
     Settings.storing_barrel
     NTP Timezone + DTS
+    manual mux unlock via webUI
 
 manual apply sonic value to flow barrel volume on request.
 
@@ -105,15 +87,15 @@ telnet server to send LOG.prints + telnet client inside webui?
 allow to manually disable a barrel
     barrels.ErrorSet(barrel, BARREL_DISABLED)
 
-fmsTask - check fill mix if barrel 0 not error!? 
-    who can set barrel 0 error?
-
-------------------------------
-
 uint16_t DTS = 0;                                              //mySettings.DTS?3600UL:0;
 uint16_t timeZone = 3;    
 
 limit all data from webUI to valid range - ie. no "measure barrel 27"
+
+measure all sonic on system start so sonic have all values ready?
+
+implement mux lock timeout.
+    LockMUX should start an external timer and UnlockMUX should stop it
 
 variables that survives reboot?? :)
 try RTC_NOINIT_ATTR?
@@ -122,51 +104,29 @@ https://github.com/highno/rtcvars/issues/3
 recheck concentration float is accurate
 "Do not use float to represent whole numbers."
 http://www.cplusplus.com/forum/general/67783/
-    check my possible ranges:
-    test on another esp32
-concentration float check if ok.
+
+
+add to schematic:
+12v line add polyfuze
+optional: doser on expander x20 pin A7? serial scale mux#14?
+
+
+optional:
+check all uint values never go below zero!!
+    expected in sensor measurements
+    anywhere else?
+
+change sonic 10555  to retry--
+    BARREL_SONIC_OUTOFRANGE only if all 10555
+drain_log file
+    needs accurate clock
 
 make pressure sensor check constantly so i can turn off the pump on overpressure
     task loop inside other cpu core? or inside filling loop itself?
     ps2 only when pump working?
     ps1 only once before sol open + once if no flow + once at system start?
 
-reset all sensor values on system start? flow only? or remeber who to assing to and assign on start?
-    is it important at all? how much water can flow between assignments?
-
-deprecate RTC? replace with ntp + timeAlarms?
-
 set Overpressure global error only if error occurs with multiple solenoids
-
-check all uint values never go below zero!!
-    expected in sensor measurements
-    anywhere else?
-
-implement mux lock timeout.
-    LockMUX should start an external timer and UnlockMUX should stop it
-    manual unlock via webUI
-
-measure all sonic on system start so sonic have all values ready?
-
-change sonic 10555  to retry--
-    BARREL_SONIC_OUTOFRANGE only if all 10555
-
-handle reset in the middle of flow sensor transfer
-    calculate by last values?
-    lock thread mux so it executes quick? https://esp32.com/viewtopic.php?t=1703
-
-deprecate error reporting task and sendsms dictionary?
-
-add to schematic:
-12v to 5v change to switching regulator? move power supply out of the main board?
-12v line add polyfuze
-optional: doser on expander x20 pin A7? serial scale mux#14?
-
-
-optional:
-drain_log file
-    needs accurate clock
-add LOG.println(__FUNCTION__); at every function start for debug
 
 add concentrationSet to barrels for manual?
 use filter instead of avearge for sonic?
@@ -179,18 +139,21 @@ continue on flow error if sonic is rising
 continue on sonic error if flow counted barrel volume is ok
 continue to next barrel if barrel solenoids error
 only unrecoverable errors: pump, main barrel solenoids
-add start-stop from webUI
+
+handle reset in the middle of flow sensor transfer
+    calculate by last values?
+    lock thread mux so it executes quick? https://esp32.com/viewtopic.php?t=1703
 
 server.on("/mdns" check mdns broadcast
 switchFS add fs check, try to restart filesystem on failure
 add ... on serial.available to check module awake
 "[E][vfs_api.cpp:22] open(): File system is not mounted" nice error reporting format 
 
-// pressure - in next version:
-//if overpressure error - set target barrel error
-//goto next barrel, clear overpressure error
-//if all barrels error - set pump error - clear all barrel overpressure errors
-//  except manually-disabled barrels "error"
-//if no pressure - loop-measure for a while
-//if still no pressure - check flow
-//no flow - set pump error.
+pressure - in next version:
+    if overpressure error - set target barrel error
+    goto next barrel, clear overpressure error
+    if all barrels error - set pump error - clear all barrel overpressure errors
+      except manually-disabled barrels "error"
+    if no pressure - loop-measure for a while
+    if still no pressure - check flow
+    no flow - set pump error.
