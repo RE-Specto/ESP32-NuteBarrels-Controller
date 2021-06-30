@@ -632,7 +632,9 @@ void ExpaClass::Init()
 void ExpaClass::LockMUX(byte address)
 {
     if ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
-        LOG.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);
+    {
+        LOG.printf("MUX previously locked to %u, %u is waiting\r\n", _muxLock, address);        
+    }
     while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
         vTaskDelay(1);
     LOG.printf("MUX is free. locking to %u\r\n", address);
@@ -909,7 +911,9 @@ void StatClass::MoveStoreDown()
         LOG.printf("Storing barrel dec, now barrel#%u\r\n", iState._storing_barrel);
     }
     else
+    {
         LOG.println("[e] trying to decrease store barrel below zero!!");
+    }
 }
 
 void StatClass::SetDrainReq(uint16_t req) {iState._drain_req = req;}
@@ -1535,7 +1539,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         if (((0xFF + upper_data + lower_data) & 0xFF) == sum) // fix to match JSN-SR04T-2.0 checksum calculation
         {
             uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
-            LOG.printf("Sonic:%u Distance:%umm measurement:%u time left:%u retries left:%u\r\n", barrel, distance, x, timeLeft, retryLeft);
+            LOG.printf("Sonic:%u Distance:%umm measurement:%u time left:%u retries left:%u\r\n", barrel, distance, x+1, timeLeft, retryLeft);
             if (distance)
             {
                 if (distance == 10555)
@@ -1560,8 +1564,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
             {
                 if (retryLeft) // prevent integer overflow
                     retryLeft--;
-            }
-                
+            }    
         }
         else
         {
@@ -1578,6 +1581,15 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
             ErrorUnset(barrel, BARREL_SONIC_CHECKSUM);
     }                      // for loop end here
     expanders.UnlockMUX(); // important!
+    if (!timeLeft)
+    {
+        // moved over here to prevent MUX Deadlock
+        if (!ErrorCheck(barrel, BARREL_SONIC_TIMEOUT))
+        {
+            ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
+            SendSMS("No signal @Ultrasonic", barrel);
+        }
+    }
     float err = 0;
     if (measure && distanceAvearge)
     {                                                                           // taken more than 0 measurements, Avearge distance is not zero
@@ -1586,11 +1598,6 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
         ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
         b->_SonicLastValue = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
-        LOG.printf("Distance min:%u, max:%u, diff:%u error:±%.3f percent\r\n",
-                        distanceMin,
-                        distanceMax,
-                        distanceMax - distanceMin,
-                        err);
     }
     b->_SonicLastError = err;
     if (err > 5)
@@ -1608,22 +1615,18 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         b->_SonicHighErrors--;
     else
         ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
-    LOG.printf("sonic %u finished\r\ntook %u measurements, value:%umm time:%ums, retried %u times\r\n",
+    LOG.printf("finished\r\nsonic:%u, accepted:%u, value:%umm, time:%ums, retries:%u\r\nDistance min:%u, max:%u, diff:%u, error:±%.1f%%\r\n",
                     barrel,
                     measure,
                     distanceAvearge,
                     temptimeout - timeLeft,
-                    tempretry - retryLeft);
+                    tempretry - retryLeft,
+                    distanceMin,
+                    distanceMax,
+                    distanceMax - distanceMin,
+                    err
+                    );
     //return distanceAvearge;
-    if (!timeLeft)
-    {
-        // moved over here to prevent MUX Deadlock
-        if (!ErrorCheck(barrel, BARREL_SONIC_TIMEOUT))
-        {
-            ErrorSet(barrel, BARREL_SONIC_TIMEOUT);
-            SendSMS("No signal @Ultrasonic", barrel);
-        }
-    }
 } // end SonicMeasure
 
 uint16_t BarrClass::SonicLastMM(byte barrel) { return iBarrel[barrel]._SonicLastValue; }
@@ -2107,7 +2110,7 @@ void setupServer()
 
     server.on("/index", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
-            request->send(*disk, "/index.html", String(), false);
+        request->send(*disk, "/index.html", String(), false);
     });
 
     server.on(
@@ -2224,7 +2227,7 @@ void setupServer()
     });
 
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request) {
-        LOG.printf("Requested: %s\r\n\r\n", request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual control</h3><ul>");
         response->print("<span>Relays</span>");
@@ -2291,7 +2294,7 @@ void setupServer()
     });
 
     server.on("/fmsd", HTTP_GET, [](AsyncWebServerRequest *request) {
-        LOG.printf("Requested: %s\r\n\r\n", request->url().c_str());
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
         byte status = 0; // for parameter out of range error
         if (request->hasArg("task"))
         {
