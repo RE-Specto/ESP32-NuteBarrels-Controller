@@ -1,11 +1,10 @@
 bugs:
+fmsd should stop at sonic error
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
 do Fill Mix Store Drain  SENSOR CHECK pressure.measure will break logic at pressure error?
     need to close taps, wait in loop, and reopen using OpenTaps() once error cleared
     ! also remeasures constantly at Fill first measure if sensor error
-store should stop at sonic error
-    otherwise it will go forever
 
 to implement:
 all fmsd should also check for flow and pressure

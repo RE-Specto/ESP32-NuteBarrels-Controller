@@ -22,6 +22,7 @@ more info and license - soon
 
 //#define DEBUG_SD
 //#define DEBUG_SONIC
+//#define DEBUG_FLOW
 //#define DEBUG_MUX
 //#define DEBUG_NET
 //#define DEBUG_MORE
@@ -876,6 +877,9 @@ bool StatClass::isChanged()
             State.Set(STOPPED_STATE);
             Apply(); // prevent double trigger
             Expanders.Protect(true);
+            vTaskDelay(1000);
+            State.Set(STOPPED_STATE); // set again in case it changed by interrupt
+            Apply();
         }
         //SaveStructs(); // disabled untill webUI implemented
         return true;
@@ -1496,6 +1500,7 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
         b->_volume_freshwater = b->_volume_freshwater_last;
 
     uint32_t tempflow = Flow.Counted(FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
+    #ifdef DEBUG_FLOW
     if (tempflow)
     {
         LOG.printf("tempflow so far: %u\r\n", tempflow);
@@ -1510,6 +1515,15 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
     {
         LOG.println("0 flow so far. skipping");
     }
+    #else
+    if (tempflow)
+    {
+        tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
+        b->_volume_freshwater += tempflow;
+        tempflow *= Flow.Divider(FRESHWATER); // getting pulse count back - only the integral part
+        Flow.CounterSubtract(FRESHWATER, tempflow);
+    }
+    #endif
     b->_volume_freshwater_last = b->_volume_freshwater; // after
 }
 
@@ -1664,7 +1678,9 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
     uint32_t distanceAvearge = 0;  // avearge of x measurements
     uint16_t distanceMin = 0xffff; // highest for 16bit uint
     uint16_t distanceMax = 0;      // to calculate error
+    #ifdef DEBUG_SONIC
     LOG.printf("measuring barrel# %u\r\n", barrel);
+    #endif
     Expanders.LockMUX(barrel);
     vTaskDelay(10);
     for (byte x = 0; x < measure && retryLeft && timeLeft;)
@@ -2073,6 +2089,7 @@ void blinkDelay(unsigned long ms, byte color)
 // stops if flowsensor malfunction detected
 void Fill(byte barrel, uint16_t requirement)
 {
+    Serial.println();
     LOG.printf("filling barrel:%u to %uL\r\n", barrel, requirement);
     Flow.Reset(FRESHWATER); // reset flow counter 1
     Expanders.FillingRelay(barrel, true); // open barrel filling tap
@@ -2100,12 +2117,14 @@ void Fill(byte barrel, uint16_t requirement)
     Barrels.FreshwaterFillCalc(barrel);  // assign flowcount to barrel
     Flow.Reset(FRESHWATER); // reset flow counter 1
     LOG.printf("END filling barrel:%u to %uL\r\n", barrel, requirement);
+    Serial.println();
 }
 
 // will mix "barrel" untill "duration" minutes is over,
 // or before if state changed to stopped while we're not operating manual
 void Mix(byte barrel)
 {
+    Serial.println();
     LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, State.MixTimer());
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     OpenTaps(barrel, barrel); // open both taps of the same barrel to mix it :)
@@ -2134,6 +2153,7 @@ void Mix(byte barrel)
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     State.MixReset(); // reset mix timer for next run
     LOG.printf("END mixing barrel:%u.\r\n", barrel);
+    Serial.println();
 }
 
 // transfers nutrients from "barrel" to "target"
@@ -2141,6 +2161,7 @@ void Mix(byte barrel)
 // or untill "stopped" state set, except if system state also set to manual
 void Store(byte barrel, byte target)
 {
+    Serial.println();
     LOG.printf("storing from barrel:%u to target %u\r\n", barrel, target);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     if (barrel == target)
@@ -2170,12 +2191,14 @@ void Store(byte barrel, byte target)
     Barrels.NutrientsTransferCalc(barrel, target); // calculate final ammount
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     LOG.printf("END storing from barrel:%u to target %u\r\n", barrel, target);
+    Serial.println();
 }
 
 // draining from barrel, untill requirement liters is transferred, or barrel is empty
 // or untill state set to stopped except if state is also manual
 void Drain(byte barrel, uint16_t requirement)
 {
+    Serial.println();
     uint16_t barrel_before = Barrels.NutriGet(barrel);
     LOG.printf("Draining %uL from barrel:%u (%uL)\r\n", State.DrainMore(), barrel, barrel_before);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
@@ -2200,11 +2223,12 @@ void Drain(byte barrel, uint16_t requirement)
     State.DrainRecalc(barrel); // last flow calculation
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     LOG.printf("END Draining %uL from barrel:%u\r\n", barrel_before - Barrels.NutriGet(barrel), barrel);
+    Serial.println();
 }
 
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
-    LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
+    //LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
     while (true)
     {
         if (State.Check(FILLING_STATE)) // Filling
@@ -2218,12 +2242,16 @@ void fmsTask(void * pvParameters)
             State.Unset(FILLING_STATE);
         }
 
+        vTaskDelay(1000 / portTICK_PERIOD_MS); // good idea to wait after each state change
+
         if (State.Check(MIXING_STATE)) // Mixing
         {
             Mix(State.FillBarrel());
             State.Set(STORING_STATE);
             State.Unset(MIXING_STATE);
         }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
         if (State.Check(STORING_STATE)) // Store + Drain
         {
@@ -2235,6 +2263,7 @@ void fmsTask(void * pvParameters)
                 if (State.DrainMore())
                 {
                     State.Set(DRAINIG_STATE);
+                    vTaskDelay(1000 / portTICK_PERIOD_MS);
                     // drain untill empty or requirement satisfied.
                     Drain(State.FillBarrel(), State.DrainMore());
                     //SaveStructs(); // disabled untill webUI implemented
@@ -2264,7 +2293,7 @@ void fmsTask(void * pvParameters)
                 else
                 { // no more next - all full
                     Expanders.setRGBLED(LED_MAGENTA);
-                    LOG.println("All barrels full. system stopped. drain to continue");
+                    LOG.println("No more empty barrels. system stopped. drain to continue");
                     // wait for drain request
                     while (!State.DrainMore())
                         ServiceManual();
@@ -2280,6 +2309,7 @@ void fmsTask(void * pvParameters)
             while (State.DrainMore())
             {
                 State.Set(DRAINIG_STATE);
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
                 // storing_barrel not empty? not errorous? drain it
                 if (!Barrels.isEmpty(State.StoreBarrel()) && !Barrels.Errors(State.StoreBarrel()))
                 {
@@ -2298,6 +2328,7 @@ void fmsTask(void * pvParameters)
             // repeat the fms cycle if no draining required, or all barrels empty
             State.Set(FILLING_STATE);
             State.Unset(STORING_STATE);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         } // if storing_state
     }     // endless loop ends here :)
 }
