@@ -344,6 +344,7 @@ public:
     bool isDry(byte barrel);
     bool isEmpty(byte barrel);
     bool isFull(byte barrel);
+    void TestSensors();
 } Barrels;
 
 class FSClass
@@ -1169,8 +1170,15 @@ void FSClass::DividerSet(byte sens, uint16_t div)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    LOG.printf("Changing flowsensor %u divider, from:%u to:%u\r\n", sens+1, iFsens[sens]._conversion_divider, div);
-    iFsens[sens]._conversion_divider = div; 
+    if (div)
+    {
+        LOG.printf("Changing flowsensor %u divider, from:%u to:%u\r\n", sens+1, iFsens[sens]._conversion_divider, div);
+        iFsens[sens]._conversion_divider = div; 
+    }
+    else
+    {
+        LOG.println("Did anyone just Divided By Zero? Really?");
+    }
 }
 
 // returns sensor checks state
@@ -1229,8 +1237,15 @@ void PSClass::DividerSet(byte sens, byte div)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    LOG.printf("Changing pressensor %u divider, from:%u to:%u\r\n", sens+1, iPsens[sens]._divider, div);
-    iPsens[sens]._divider = div; 
+    if (div)
+    {
+        LOG.printf("Changing pressensor %u divider, from:%u to:%u\r\n", sens+1, iPsens[sens]._divider, div);
+        iPsens[sens]._divider = div; 
+    }
+    else
+    {
+        LOG.println("Uh-oh.. somebody just divided by zero O.o");
+    }
 }
 
 int16_t PSClass::Offset(byte sens) 
@@ -1607,7 +1622,7 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
         b->_concentraion = b->_concentraion_last;
 
     uint32_t tempflow = Flow.Counted(NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
-    if (tempflow)
+    if (tempflow) // prevents DivideByZero below
     {
         tempflow /= Flow.Divider(NUTRIENTS);         // integral part, fractional part discarded.
         LOG.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
@@ -1776,7 +1791,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         }
     }
     float err = 0;
-    if (measure && distanceAvearge)
+    if (measure && distanceAvearge) // prevents DivideByZero below
     {                                                                           // taken more than 0 measurements, Avearge distance is not zero
         distanceAvearge /= measure;                                             // total divided by number of measurements taken
         err = (float)100 * ((distanceMax - distanceMin) / 2) / distanceAvearge; // calculate measurement ±error
@@ -1869,6 +1884,8 @@ void BarrClass::Save100LitersMark(byte barrel)
 // 100% * "current liters above min point" / "total liters above min point"
 int8_t BarrClass::BarrelPercents(byte barrel)
 {
+    if (iBarrel[barrel]._volume_max == iBarrel[barrel]._volume_min) // prevents DivideByZero below
+        return 0;
     return 100 * (SonicCalcLiters(barrel) - iBarrel[barrel]._volume_min) / (iBarrel[barrel]._volume_max - iBarrel[barrel]._volume_min);
     // exclude unusable percents below Min point
 }
@@ -1922,6 +1939,16 @@ bool BarrClass::isFull(byte barrel)
             LOG.printf("Barrel %u is full\r\n", barrel);
         }
     return SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max;
+}
+
+// test all sonic sensors 
+void BarrClass::TestSensors()
+{
+    for(byte x=0;x<NUM_OF_BARRELS;x++)
+    {
+        SonicMeasure(x, 1);
+        //vTaskDelay(10); //try without delay first to reproduce mux overload bug
+    }
 }
 /*-------- Barrels END ----------*/
 
@@ -1993,8 +2020,7 @@ void StoppedWait()
 // opens taps back
 void fmsPause(byte Source, byte Destination)
 {
-    LOG.println(F("Status Stopped! auto is paused"));
-    // State.Print(); // should print by state_change_check anyway
+    LOG.println(F("Status Stopped! auto paused\r\n"));
     // if no source barrel = we are filling
     if (Source == 0xFF)
     {
@@ -2098,10 +2124,15 @@ void Fill(byte barrel, uint16_t requirement)
     { 
         // LOGIC
         Barrels.FreshwaterFillCalc(barrel); // assign flowcount to barrel         
-        if (Barrels.isFull(barrel)) // if barrel ammount is Full then stop
+        if (Barrels.isFull(barrel) && !Barrels.Errors(barrel)) // if barrel ammount is Full then stop
         {
             LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
             break;
+        }
+        if (Barrels.Errors(barrel))
+        {
+            LOG.printf("Barrel %u error state %u auto paused.\r\n", barrel, Barrels.Errors(barrel));
+            State.Set(STOPPED_STATE);
         }
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
@@ -2177,6 +2208,16 @@ void Store(byte barrel, byte target)
         // every 50 liters (not too often for good calculation accuracy)
         if (Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS) > 50)
             Barrels.NutrientsTransferCalc(barrel, target);
+        if (Barrels.Errors(barrel))
+        {
+            LOG.printf("Barrel %u error state %u auto paused.\r\n", barrel, Barrels.Errors(barrel));
+            State.Set(STOPPED_STATE);
+        }
+        if (Barrels.Errors(target))
+        {
+            LOG.printf("Target %u error state %u auto paused.\r\n", target, Barrels.Errors(target));
+            State.Set(STOPPED_STATE);
+        }
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
             fmsPause(barrel, POOLS);
@@ -2208,6 +2249,11 @@ void Drain(byte barrel, uint16_t requirement)
     {
         // LOGIC
         State.DrainRecalc(barrel);
+        if (Barrels.Errors(barrel))
+        {
+            LOG.printf("Barrel %u error state %u auto paused.\r\n", barrel, Barrels.Errors(barrel));
+            State.Set(STOPPED_STATE);
+        }
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
             fmsPause(barrel, POOLS);
@@ -2222,7 +2268,7 @@ void Drain(byte barrel, uint16_t requirement)
     vTaskDelay(1000);
     State.DrainRecalc(barrel); // last flow calculation
     Flow.Reset(NUTRIENTS); // reset flow counter 2
-    LOG.printf("END Draining %uL from barrel:%u\r\n", barrel_before - Barrels.NutriGet(barrel), barrel);
+    LOG.printf("END Draining. Drained %uL from barrel:%u\r\n", barrel_before - Barrels.NutriGet(barrel), barrel);
     Serial.println();
 }
 
@@ -2321,7 +2367,10 @@ void fmsTask(void * pvParameters)
                     State.MoveStoreUp();
                 // all storage barrels empty?
                 else
+                {
+                    LOG.println("No more non-empty barrels to drain. doing another fill cycle");
                     break; // totally empty - will do another cycle fms to refill
+                }
             }
             if (!State.DrainMore())
                 State.Unset(DRAINIG_STATE);
@@ -3523,7 +3572,10 @@ void setup()
     //mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     MDNS.addService("http", "tcp", 80); // add mDNS http port
 
-   Expanders.setRGBLED(LED_OFF);
+    // test all ultrasonic sensors
+    Barrels.TestSensors();
+
+    Expanders.setRGBLED(LED_OFF);
     //SendSMS("System Started");
 }
 
