@@ -69,15 +69,9 @@ more info and license - soon
 #define PRESSURE_DISCONNECT 3
 #define PRESSURE_SHORTCIRCUIT 4
 
-#define PRES_SENSOR_FRESHWATER 1
-#define PRES_SENSOR_NUTRIENTS 2
-
-#define FLOW_SENSOR_FRESHWATER 1
-#define FLOW_SENSOR_NUTRIENTS 2
-
-#define BARREL_FRESHWATER 1
-#define BARREL_NUTRIENTS 2
-
+// sensor number
+#define FRESHWATER 1
+#define NUTRIENTS 2
 
 #define MUX_UNLOCKED 255 //valid channels are 0-15
 
@@ -115,7 +109,6 @@ more info and license - soon
 //#define DEBUG_SD
 //define DEBUG_MORE
 
-
 // Globals
 FS *disk = &SPIFFS; // default
 File file;
@@ -143,21 +136,18 @@ void Mix(byte barrel);
 void Store(byte barrel, byte target);
 void Drain(byte barrel, uint16_t requirement);
 
-//structs
+/*-------- Structs Begin ----------*/
 struct sSystem
 {
     //bit field
-    //00NFMSEX
-    // N = maNual mode on - overrides stopped
-    // F = Filling task on
-    // M = Mixing task on
-    // S = Storing task on
-    // E = Emptying task on
-    // X = stopped status on
-    // 00NFMSEX
+    //000FMSDX
+    // F = Filling state
+    // M = Mixing state
+    // S = Storing state
+    // D = Draining state
+    // X = stopped state
     byte _state_now = 17; // 00010001 - filling + waiting for nutes - initial system state
     byte _state_before = 0;
-
     // bit field
     //000CBA987654321
     //0-0-no errors
@@ -169,16 +159,8 @@ struct sSystem
     //6-32-no power
     //7-64-barrels error
     //8-128-
-    //9-256-
-    //A-512-
-    //B-1024-
-    //C-2048-
-    //D-4096-
-    //E-8192-
-    //F-16384-
     uint16_t _error_now = 0;
     uint16_t _error_before = 0;
-    // fmsd
     uint16_t _fill_req = 500;            // total liters to fill 
     uint16_t _mix_req = 3;               // total minutes to mix
     uint16_t _mix_timer = _mix_req;   // minutes to mix this time
@@ -186,8 +168,7 @@ struct sSystem
     uint32_t _drain_total = 0;                 // how many liters totally drained
     byte _filling_barrel = 0;                    // mixer barrel
     byte _storing_barrel = NUM_OF_BARRELS - 1;   // last barrel (NUM_OF_BARRELS -1 cause we start from zero)
-    // 0 cancel, 1 fill, 2 mix, 3 store, 4 drain
-    byte _manual_task = 0;
+    byte _manual_task = 0; // 0 cancel, 1 fill, 2 mix, 3 store, 4 drain
     byte _manual_src = 0;
     byte _manual_dest = 0;
     uint16_t _manual_ammo = 0;
@@ -205,26 +186,20 @@ struct sBarrel
     //5 0x20 -
     //6 0x40 - disabled manually
     //7 0x80 - other error
-    byte _ErrorState = 0;
-    float _Concentraion = 0;            // percent of nutrients in solution
-    float _ConcentraionLast = 0;        // percent of nutrients in solution
-    uint16_t _VolumeFreshwater = 0;     // data from flow sensor
-    uint16_t _VolumeFreshwaterLast = 0; // data from flow sensor
-    uint16_t _VolumeNutrients = 0;      // data from flow sensor
-    uint16_t _VolumeNutrientsLast = 0;  // data from flow sensor
-    uint16_t _SonicLastValue = 0;       // updated on every sonic measurement
-    float _SonicLastError = 0;          // +- percent error in measurement
-    byte _SonicHighErrors = 0;          // error > 5% last few times? how to calc?
-                                        //static calibration values - set once at calibration
-    // calibrate by filling and draining
-    uint16_t _VolumeMin = 0; // for flow and sonic sensors
-    // calibrate by filling untill miscalculation
-    uint16_t _VolumeMax = 500; // for flow and sonic sensors
-    // calibrate by filling 100L
-    // also can be calculated by barrel diameter
-    uint16_t _SonicMLinMM = 1130; // mililiters in 1 milimeter
-    // calibrate by dry barrel height
-    uint16_t _SonicOffset = 1000; // mm to barrel's full point
+    byte _error_state = 0;
+    float _concentraion = 0;            // percent of nutrients in solution
+    float _concentraion_last = 0;        // percent of nutrients in solution
+    uint16_t _volume_freshwater = 0;     // data from flow sensor
+    uint16_t _volume_freshwater_last = 0; // data from flow sensor
+    uint16_t _volume_nutrients = 0;      // data from flow sensor
+    uint16_t _volume_nutrients_last = 0;  // data from flow sensor
+    uint16_t _sonic_last_value = 0;       // updated on every sonic measurement
+    float _sonic_last_error = 0;          // +- percent error in measurement
+    byte _sonic_high_errors = 0;          // error > 5% last few times? how to calc?
+    uint16_t _volume_min = 0; // for flow and sonic sensors - calibrate by filling and draining
+    uint16_t _volume_max = 500; // for flow and sonic sensors - calibrate by filling untill miscalculation
+    uint16_t _ml_in_mm = 1130; // mililiters in 1 milimeter - calibrate by filling 100L, also can calculate by barrel diameter
+    uint16_t _barrel_height = 1000; // mm to barrel's dry empty point - calibrate by dry barrel height
 };
 
 struct sPressure
@@ -234,7 +209,7 @@ struct sPressure
     //3 overpressure
     //2 disconnected
     //4 short circuit
-    byte _ErrorState = 0;
+    byte _error_state = 0;
     byte _sensorPin = 255; // defaults
     byte _divider = 10;    //36;
     int16_t _offset = 0;      //-145;
@@ -251,8 +226,9 @@ struct sFlow
     volatile uint32_t _flow = 0;
     volatile uint32_t _lastMilis = 0;
 };
+/*-------- Structs END ----------*/
 
-//classes
+/*-------- Class Declaration Begin ----------*/
 class ExpaClass
 {
 private:
@@ -271,18 +247,20 @@ public:
     void DrainingRelay(byte address, bool state);
     byte DrainingRelayGet(byte address);
     void Pump(bool state);
-} expanders; // initiated globally
+} Expanders;
 
 class StatClass
 {
 private:
     sSystem iState;
 public:
+    void begin();
     bool LoadSD();
     bool SaveSD();
     byte Get();
     void IRAM_ATTR Set(byte mask);
-    void IRAM_ATTR Unset(uint16_t mask);
+    void IRAM_ATTR Unset(byte mask);
+    void Override(byte state);
     void Apply();
     void Revert();
     bool Check(byte mask);
@@ -292,7 +270,7 @@ public:
     bool isError(uint16_t error);
     void SetError(uint16_t error);
     void UnsetError(uint16_t error);
-    void begin();
+    void OverrideError(uint16_t error);
     uint16_t FillRequirement();
     void SetFillReq(uint16_t req);
     byte FillBarrel();
@@ -315,21 +293,21 @@ public:
     byte ManualSource();
     byte ManualDestination();
     uint16_t ManualAmmount();
-
 } State;
 
 class BarrClass
 {
 private:
-    sBarrel iBarrel[8];
+    sBarrel iBarrel[NUM_OF_BARRELS];
 public:
     bool LoadSD();
     bool SaveSD();
-    byte ErrorGet(byte barrel);
+    byte Errors(byte barrel);
     bool ErrorCheck(byte barrel, byte mask);
     void ErrorSet(byte barrel, byte mask);
     void ErrorUnset(byte barrel, byte mask);
-    void ErrorReset(byte barrel);
+    void Reset(byte barrel);
+    void ErrorOverride(byte barrel, byte error);
     uint16_t FreshGet(byte barrel);
     uint16_t NutriGet(byte barrel);
     void NutriLess(byte barrel, uint32_t liters);
@@ -340,63 +318,67 @@ public:
     void NutrientsTransferCalc(byte from, byte to);
     uint16_t VolumeMax(byte barrel);
     uint16_t VolumeMin(byte barrel);
+    void VolumeMaxSet(byte barrel, uint16_t volume);
+    void VolumeMinSet(byte barrel, uint16_t volume);
     void SonicMeasure(byte barrel, byte measure = 10, uint16_t timeLeft = 1000, byte retryLeft = 5);
     uint16_t SonicLastMM(byte barrel);
     int16_t SonicLastMMfromEmpty(byte barrel);
-    uint16_t SonicOffsetGet(byte barrel);
+    uint16_t SonicOffset(byte barrel);
     uint16_t SonicMLinMMGet(byte barrel);
     void SonicOffsetSet(byte barrel, uint16_t offs);
     void SonicMLinMMSet(byte barrel, uint16_t coef);
     int16_t SonicCalcLiters(byte barrel);
+    void Save100LitersMark(byte barrel);
     int8_t BarrelPercents(byte barrel);
     int16_t SonicLitersTotal();
     int16_t SonicLitersUsable();
     bool isDry(byte barrel);
     bool isEmpty(byte barrel);
     bool isFull(byte barrel);
-} barrels;
+} Barrels;
 
 class FSClass
 {
 private:
     sFlow iFsens[2]; // two sensors
 public:
-    uint16_t FlowGet(byte sens);
-    void IRAM_ATTR CounterInc(byte sens);
-    uint32_t CounterGet(byte sens);
-    void CounterSubtract(byte sens, uint32_t value);
-    void CounterReset(uint_fast8_t sens);
-    uint16_t DividerGet(byte sens);
-    void DividerSet(byte sens, uint16_t div);
+    void begin();
     bool LoadSD();
     bool SaveSD();
-    void begin();
-} flow;
+    uint16_t Get(byte sens);
+    void IRAM_ATTR Count(byte sens);
+    uint32_t Counted(byte sens);
+    void CounterSubtract(byte sens, uint32_t value);
+    void Reset(uint_fast8_t sens);
+    uint16_t Divider(byte sens);
+    void DividerSet(byte sens, uint16_t div);
+} Flow;
 
 class PSClass
 {
 private:
     sPressure iPsens[2]; // two sensor
 public:
-    void setSensor(byte sens, byte sensorPin);
-    byte DividerGet(byte sens);
-    void DividerSet(byte sens, byte div);
-    int16_t OffsetGet(byte sens);
-    void OffsetSet(byte sens, int16_t offs);
-    byte MaxGet(byte sens);
-    void MaxSet(byte sens, byte max);
-    byte MinGet(byte sens);
-    void MinSet(byte sens, byte min);
     bool LoadSD();
     bool SaveSD();
+    void setSensor(byte sens, byte sensorPin);
+    byte Divider(byte sens);
+    void DividerSet(byte sens, byte div);
+    int16_t Offset(byte sens);
+    void OffsetSet(byte sens, int16_t offs);
+    byte Max(byte sens);
+    void MaxSet(byte sens, byte max);
+    byte Min(byte sens);
+    void MinSet(byte sens, byte min);
     int16_t LastValue(byte sens);
     int16_t measure(byte sens);
-    byte ErrorGet(byte sens);
-    void ErrorReset(byte sens);
+    byte Errors(byte sens);
+    void Reset(byte sens);
     bool Enabled(byte sens);
     void Enable(byte sens);
     void Disable(byte sens);
-} pressure; 
+} Pressure; 
+/*-------- Class declaration END ----------*/
 
 /*-------- Filesystem Begin ----------*/
 // SD Card and SPIFFS
@@ -754,7 +736,7 @@ void SendSMS(const char *message, byte item)
         LOG.printf("sms: %s\r\n", message);
     }
 
-    expanders.LockMUX(7);                          // modem is at port 7
+    Expanders.LockMUX(7);                          // modem is at port 7
     vTaskDelay(10);                                 // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\""); //change ZZ with country code and xxxxxxxxxxx with phone number to sms
     Serial2.print(message);                       //text content
@@ -762,7 +744,7 @@ void SendSMS(const char *message, byte item)
         Serial2.print(item);
     Serial2.write(26); // send ctrl+z end of message
     //Serial2.print((char)26); // if the above won't work - thy this one instead
-    expanders.UnlockMUX();
+    Expanders.UnlockMUX();
     //Serial.println(); // add newline after sendsms for log readability
 }
 
@@ -783,19 +765,46 @@ void modemInit()
     #ifdef DEBUG
     LOG.println("-modem init");
     #endif
-    expanders.LockMUX(7); // modem is at port 7
+    Expanders.LockMUX(7); // modem is at port 7
     vTaskDelay(10);     // wait until expander + mux did their job
     // Serial2.begin(9600, SERIAL_8N1); // already done in main
     Serial2.println("AT");        //Once the handshake test is successful, it will back to OK
     Serial2.println("AT+CMGF=1"); // Configuring TEXT mode
-    expanders.UnlockMUX();        // Must unlock after every use!!
+    Expanders.UnlockMUX();        // Must unlock after every use!!
 }
 /*-------- Modem END ----------*/
 
 /*-------- State Begin ----------*/
+void StatClass::begin()
+{
+    #ifdef DEBUG_MORE
+    LOG.printf("-System: init start stop at pins %u, %u\r\n", START_PIN, STOP_PIN);
+    #endif
+    pinMode(START_PIN, INPUT_PULLUP);
+    // pinMode(STOP_PIN, INPUT_PULLUP); // already pulled up by hardware
+    attachInterrupt(digitalPinToInterrupt(START_PIN), StartButtonInterrupt, FALLING);
+    attachInterrupt(digitalPinToInterrupt(STOP_PIN), StopButtonInterrupt, FALLING);
+}
+
 bool StatClass::LoadSD() { return Load("/SysState.bin", (byte *)&iState, sizeof(iState)); }
 
 bool StatClass::SaveSD() { return Save("/SysState.bin", (byte *)&iState, sizeof(iState)); }
+
+void IRAM_ATTR StartButtonInterrupt()
+{
+    portENTER_CRITICAL_ISR(&mux);
+    State.Unset(STOPPED_STATE);
+    State.ResetManual();
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
+void IRAM_ATTR StopButtonInterrupt()
+{
+    portENTER_CRITICAL_ISR(&mux);
+    State.Set(STOPPED_STATE);
+    State.ResetManual();
+    portEXIT_CRITICAL_ISR(&mux);
+}
 
 // returns system state raw integer value (0=uninitiated)
 byte StatClass::Get() { return iState._state_now; }
@@ -804,7 +813,14 @@ byte StatClass::Get() { return iState._state_now; }
 void IRAM_ATTR StatClass::Set(byte mask) { iState._state_now |= mask; }
 
 // unset mask from state  (FILLING_STALE,STORING_STATE....)
-void IRAM_ATTR StatClass::Unset(uint16_t mask) { iState._state_now &= ~mask; }
+void IRAM_ATTR StatClass::Unset(byte mask) { iState._state_now &= ~mask; }
+
+// dangerous - override system state
+void StatClass::Override(byte state) 
+{ 
+    LOG.printf("Overriding system state from:%u to:%u\r\n", iState._state_now, state);
+    iState._state_now = state; 
+}
 
 // preserve prevoius state
 void StatClass::Apply() { iState._state_before = iState._state_now; }
@@ -839,6 +855,13 @@ bool StatClass::isChanged()
     {
         Apply();
         Print();
+        if (!digitalRead(START_PIN) && !digitalRead(STOP_PIN))
+        {
+            LOG.println("Start and Stop pressed together");
+            State.Set(STOPPED_STATE);
+            Apply(); // prevent double trigger
+            Expanders.Protect(true);
+        }
         //SaveStructs(); // disabled untill webUI implemented
         return true;
     }
@@ -857,28 +880,36 @@ void StatClass::SetError(uint16_t error) { iState._error_now |= error; }
 // unset error using mask
 void StatClass::UnsetError(uint16_t error) { iState._error_now &= ~error; }
 
-void StatClass::begin()
+// Dangerous - override error state
+void StatClass::OverrideError(uint16_t error) 
 {
-    #ifdef DEBUG_MORE
-    LOG.printf("-System: init start stop at pins %u, %u\r\n", START_PIN, STOP_PIN);
-    #endif
-    pinMode(START_PIN, INPUT_PULLUP);
-    // pinMode(STOP_PIN, INPUT_PULLUP); // already pulled up by hardware
-    attachInterrupt(digitalPinToInterrupt(START_PIN), StartButtonInterrupt, FALLING);
-    attachInterrupt(digitalPinToInterrupt(STOP_PIN), StopButtonInterrupt, FALLING);
+    LOG.printf("Overriding error state from:%u to:%u\r\n", iState._error_now, error);
+    iState._error_now = error;
 }
 
 uint16_t StatClass::FillRequirement() {return iState._fill_req;}
 
-void StatClass::SetFillReq(uint16_t req) {iState._fill_req = req;}
+void StatClass::SetFillReq(uint16_t req) 
+{
+    LOG.printf("Changing fill requirement from:%u to:%u\r\n", iState._fill_req, req);
+    iState._fill_req = req;
+}
 
 byte StatClass::FillBarrel() {return iState._filling_barrel;}
 
-void StatClass::SetFillBarrel(byte barrel) {iState._filling_barrel = barrel;}
+void StatClass::SetFillBarrel(byte barrel) 
+{
+    LOG.printf("Changing fill barrel from:%u to:%u\r\n", iState._filling_barrel, barrel);
+    iState._filling_barrel = barrel;
+}
 
 uint16_t StatClass::MixRequirement() {return iState._mix_req;}
 
-void StatClass::SetMixReq(uint16_t req) {iState._mix_req = req;}
+void StatClass::SetMixReq(uint16_t req) 
+{
+    LOG.printf("Changing mix requirement from:%u to:%u\r\n", iState._mix_req, req);
+    iState._mix_req = req;
+}
 
 // returns time left to mix
 uint16_t StatClass::MixTimer() {return iState._mix_timer;}
@@ -891,11 +922,19 @@ void StatClass::MixLess()
 }
 
 // resets mix timer to default value
-void StatClass::MixReset() {iState._mix_timer = iState._mix_req;}
+void StatClass::MixReset()
+{
+    LOG.printf("resetting mix timer from:%u to:%umin.\r\n", iState._mix_timer, iState._mix_req);  
+    iState._mix_timer = iState._mix_req;
+}
 
 byte StatClass::StoreBarrel() {return iState._storing_barrel;}
 
-void StatClass::SetStoreBarrel(byte barrel) {iState._storing_barrel = barrel;}
+void StatClass::SetStoreBarrel(byte barrel) 
+{
+    LOG.printf("Changing store barrel from:%u to:%u\r\n", iState._storing_barrel, barrel);
+    iState._storing_barrel = barrel;
+}
 
 void StatClass::MoveStoreUp() 
 {
@@ -916,7 +955,11 @@ void StatClass::MoveStoreDown()
     }
 }
 
-void StatClass::SetDrainReq(uint16_t req) {iState._drain_req = req;}
+void StatClass::SetDrainReq(uint16_t req) 
+{
+    LOG.printf("Changing drain requirement from:%u to:%u\r\n", iState._drain_req, req);
+    iState._drain_req = req;
+}
 
 // returns how much to drain
 uint16_t StatClass::DrainMore() {return iState._drain_req;}
@@ -932,14 +975,14 @@ void StatClass::DrainRecalc(byte barrel)
     // flow counter may be increased during calculation 
     // because flowsensor works on interrupts
     // so capturing only the current state for count
-    uint32_t liters = flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS);
+    uint32_t liters = Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS);
     if (iState._drain_req) // prevent integer overflow
         iState._drain_req -= liters;
     if (iState._drain_total<UINT32_MAX) // prevent integer overflow
         iState._drain_total += liters;
-    barrels.NutriLess(barrel, liters);
+    Barrels.NutriLess(barrel, liters);
     // decrement flow counter by "counted so far" pulses (liters times divider)
-    flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, liters * flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
+    Flow.CounterSubtract(NUTRIENTS, liters * Flow.Divider(NUTRIENTS));
 }
 
 void StatClass::SetManual(byte task, byte src, byte dest, uint16_t ammo)
@@ -959,22 +1002,6 @@ byte StatClass::ManualSource() {return iState._manual_src;}
 byte StatClass::ManualDestination() {return iState._manual_dest;}
 
 uint16_t StatClass::ManualAmmount() {return iState._manual_ammo;}
-
-void IRAM_ATTR StartButtonInterrupt()
-{
-    portENTER_CRITICAL_ISR(&mux);
-    State.Unset(STOPPED_STATE);
-    State.ResetManual();
-    portEXIT_CRITICAL_ISR(&mux);
-}
-
-void IRAM_ATTR StopButtonInterrupt()
-{
-    portENTER_CRITICAL_ISR(&mux);
-    State.Set(STOPPED_STATE);
-    State.ResetManual();
-    portEXIT_CRITICAL_ISR(&mux);
-}
 /*-------- State END ----------*/
 
 /*-------- FlowSensor Begin ----------*/
@@ -993,8 +1020,40 @@ From the spec sheet:
 etc.  Max 30 L/min
 */
 
+// attach interrupts
+void FSClass::begin()
+{
+    #ifdef DEBUG_MORE
+    LOG.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
+    #endif
+    pinMode(FLOW_1_PIN, INPUT_PULLUP);
+    pinMode(FLOW_2_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, FALLING);
+    attachInterrupt(digitalPinToInterrupt(FLOW_2_PIN), FlowSensor2Interrupt, FALLING);
+}
+
+bool FSClass::LoadSD() { return Load("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
+
+bool FSClass::SaveSD() { return Save("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
+
+//flow sensor 1 interrupt routine
+void IRAM_ATTR FlowSensor1Interrupt()
+{
+    portENTER_CRITICAL_ISR(&mux);
+    Flow.Count(0);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
+//flow sensor 2 interrupt routine
+void IRAM_ATTR FlowSensor2Interrupt()
+{
+    portENTER_CRITICAL_ISR(&mux);
+    Flow.Count(1);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
 // returns flow in mililiters per second for sensor No(sens)
-uint16_t FSClass::FlowGet(byte sens)
+uint16_t FSClass::Get(byte sens)
 {
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1005,7 +1064,7 @@ uint16_t FSClass::FlowGet(byte sens)
 }                                                                                                          // Guru Meditation Error: Core  1 panic'ed (IntegerDivideByZero). Exception was unhandled.
 
 // executed by interrupt to increase counter
-void IRAM_ATTR FSClass::CounterInc(byte sens)
+void IRAM_ATTR FSClass::Count(byte sens)
 {
     iFsens[sens]._counter++;
     iFsens[sens]._flow = millis() - iFsens[sens]._lastMilis; // interval in miliseconds from the last call
@@ -1013,7 +1072,7 @@ void IRAM_ATTR FSClass::CounterInc(byte sens)
 }
 
 // get raw flow counter pulses
-uint32_t FSClass::CounterGet(byte sens) 
+uint32_t FSClass::Counted(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1035,15 +1094,19 @@ void FSClass::CounterSubtract(byte sens, uint32_t value)
 }
 
 // reset count for sensor (sens)
-void FSClass::CounterReset(uint_fast8_t sens) 
+void FSClass::Reset(uint_fast8_t sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    iFsens[sens]._counter = 0; 
+    if (iFsens[sens]._counter)
+    {
+        LOG.printf("Reseting flowsensor %u counter, from:%u to:0\r\n", sens+1, iFsens[sens]._counter);
+        iFsens[sens]._counter = 0; 
+    }
 }
 
 // returns pulses to liter
-uint16_t FSClass::DividerGet(byte sens) 
+uint16_t FSClass::Divider(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1055,39 +1118,8 @@ void FSClass::DividerSet(byte sens, uint16_t div)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
+    LOG.printf("Changing flowsensor %u divider, from:%u to:%u\r\n", sens+1, iFsens[sens]._conversion_divider, div);
     iFsens[sens]._conversion_divider = div; 
-}
-
-bool FSClass::LoadSD() { return Load("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
-
-bool FSClass::SaveSD() { return Save("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
-
-// attach interrupts
-void FSClass::begin()
-{
-    #ifdef DEBUG_MORE
-    LOG.printf("-Flow: init sensors at pins %u, %u\r\n", FLOW_1_PIN, FLOW_2_PIN);
-    #endif
-    pinMode(FLOW_1_PIN, INPUT_PULLUP);
-    pinMode(FLOW_2_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(FLOW_1_PIN), FlowSensor1Interrupt, FALLING);
-    attachInterrupt(digitalPinToInterrupt(FLOW_2_PIN), FlowSensor2Interrupt, FALLING);
-}
-
-//https://esp32.com/viewtopic.php?t=1703
-//flow sensor 1 interrupt routine
-void IRAM_ATTR FlowSensor1Interrupt()
-{
-    portENTER_CRITICAL_ISR(&mux);
-    flow.CounterInc(0);
-    portEXIT_CRITICAL_ISR(&mux);
-}
-//flow sensor 2 interrupt routine
-void IRAM_ATTR FlowSensor2Interrupt()
-{
-    portENTER_CRITICAL_ISR(&mux);
-    flow.CounterInc(1);
-    portEXIT_CRITICAL_ISR(&mux);
 }
 /*-------- FlowSensor END ----------*/
 
@@ -1095,6 +1127,10 @@ void IRAM_ATTR FlowSensor2Interrupt()
 // Pressure Sensors Pin Declarations
 // and Analog reads
 // task pressure sensors - stops pumps on overpressure
+
+bool PSClass::LoadSD() { return Load("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
+
+bool PSClass::SaveSD() { return Save("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
 
 // init the sensor
 void PSClass::setSensor(byte sens, byte sensorPin)
@@ -1105,7 +1141,7 @@ void PSClass::setSensor(byte sens, byte sensorPin)
     pinMode(sensorPin, INPUT); // initialize analog pin for the sensor
 }
 
-byte PSClass::DividerGet(byte sens) 
+byte PSClass::Divider(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1116,10 +1152,11 @@ void PSClass::DividerSet(byte sens, byte div)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
+    LOG.printf("Changing pressensor %u divider, from:%u to:%u\r\n", sens+1, iPsens[sens]._divider, div);
     iPsens[sens]._divider = div; 
 }
 
-int16_t PSClass::OffsetGet(byte sens) 
+int16_t PSClass::Offset(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1133,7 +1170,7 @@ void PSClass::OffsetSet(byte sens, int16_t offs)
     iPsens[sens]._offset = offs; 
 }
 
-byte PSClass::MaxGet(byte sens) 
+byte PSClass::Max(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1144,10 +1181,11 @@ void PSClass::MaxSet(byte sens, byte max)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
+    LOG.printf("Changing pressensor %u max pressure point, from:%u to:%u\r\n", sens+1, iPsens[sens]._max_pressure, max);
     iPsens[sens]._max_pressure = max; 
 }
 
-byte PSClass::MinGet(byte sens) 
+byte PSClass::Min(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
@@ -1158,12 +1196,9 @@ void PSClass::MinSet(byte sens, byte min)
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
+    LOG.printf("Changing pressensor %u min pressure point, from:%u to:%u\r\n", sens+1, iPsens[sens]._min_pressure, min);
     iPsens[sens]._min_pressure = min; 
 }
-
-bool PSClass::LoadSD() { return Load("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
-
-bool PSClass::SaveSD() { return Save("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
 
 // returns last value measured by pressure sensor (sens)
 int16_t PSClass::LastValue(byte sens)
@@ -1199,13 +1234,13 @@ int16_t PSClass::measure(byte sens)
     if (pres > 255)
     {
         // stop pump
-        expanders.Pump(false);
+        Expanders.Pump(false);
         vTaskDelay(100);
-        expanders.Protect(true);
+        Expanders.Protect(true);
         // set error
-        if (p->_ErrorState != PRESSURE_SHORTCIRCUIT)
+        if (p->_error_state != PRESSURE_SHORTCIRCUIT)
         {
-            p->_ErrorState = PRESSURE_SHORTCIRCUIT;
+            p->_error_state = PRESSURE_SHORTCIRCUIT;
             LOG.printf("[E] sensor %u short circuit\r\n", sens + 1);
             SendSMS("short circuit @pressure sensor", sens + 1);
         }
@@ -1216,13 +1251,13 @@ int16_t PSClass::measure(byte sens)
     if (pres < 20)
     {
         // stop pump
-        expanders.Pump(false);
+        Expanders.Pump(false);
         vTaskDelay(100);
-        expanders.Protect(true);
+        Expanders.Protect(true);
         // set error
-        if (p->_ErrorState != PRESSURE_DISCONNECT)
+        if (p->_error_state != PRESSURE_DISCONNECT)
         {
-            p->_ErrorState = PRESSURE_DISCONNECT;
+            p->_error_state = PRESSURE_DISCONNECT;
             LOG.printf("[E] sensor %u disconnected\r\n", sens + 1);
             SendSMS("lost connection @pressure sensor", sens + 1);
         }
@@ -1233,13 +1268,13 @@ int16_t PSClass::measure(byte sens)
     if (pres > p->_max_pressure && pres < 255)
     {
         // stop pump
-        expanders.Pump(false);
+        Expanders.Pump(false);
         vTaskDelay(100);
-        expanders.Protect(true);
+        Expanders.Protect(true);
         // set error
-        if (p->_ErrorState != PRESSURE_OVERPRESSURE)
+        if (p->_error_state != PRESSURE_OVERPRESSURE)
         {
-            p->_ErrorState = PRESSURE_OVERPRESSURE;
+            p->_error_state = PRESSURE_OVERPRESSURE;
             LOG.printf("[E] sensor %u overpressure\r\n", sens + 1);
             SendSMS("Overpressure @pressure sensor", sens + 1);
         }
@@ -1248,18 +1283,18 @@ int16_t PSClass::measure(byte sens)
 
     //1  no pressure
     if (pres < p->_min_pressure)
-        //if (p->_ErrorState == PRESSURE_NORMAL)
-        p->_ErrorState = PRESSURE_NOPRESSURE;
+        //if (p->_error_state == PRESSURE_NORMAL)
+        p->_error_state = PRESSURE_NOPRESSURE;
 
     //0  normal pressure range is here
     if (pres > p->_min_pressure && pres < p->_max_pressure)
-        //if (p->_ErrorState == PRESSURE_NOPRESSURE)
-        p->_ErrorState = PRESSURE_NORMAL;
+        //if (p->_error_state == PRESSURE_NOPRESSURE)
+        p->_error_state = PRESSURE_NORMAL;
 
     // set system-wide pressure error if critical error
-    if (p->_ErrorState > 1)
+    if (p->_error_state > 1)
     {
-        expanders.setRGBLED(LED_RED);
+        Expanders.setRGBLED(LED_RED);
         if (sens == 0)
             State.SetError(ERR_WATER_PRESSURE);
         else
@@ -1274,38 +1309,56 @@ int16_t PSClass::measure(byte sens)
 //2  overpressure
 //3  disconnected
 //4  short circuit
-byte PSClass::ErrorGet(byte sens) 
+byte PSClass::Errors(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    return iPsens[sens]._ErrorState; 
+    return iPsens[sens]._error_state; 
 }
 
 // disable protect
 // unset system error
 // remeasure
-void PSClass::ErrorReset(byte sens)
+void PSClass::Reset(byte sens)
 {
+    LOG.printf("removing pressure error @sensor:%u\r\n", sens);
     // sensors now start from 1 (but arrays from 0)
     sens--;
-    LOG.printf("removing pressure error @sensor:%u", sens);
-    expanders.Protect(false);
-    iPsens[sens]._ErrorState = 0;
+    Expanders.Protect(false);
+    iPsens[sens]._error_state = 0;
     if (!sens) // sensor-0 freshwater
         State.UnsetError(ERR_WATER_PRESSURE);
     else // sensor-1 nutrients
         State.UnsetError(ERR_NUTRI_PRESSURE);
     // back to one - cause we calling function that also counts from one
     sens++;
-    measure(sens);
+    // remeasure to check sensor health
+    if (Enabled(sens))
+        measure(sens);
 }
 
-bool PSClass::Enabled(byte sens) { return iPsens->_enabled; }
+bool PSClass::Enabled(byte sens) 
+{ 
+    // sensors now start from 1 (but arrays from 0)
+    sens--;
+    return iPsens[sens]._enabled;
+}
 
-void PSClass::Enable(byte sens) { iPsens[sens]._enabled = true; }
+void PSClass::Enable(byte sens) 
+{
+    // sensors now start from 1 (but arrays from 0)
+    sens--;
+    iPsens[sens]._enabled = true; 
+    LOG.printf("pressensor %u Enabled\r\n", sens+1);
+}
 
-void PSClass::Disable(byte sens) { iPsens[sens]._enabled = false; }
-
+void PSClass::Disable(byte sens)
+{
+    // sensors now start from 1 (but arrays from 0)
+    sens--;
+    iPsens[sens]._enabled = false; 
+    LOG.printf("pressensor %u Disabled\r\n", sens+1);
+}
 /*-------- PressureSensor END ----------*/
 
 /*-------- Barrels Begin ----------*/
@@ -1314,51 +1367,63 @@ bool BarrClass::LoadSD() { return Load("/Barrels.bin", (byte *)&iBarrel, sizeof(
 bool BarrClass::SaveSD() { return Save("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
 
 // error handling
-byte BarrClass::ErrorGet(byte barrel) { return iBarrel[barrel]._ErrorState; }
-bool BarrClass::ErrorCheck(byte barrel, byte mask) { return iBarrel[barrel]._ErrorState & mask; }
+byte BarrClass::Errors(byte barrel) { return iBarrel[barrel]._error_state; }
+bool BarrClass::ErrorCheck(byte barrel, byte mask) { return iBarrel[barrel]._error_state & mask; }
 void BarrClass::ErrorSet(byte barrel, byte mask)
 {
-    iBarrel[barrel]._ErrorState |= mask;
+    iBarrel[barrel]._error_state |= mask;
     LOG.printf("[E] Barr%u:e%u\r\n", barrel, mask);
 }
-void BarrClass::ErrorUnset(byte barrel, byte mask) { iBarrel[barrel]._ErrorState &= ~mask; }
-void BarrClass::ErrorReset(byte barrel) { iBarrel[barrel]._ErrorState = 0; }
+void BarrClass::ErrorUnset(byte barrel, byte mask) { iBarrel[barrel]._error_state &= ~mask; }
+
+void BarrClass::Reset(byte barrel) 
+{ 
+    LOG.printf("Barrel %u error state reset, from:%u to:0\r\n", barrel, iBarrel[barrel]._error_state);
+    iBarrel[barrel]._error_state = 0; 
+}
+
+// dangerous - override barrel error
+void BarrClass::ErrorOverride(byte barrel, byte error) 
+{ 
+    LOG.printf("Barrel %u error state overridden, from:%u to:%u\r\n", barrel, iBarrel[barrel]._error_state, error);
+    iBarrel[barrel]._error_state = error; 
+}
 
 // freshwater counted by flow for (barrel)
-uint16_t BarrClass::FreshGet(byte barrel) { return iBarrel[barrel]._VolumeFreshwater; }
+uint16_t BarrClass::FreshGet(byte barrel) { return iBarrel[barrel]._volume_freshwater; }
 
 // nutrients counted by flow for (barrel)
-uint16_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._VolumeNutrients; }
+uint16_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._volume_nutrients; }
 
 // decrease barrel by drained ammount
 void BarrClass::NutriLess(byte barrel, uint32_t liters)
 {
-    iBarrel[barrel]._VolumeNutrients -= liters;
+    iBarrel[barrel]._volume_nutrients -= liters;
 }
 
 // add fresh flow couter to barrel, then Subtract it from flowsensor
 void BarrClass::FreshwaterFillCalc(byte barrel)
 {
     sBarrel *b = &iBarrel[barrel];
-    if (b->_VolumeFreshwaterLast != b->_VolumeFreshwater) // safeguard
-        b->_VolumeFreshwater = b->_VolumeFreshwaterLast;
+    if (b->_volume_freshwater_last != b->_volume_freshwater) // safeguard
+        b->_volume_freshwater = b->_volume_freshwater_last;
 
-    uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
+    uint32_t tempflow = Flow.Counted(FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
     if (tempflow)
     {
         LOG.printf("tempflow so far: %u\r\n", tempflow);
-        tempflow /= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // integral part, fractional part discarded.
+        tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
         LOG.printf("tempflow in liters: %u\r\n", tempflow);
-        b->_VolumeFreshwater += tempflow;
-        tempflow *= flow.DividerGet(FLOW_SENSOR_FRESHWATER); // getting pulse count back - only the integral part
+        b->_volume_freshwater += tempflow;
+        tempflow *= Flow.Divider(FRESHWATER); // getting pulse count back - only the integral part
         LOG.printf("tempflow integral part: %u\r\n", tempflow);
-        flow.CounterSubtract(FLOW_SENSOR_FRESHWATER, tempflow);              // counter 1 is freshwater
+        Flow.CounterSubtract(FRESHWATER, tempflow);              // counter 1 is freshwater
     }
     else
     {
         LOG.println("0 flow so far. skipping");
     }
-    b->_VolumeFreshwaterLast = b->_VolumeFreshwater; // after
+    b->_volume_freshwater_last = b->_volume_freshwater; // after
 }
 
 //https://sciencing.com/calculate-concentration-solution-different-concentrations-8680786.html
@@ -1370,10 +1435,10 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
 float BarrClass::ConcentrationTotal(byte barrel)
 {
     sBarrel *b = &iBarrel[barrel];
-    if (!b->_VolumeNutrients && !b->_VolumeFreshwater)
+    if (!b->_volume_nutrients && !b->_volume_freshwater)
         return 0; // empty barrels - prevent Divide By Zero!
     else
-        return b->_Concentraion * b->_VolumeNutrients / (b->_VolumeNutrients + b->_VolumeFreshwater); // mix
+        return b->_concentraion * b->_volume_nutrients / (b->_volume_nutrients + b->_volume_freshwater); // mix
 }
 
 // calc new concentration:
@@ -1381,14 +1446,14 @@ float BarrClass::ConcentrationTotal(byte barrel)
 void BarrClass::ConcentrationRecalc(byte barrel)
 {
     sBarrel *b = &iBarrel[barrel];
-    if (b->_VolumeFreshwater)
+    if (b->_volume_freshwater)
     {
-        if (b->_ConcentraionLast != b->_Concentraion)
-            b->_Concentraion = b->_ConcentraionLast; // safeguard
-        b->_Concentraion = ConcentrationTotal(barrel);
-        b->_VolumeNutrients += b->_VolumeFreshwater;
-        b->_VolumeFreshwater = 0;
-        b->_ConcentraionLast = b->_Concentraion;
+        if (b->_concentraion_last != b->_concentraion)
+            b->_concentraion = b->_concentraion_last; // safeguard
+        b->_concentraion = ConcentrationTotal(barrel);
+        b->_volume_nutrients += b->_volume_freshwater;
+        b->_volume_freshwater = 0;
+        b->_concentraion_last = b->_concentraion;
     }
     else
     {
@@ -1404,12 +1469,12 @@ bool BarrClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
     sBarrel *b = &iBarrel[barrel];
     uint16_t tempLiters = 0;
     //check target barrel current state
-    if (type == BARREL_FRESHWATER)
-        tempLiters += b->_VolumeFreshwater;
+    if (type == FRESHWATER)
+        tempLiters += b->_volume_freshwater;
     else
-        tempLiters += b->_VolumeNutrients;
+        tempLiters += b->_volume_nutrients;
     //add data from flowsensor
-    tempLiters += flow.CounterGet(type) / flow.DividerGet(type);
+    tempLiters += Flow.Counted(type) / Flow.Divider(type);
     //check if target reached
     return tempLiters >= target;
 }
@@ -1421,69 +1486,82 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
     sBarrel *a = &iBarrel[from];
     sBarrel *b = &iBarrel[to];
     // calc new concentration before transer so transfeting only nutrients @concentration
-    if (a->_VolumeFreshwater)
+    if (a->_volume_freshwater)
         ConcentrationRecalc(from);
-    if (b->_VolumeFreshwater)
+    if (b->_volume_freshwater)
         ConcentrationRecalc(to);
     // both barrels now have only Nutrients @ concentration
 
     // safeguards below
-    if (a->_VolumeNutrientsLast != a->_VolumeNutrients)
-        a->_VolumeNutrients = a->_VolumeNutrientsLast;
+    if (a->_volume_nutrients_last != a->_volume_nutrients)
+        a->_volume_nutrients = a->_volume_nutrients_last;
 
-    if (b->_VolumeNutrientsLast != b->_VolumeNutrients)
-        b->_VolumeNutrients = b->_VolumeNutrientsLast;
+    if (b->_volume_nutrients_last != b->_volume_nutrients)
+        b->_volume_nutrients = b->_volume_nutrients_last;
 
-    if (a->_ConcentraionLast != a->_Concentraion)
-        a->_Concentraion = a->_ConcentraionLast;
+    if (a->_concentraion_last != a->_concentraion)
+        a->_concentraion = a->_concentraion_last;
 
-    if (b->_ConcentraionLast != b->_Concentraion)
-        b->_Concentraion = b->_ConcentraionLast;
+    if (b->_concentraion_last != b->_concentraion)
+        b->_concentraion = b->_concentraion_last;
 
-    uint32_t tempflow = flow.CounterGet(FLOW_SENSOR_NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
+    uint32_t tempflow = Flow.Counted(NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
     if (tempflow)
     {
-        tempflow /= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);         // integral part, fractional part discarded.
+        tempflow /= Flow.Divider(NUTRIENTS);         // integral part, fractional part discarded.
         LOG.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
-        LOG.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
+        LOG.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_volume_nutrients, to, b->_volume_nutrients);
         // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
         // recheck this implementation !!! should I calc before adding counter?
-        LOG.printf("concentration before: %f\r\n", b->_Concentraion);
-        b->_Concentraion = ((a->_Concentraion / 100 * tempflow) + (b->_Concentraion / 100 * b->_VolumeNutrients)) / (tempflow + b->_VolumeNutrients) * 100;
+        LOG.printf("concentration before: %f\r\n", b->_concentraion);
+        b->_concentraion = ((a->_concentraion / 100 * tempflow) + (b->_concentraion / 100 * b->_volume_nutrients)) / (tempflow + b->_volume_nutrients) * 100;
         // recheck this implementation !!!
         // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
         // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
 
-        a->_VolumeNutrients -= tempflow;
-        b->_VolumeNutrients += tempflow;
-        tempflow *= flow.DividerGet(FLOW_SENSOR_NUTRIENTS);     // getting pulse count back - only the integral part
-        flow.CounterSubtract(FLOW_SENSOR_NUTRIENTS, tempflow); // counter 2 is nutrients
+        a->_volume_nutrients -= tempflow;
+        b->_volume_nutrients += tempflow;
+        tempflow *= Flow.Divider(NUTRIENTS);     // getting pulse count back - only the integral part
+        Flow.CounterSubtract(NUTRIENTS, tempflow); // counter 2 is nutrients
     }
     else
     {
         LOG.println("0 flow so far. skipping");
     }
 
-    a->_VolumeNutrientsLast = a->_VolumeNutrients;
-    b->_VolumeNutrientsLast = b->_VolumeNutrients;
-    a->_ConcentraionLast = a->_Concentraion;
-    b->_ConcentraionLast = b->_Concentraion;
+    a->_volume_nutrients_last = a->_volume_nutrients;
+    b->_volume_nutrients_last = b->_volume_nutrients;
+    a->_concentraion_last = a->_concentraion;
+    b->_concentraion_last = b->_concentraion;
     if (tempflow)
     {
-        LOG.printf("source barrel %u after: %u, target barrel %u after: %u\r\n", from, a->_VolumeNutrients, to, b->_VolumeNutrients);
-        LOG.printf("concentration after: %f\r\n", b->_Concentraion);
+        LOG.printf("source barrel %u after: %u, target barrel %u after: %u\r\n", from, a->_volume_nutrients, to, b->_volume_nutrients);
+        LOG.printf("concentration after: %f\r\n", b->_concentraion);
     }
 }
 
 uint16_t BarrClass::VolumeMax(byte barrel)
 {
-    return iBarrel[barrel]._VolumeMax;
+    return iBarrel[barrel]._volume_max;
 }
 
 uint16_t BarrClass::VolumeMin(byte barrel)
 {
-    return iBarrel[barrel]._VolumeMin;
+    return iBarrel[barrel]._volume_min;
 }
+
+void BarrClass::VolumeMaxSet(byte barrel, uint16_t volume)
+{
+    LOG.printf("Barrel %u changing max volume, from:%u to:%u\r\n", barrel, iBarrel[barrel]._volume_max, volume);
+    iBarrel[barrel]._volume_max = volume;
+}
+
+void BarrClass::VolumeMinSet(byte barrel, uint16_t volume)
+{
+    LOG.printf("Barrel %u changing min volume, from:%u to:%u\r\n", barrel, iBarrel[barrel]._volume_max, volume);
+    iBarrel[barrel]._volume_min = volume;
+}
+
 
 // contact the sensor via UART, measure, return distance in mm
 void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte retryLeft)
@@ -1498,7 +1576,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
     uint16_t distanceMin = 0xffff; // highest for 16bit uint
     uint16_t distanceMax = 0;      // to calculate error
     LOG.printf("measuring barrel# %u\r\n", barrel);
-    expanders.LockMUX(barrel);
+    Expanders.LockMUX(barrel);
     vTaskDelay(10);
     for (byte x = 0; x < measure && retryLeft && timeLeft;)
     {
@@ -1580,7 +1658,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         else
             ErrorUnset(barrel, BARREL_SONIC_CHECKSUM);
     }                      // for loop end here
-    expanders.UnlockMUX(); // important!
+    Expanders.UnlockMUX(); // important!
     if (!timeLeft)
     {
         // moved over here to prevent MUX Deadlock
@@ -1597,13 +1675,13 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         err = (float)100 * ((distanceMax - distanceMin) / 2) / distanceAvearge; // calculate measurement ±error
         ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
         ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
-        b->_SonicLastValue = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
+        b->_sonic_last_value = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
     }
-    b->_SonicLastError = err;
+    b->_sonic_last_error = err;
     if (err > 5)
     { // if error > ±5%
-        if (b->_SonicHighErrors < 30)
-            b->_SonicHighErrors += 10;
+        if (b->_sonic_high_errors < 30)
+            b->_sonic_high_errors += 10;
         // increment by 10 each measurement error, decrement by 1 each success
         else
         {
@@ -1611,8 +1689,8 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
                 ErrorSet(barrel, BARREL_SONIC_INACCURATE);
         }
     }
-    else if (b->_SonicHighErrors) // if not err>5, and if errors not already zero, decrement
-        b->_SonicHighErrors--;
+    else if (b->_sonic_high_errors) // if not err>5, and if errors not already zero, decrement
+        b->_sonic_high_errors--;
     else
         ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
     LOG.printf("finished\r\nsonic:%u, accepted:%u, value:%umm, time:%ums, retries:%u\r\nDistance min:%u, max:%u, diff:%u, error:±%.1f%%\r\n",
@@ -1629,33 +1707,60 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
     //return distanceAvearge;
 } // end SonicMeasure
 
-uint16_t BarrClass::SonicLastMM(byte barrel) { return iBarrel[barrel]._SonicLastValue; }
-int16_t BarrClass::SonicLastMMfromEmpty(byte barrel) { return iBarrel[barrel]._SonicOffset - iBarrel[barrel]._SonicLastValue; }
-uint16_t BarrClass::SonicOffsetGet(byte barrel) { return iBarrel[barrel]._SonicOffset; }
-uint16_t BarrClass::SonicMLinMMGet(byte barrel) { return iBarrel[barrel]._SonicMLinMM; }
-void BarrClass::SonicOffsetSet(byte barrel, uint16_t offs) { iBarrel[barrel]._SonicOffset = offs; }
-void BarrClass::SonicMLinMMSet(byte barrel, uint16_t coef) { iBarrel[barrel]._SonicMLinMM = coef; }
+uint16_t BarrClass::SonicLastMM(byte barrel) { return iBarrel[barrel]._sonic_last_value; }
+int16_t BarrClass::SonicLastMMfromEmpty(byte barrel) { return iBarrel[barrel]._barrel_height - iBarrel[barrel]._sonic_last_value; }
+uint16_t BarrClass::SonicOffset(byte barrel) { return iBarrel[barrel]._barrel_height; }
+uint16_t BarrClass::SonicMLinMMGet(byte barrel) { return iBarrel[barrel]._ml_in_mm; }
+
+// empty barrel (full barrel lenght) in mm
+void BarrClass::SonicOffsetSet(byte barrel, uint16_t offs) 
+{ 
+    LOG.printf("Barrel %u changing barrel lenght, from:%u to:%u\r\n", barrel, iBarrel[barrel]._barrel_height, offs);
+    iBarrel[barrel]._barrel_height = offs; 
+}
+
+void BarrClass::SonicMLinMMSet(byte barrel, uint16_t coef) 
+{ 
+    LOG.printf("Barrel %u changing litrage to height coefficient, from:%u to:%u\r\n", barrel, iBarrel[barrel]._ml_in_mm, coef);
+    iBarrel[barrel]._ml_in_mm = coef; 
+}
 
 // sonic calculate liters of last measurement
 int16_t BarrClass::SonicCalcLiters(byte barrel)
 {
-    // _SonicOffset = empty barrel (full barrel lenght) in mm
+    // _barrel_height = empty barrel (full barrel lenght) in mm
     // "full barrel lenght" - SonicMeasure = water level from empty in mm
-    // lenght * _SonicMLinMM / 1000mlINliter ) = current barrel volume in liters from sonic
+    // lenght * _ml_in_mm / 1000mlINliter ) = current barrel volume in liters from sonic
     sBarrel *b = &iBarrel[barrel];
-    //Serial.printf("barrel %u (offset %u - value %u) * MLinMM %u / 1000ml\r\n", barrel, b->_SonicOffset, b->_SonicLastValue, b->_SonicMLinMM);
-    if (!b->_SonicLastValue)
+    //Serial.printf("barrel %u (offset %u - value %u) * MLinMM %u / 1000ml\r\n", barrel, b->_barrel_height, b->_sonic_last_value, b->_ml_in_mm);
+    if (!b->_sonic_last_value)
         return 0;
     else
-        return (b->_SonicOffset - b->_SonicLastValue) * b->_SonicMLinMM / 1000; // 1000ml in liter
+        return (b->_barrel_height - b->_sonic_last_value) * b->_ml_in_mm / 1000; // 1000ml in liter
 }                                                                               // should I still return positive value for empty, but not dry barrel??
+
+// calibrate point by filling 100L from dry
+void BarrClass::Save100LitersMark(byte barrel)
+{
+    sBarrel *b = &iBarrel[barrel];
+    if (b->_barrel_height - b->_sonic_last_value) // Prevent scary DivideByZero CPU Panic crash! :)
+    {
+        // mL in mm = mL / (mm whole lenght - mm now)
+        b->_ml_in_mm = 100000 / (b->_barrel_height - b->_sonic_last_value);
+        LOG.printf("100L calibration - Barrel:%u, %umL in one mm\r\n", barrel, b->_ml_in_mm);
+    }
+    else
+    {
+        LOG.printf("Error! trying to set barrel:%u 100L point to same value as Dry Point\r\n", barrel);
+    }
+}
 
 // barrel volume in percents, measured by sonic sensor
 // no need to remeasure each call - needed real-time only at transfer - so updated anyway by transfer volume checkers below
 // 100% * "current liters above min point" / "total liters above min point"
 int8_t BarrClass::BarrelPercents(byte barrel)
 {
-    return 100 * (SonicCalcLiters(barrel) - iBarrel[barrel]._VolumeMin) / (iBarrel[barrel]._VolumeMax - iBarrel[barrel]._VolumeMin);
+    return 100 * (SonicCalcLiters(barrel) - iBarrel[barrel]._volume_min) / (iBarrel[barrel]._volume_max - iBarrel[barrel]._volume_min);
     // exclude unusable percents below Min point
 }
 
@@ -1665,7 +1770,7 @@ int16_t BarrClass::SonicLitersTotal()
 {
     int16_t result = 0;
     for (byte x = 1; x < NUM_OF_BARRELS; x++)
-        if (!ErrorGet(x))                 // if no errors at all
+        if (!Errors(x))                 // if no errors at all
             result += SonicCalcLiters(x); // add this barrel content to sum
     return result;
 }
@@ -1676,8 +1781,8 @@ int16_t BarrClass::SonicLitersUsable()
 {
     int16_t result = 0;
     for (byte x = 1; x < NUM_OF_BARRELS; x++)
-        if (!ErrorGet(x))                                            // if no errors at all
-            result += (SonicCalcLiters(x) - iBarrel[x]._VolumeMin); // add this barrel content minux wasted liters to sum
+        if (!Errors(x))                                            // if no errors at all
+            result += (SonicCalcLiters(x) - iBarrel[x]._volume_min); // add this barrel content minux wasted liters to sum
     return result;
 }
 
@@ -1692,14 +1797,14 @@ bool BarrClass::isDry(byte barrel)
 bool BarrClass::isEmpty(byte barrel)
 {
     SonicMeasure(barrel);
-    return SonicCalcLiters(barrel) <= iBarrel[barrel]._VolumeMin;
+    return SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min;
 }
 
 // reached max level (by ultrasonic)
 bool BarrClass::isFull(byte barrel)
 {
     SonicMeasure(barrel);
-    return SonicCalcLiters(barrel) >= iBarrel[barrel]._VolumeMax;
+    return SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max;
 }
 /*-------- Barrels END ----------*/
 
@@ -1712,11 +1817,11 @@ void OpenTaps(byte drainBarrel, byte storeBarrel)
     LOG.println(__FUNCTION__);
     #endif
     // open barrel drain tap
-    expanders.DrainingRelay(drainBarrel, true);
+    Expanders.DrainingRelay(drainBarrel, true);
     // open barrel store tap
-    expanders.StoringRelay(storeBarrel, true);
+    Expanders.StoringRelay(storeBarrel, true);
     // start pump
-    expanders.Pump(true);
+    Expanders.Pump(true);
 }
 
 // close barrels taps and pump (source barrel, target barrel)
@@ -1726,13 +1831,13 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
     LOG.println(__FUNCTION__);
     #endif
     // stop pump
-    expanders.Pump(false);
+    Expanders.Pump(false);
     // wait untill pressure released
     vTaskDelay(100);
     // close barrel drain tap
-    expanders.DrainingRelay(drainBarrel, false);
+    Expanders.DrainingRelay(drainBarrel, false);
     // close barrel store tap
-    expanders.StoringRelay(storeBarrel, false);
+    Expanders.StoringRelay(storeBarrel, false);
 }
 
 void ServiceManual()
@@ -1782,9 +1887,9 @@ void fmsPause(byte Source, byte Destination)
     // if no source barrel = we are filling
     if (Source == 0xFF)
     {
-        expanders.FillingRelay(Destination, false);
+        Expanders.FillingRelay(Destination, false);
         StoppedWait();
-        expanders.FillingRelay(Destination, true);
+        Expanders.FillingRelay(Destination, true);
     }
     else
     {
@@ -1798,15 +1903,15 @@ void fmsPause(byte Source, byte Destination)
 // sets stopped state if pressure error
 void PressureCheck(byte sens)
 {
-    pressure.measure(sens);
-    switch (pressure.ErrorGet(sens))
+    Pressure.measure(sens);
+    switch (Pressure.Errors(sens))
     {
         case PRESSURE_NORMAL:
         break;
         case PRESSURE_NOPRESSURE:
         vTaskDelay(5000 / portTICK_PERIOD_MS);
-        pressure.measure(sens);
-        if (pressure.ErrorGet(sens) == PRESSURE_NOPRESSURE)
+        Pressure.measure(sens);
+        if (Pressure.Errors(sens) == PRESSURE_NOPRESSURE)
             State.Set(STOPPED_STATE);
         break;
         case PRESSURE_OVERPRESSURE:            
@@ -1821,16 +1926,21 @@ void PressureCheck(byte sens)
 // sets stopped state if no flow
 void FlowCheck(byte sens)
 {
-    if (!flow.FlowGet(FLOW_SENSOR_FRESHWATER))
+    if (!Flow.Get(FRESHWATER))
     {
         vTaskDelay(5000 / portTICK_PERIOD_MS);
-        if (!flow.FlowGet(FLOW_SENSOR_FRESHWATER))
+        if (!Flow.Get(FRESHWATER))
         {
             State.Set(STOPPED_STATE);
-            expanders.setRGBLED(LED_RED);
-            if (sens == FLOW_SENSOR_FRESHWATER)
+            Expanders.setRGBLED(LED_GREEN);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            Expanders.setRGBLED(LED_YELLOW);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            Expanders.setRGBLED(LED_RED);
+            LOG.println("No flow");
+            if (sens == FRESHWATER)
             {
-                if (State.isError(ERR_WATER_NOFLOW))
+                if (!State.isError(ERR_WATER_NOFLOW))
                 {
                     State.SetError(ERR_WATER_NOFLOW);
                     SendSMS("error: no water flow while Filling. check flowsensor 1, filling solenoid");                
@@ -1838,7 +1948,7 @@ void FlowCheck(byte sens)
             }
             else
             {
-                if (State.isError(ERR_NUTRI_NOFLOW))
+                if (!State.isError(ERR_NUTRI_NOFLOW))
                 {
                     State.SetError(ERR_NUTRI_NOFLOW);
                     SendSMS("error: no nutrients flow. check pump, flowsensor 2, solenoids");                
@@ -1851,9 +1961,9 @@ void FlowCheck(byte sens)
 void blinkDelay(unsigned long ms, byte color)
 {
     vTaskDelay(ms / 2 / portTICK_PERIOD_MS);
-    expanders.setRGBLED(LED_OFF);
+    Expanders.setRGBLED(LED_OFF);
     vTaskDelay(ms / 2 / portTICK_PERIOD_MS);
-    expanders.setRGBLED(color);
+    Expanders.setRGBLED(color);
 }
 
 // receives barrel to fill, required water level
@@ -1863,14 +1973,14 @@ void blinkDelay(unsigned long ms, byte color)
 void Fill(byte barrel, uint16_t requirement)
 {
     LOG.printf("filling barrel:%u to %uL\r\n", barrel, requirement);
-    flow.CounterReset(FLOW_SENSOR_FRESHWATER); // reset flow counter 1
-    expanders.FillingRelay(barrel, true); // open barrel filling tap
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(barrel, true); // open barrel filling tap
     // fill until requirement OR barrel_high_level
-    while (!barrels.isFillTargetReached(barrel, BARREL_FRESHWATER, requirement))
+    while (!Barrels.isFillTargetReached(barrel, FRESHWATER, requirement))
     { 
         // LOGIC
-        barrels.FreshwaterFillCalc(barrel); // assign flowcount to barrel         
-        if (barrels.isFull(barrel)) // if barrel ammount is Full then stop
+        Barrels.FreshwaterFillCalc(barrel); // assign flowcount to barrel         
+        if (Barrels.isFull(barrel)) // if barrel ammount is Full then stop
         {
             LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
             break;
@@ -1879,14 +1989,14 @@ void Fill(byte barrel, uint16_t requirement)
         if (State.Check(STOPPED_STATE))
             fmsPause(0xff, barrel);
         // SENSOR CHECK
-        if (pressure.Enabled(PRES_SENSOR_FRESHWATER))
-            PressureCheck(PRES_SENSOR_FRESHWATER);
-        FlowCheck(FLOW_SENSOR_FRESHWATER);
+        if (Pressure.Enabled(FRESHWATER))
+            PressureCheck(FRESHWATER);
+        FlowCheck(FRESHWATER);
         blinkDelay(1000, LED_YELLOW);
     }
-    expanders.FillingRelay(barrel, false); // close tap
-    barrels.FreshwaterFillCalc(barrel);  // assign flowcount to barrel
-    flow.CounterReset(FLOW_SENSOR_FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(barrel, false); // close tap
+    Barrels.FreshwaterFillCalc(barrel);  // assign flowcount to barrel
+    Flow.Reset(FRESHWATER); // reset flow counter 1
     LOG.printf("END filling barrel:%u to %uL\r\n", barrel, requirement);
 }
 
@@ -1895,7 +2005,7 @@ void Fill(byte barrel, uint16_t requirement)
 void Mix(byte barrel)
 {
     LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, State.MixTimer());
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
     OpenTaps(barrel, barrel); // open both taps of the same barrel to mix it :)
     // loop - while mix timer > 0
     while (State.MixTimer())
@@ -1907,8 +2017,8 @@ void Mix(byte barrel)
             if (State.Check(STOPPED_STATE))
                 fmsPause(barrel, POOLS);
             // SENSOR CHECK
-            if (pressure.Enabled(PRES_SENSOR_NUTRIENTS))
-                PressureCheck(PRES_SENSOR_NUTRIENTS);
+            if (Pressure.Enabled(NUTRIENTS))
+                PressureCheck(NUTRIENTS);
             blinkDelay(1000, LED_GREEN);
         }
         State.MixLess();// decrement counter every minute
@@ -1916,8 +2026,8 @@ void Mix(byte barrel)
     }
     CloseTaps(barrel, barrel); // counter reached zero
     // report mixed ammount
-    LOG.printf("mixed %u liters\r\n", flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
+    LOG.printf("mixed %u liters\r\n", Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS));
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
     State.MixReset(); // reset mix timer for next run
     LOG.printf("END mixing barrel:%u.\r\n", barrel);
 }
@@ -1928,7 +2038,7 @@ void Mix(byte barrel)
 void Store(byte barrel, byte target)
 {
     LOG.printf("storing from barrel:%u to target %u\r\n", barrel, target);
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
     if (barrel == target)
     {
         LOG.println("Error! trying to store to itself.\r\nstoring function exit now.");
@@ -1936,23 +2046,23 @@ void Store(byte barrel, byte target)
     }
     OpenTaps(barrel, target); // drain barrel into target
     // loop - while source barrel not empty AND target not full
-    while (!barrels.isEmpty(barrel) && !barrels.isFull(target))
+    while (!Barrels.isEmpty(barrel) && !Barrels.isFull(target))
     {
         // LOGIC
         // every 50 liters (not too often for good calculation accuracy)
-        if (flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS) > 50)
-            barrels.NutrientsTransferCalc(barrel, target);
+        if (Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS) > 50)
+            Barrels.NutrientsTransferCalc(barrel, target);
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
             fmsPause(barrel, POOLS);
         // SENSOR CHECK
-        if (pressure.Enabled(PRES_SENSOR_NUTRIENTS))
-            PressureCheck(PRES_SENSOR_NUTRIENTS);
+        if (Pressure.Enabled(NUTRIENTS))
+            PressureCheck(NUTRIENTS);
         blinkDelay(1000, LED_CYAN);
     }
     CloseTaps(barrel, target);
-    barrels.NutrientsTransferCalc(barrel, target); // calculate final ammount
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
+    Barrels.NutrientsTransferCalc(barrel, target); // calculate final ammount
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
     LOG.printf("END storing from barrel:%u to target %u\r\n", barrel, target);
 }
 
@@ -1960,12 +2070,12 @@ void Store(byte barrel, byte target)
 // or untill state set to stopped except if state is also manual
 void Drain(byte barrel, uint16_t requirement)
 {
-    uint16_t barrel_before = barrels.NutriGet(barrel);
+    uint16_t barrel_before = Barrels.NutriGet(barrel);
     LOG.printf("Draining %uL from barrel:%u (%uL)\r\n", State.DrainMore(), barrel, barrel_before);
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
     OpenTaps(barrel, POOLS); // open barrel, drain to pools
     // loop while drain counter > 0 and barrel x not empty
-    while (State.DrainMore() && !barrels.isEmpty(barrel))
+    while (State.DrainMore() && !Barrels.isEmpty(barrel))
     {
         // LOGIC
         State.DrainRecalc(barrel);
@@ -1973,15 +2083,15 @@ void Drain(byte barrel, uint16_t requirement)
         if (State.Check(STOPPED_STATE))
             fmsPause(barrel, POOLS);
         // SENSOR CHECK
-        if (pressure.Enabled(PRES_SENSOR_NUTRIENTS))
-            PressureCheck(PRES_SENSOR_NUTRIENTS);
+        if (Pressure.Enabled(NUTRIENTS))
+            PressureCheck(NUTRIENTS);
         blinkDelay(1000, LED_BLUE);
     }
     CloseTaps(barrel, POOLS); // stop pump and taps
     vTaskDelay(1000);
     State.DrainRecalc(barrel); // last flow calculation
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS); // reset flow counter 2
-    LOG.printf("END Draining %uL from barrel:%u\r\n", barrel_before - barrels.NutriGet(barrel), barrel);
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
+    LOG.printf("END Draining %uL from barrel:%u\r\n", barrel_before - Barrels.NutriGet(barrel), barrel);
 }
 
 void fmsTask(void * pvParameters)
@@ -2009,9 +2119,9 @@ void fmsTask(void * pvParameters)
 
         if (State.Check(STORING_STATE)) // Store + Drain
         {
-            expanders.setRGBLED(LED_CYAN);
+            Expanders.setRGBLED(LED_CYAN);
             // still have nutes to transfer
-            while (!barrels.isEmpty(State.FillBarrel()))
+            while (!Barrels.isEmpty(State.FillBarrel()))
             { // allways lands here first after fill mix
                 // first we drain if neccesery
                 if (State.DrainMore())
@@ -2020,7 +2130,7 @@ void fmsTask(void * pvParameters)
                     // drain untill empty or requirement satisfied.
                     Drain(State.FillBarrel(), State.DrainMore());
                     //SaveStructs(); // disabled untill webUI implemented
-                    if (barrels.isEmpty(State.FillBarrel()))
+                    if (Barrels.isEmpty(State.FillBarrel()))
                         break; // if drained filling barrel to empty - break store loop
                 }
                 else // no drain requirement
@@ -2033,7 +2143,7 @@ void fmsTask(void * pvParameters)
                 // excluding the case where all system was full and storing_barrel pointed to barrel 0
                 // skip barrel if disabled or errorous!
                 byte stor = State.StoreBarrel();
-                if (!barrels.isFull(stor) && !barrels.ErrorGet(stor) && stor > 0)
+                if (!Barrels.isFull(stor) && !Barrels.Errors(stor) && stor > 0)
                 {
                     Store(State.FillBarrel(), stor);
                     //SaveStructs(); // disabled untill webUI implemented
@@ -2045,7 +2155,7 @@ void fmsTask(void * pvParameters)
                 }
                 else
                 { // no more next - all full
-                    expanders.setRGBLED(LED_MAGENTA);
+                    Expanders.setRGBLED(LED_MAGENTA);
                     LOG.println("All barrels full. system stopped. drain to continue");
                     // wait for drain request
                     while (!State.DrainMore())
@@ -2063,7 +2173,7 @@ void fmsTask(void * pvParameters)
             {
                 State.Set(DRAINIG_STATE);
                 // storing_barrel not empty? not errorous? drain it
-                if (!barrels.isEmpty(State.StoreBarrel()) && !barrels.ErrorGet(State.StoreBarrel()))
+                if (!Barrels.isEmpty(State.StoreBarrel()) && !Barrels.Errors(State.StoreBarrel()))
                 {
                     Drain(State.StoreBarrel(), State.DrainMore());
                     //SaveStructs(); // disabled untill webUI implemented
@@ -2140,7 +2250,7 @@ void setupServer()
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         File dir = disk->open("/");
         File file = dir.openNextFile();
-        response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>file system</h3><ul>");
+        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>file system</h3><ul>");
         while (file)
         {
             response->print("<li>");
@@ -2157,6 +2267,7 @@ void setupServer()
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
+        response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
         response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
         if (isSD)
         {
@@ -2229,14 +2340,14 @@ void setupServer()
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual control</h3><ul>");
+        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>manual control</h3><ul>");
         response->print("<span>Relays</span>");
         for (byte i = 0; i < 8; i++)
         {
             response->print("<li>");
-            response->printf("<button onclick=\"location=\'/man?f=%u&o=%u\'\">fill  %u %s </button><span> </span>", i, expanders.FillingRelayGet(i) ? 0 : 1, i, expanders.FillingRelayGet(i) ? "-ON" : "OFF");
-            response->printf("<button onclick=\"location=\'/man?s=%u&o=%u\'\">store %u %s </button><span> </span>", i, expanders.StoringRelayGet(i) ? 0 : 1, i, expanders.StoringRelayGet(i) ? "-ON" : "OFF");
-            response->printf("<button onclick=\"location=\'/man?d=%u&o=%u\'\">drain %u %s </button><span> </span>", i, expanders.DrainingRelayGet(i) ? 0 : 1, i, expanders.DrainingRelayGet(i) ? "-ON" : "OFF");
+            response->printf("<button onclick=\"location=\'/man?f=%u&o=%u\'\">fill  %u %s </button><span> </span>", i, Expanders.FillingRelayGet(i) ? 0 : 1, i, Expanders.FillingRelayGet(i) ? "-ON" : "OFF");
+            response->printf("<button onclick=\"location=\'/man?s=%u&o=%u\'\">store %u %s </button><span> </span>", i, Expanders.StoringRelayGet(i) ? 0 : 1, i, Expanders.StoringRelayGet(i) ? "-ON" : "OFF");
+            response->printf("<button onclick=\"location=\'/man?d=%u&o=%u\'\">drain %u %s </button><span> </span>", i, Expanders.DrainingRelayGet(i) ? 0 : 1, i, Expanders.DrainingRelayGet(i) ? "-ON" : "OFF");
             response->print("</li>");
         }
         response->print("<span>RGB LED</span>");
@@ -2246,40 +2357,40 @@ void setupServer()
         response->print("</li>");
         response->print("<span>Flow Sensors</span>");
         response->printf("<li>Fs1: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
-                         flow.CounterGet(FLOW_SENSOR_FRESHWATER),
-                         flow.CounterGet(FLOW_SENSOR_FRESHWATER) / flow.DividerGet(FLOW_SENSOR_FRESHWATER),
-                         flow.FlowGet(FLOW_SENSOR_FRESHWATER),
-                         flow.DividerGet(FLOW_SENSOR_FRESHWATER));
+                         Flow.Counted(FRESHWATER),
+                         Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER),
+                         Flow.Get(FRESHWATER),
+                         Flow.Divider(FRESHWATER));
         response->printf("<li>Fs2: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
-                         flow.CounterGet(FLOW_SENSOR_NUTRIENTS),
-                         flow.CounterGet(FLOW_SENSOR_NUTRIENTS) / flow.DividerGet(FLOW_SENSOR_NUTRIENTS),
-                         flow.FlowGet(FLOW_SENSOR_NUTRIENTS),
-                         flow.DividerGet(FLOW_SENSOR_NUTRIENTS));
+                         Flow.Counted(NUTRIENTS),
+                         Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS),
+                         Flow.Get(NUTRIENTS),
+                         Flow.Divider(NUTRIENTS));
         response->print("<span>Pressure Sensors</span>");
         response->print("<li>");
         response->printf("<button onclick=\"location=\'/pressure?n=1\'\">PS1: measure</button><span> </span>");
         response->printf("[%iUnits] [%u raw/Units] [%i correction]</li>",
-                         //pressure.measure(PRES_SENSOR_FRESHWATER),
-                         pressure.LastValue(PRES_SENSOR_FRESHWATER),
-                         pressure.DividerGet(PRES_SENSOR_FRESHWATER),
-                         pressure.OffsetGet(PRES_SENSOR_FRESHWATER));
+                         //Pressure.measure(FRESHWATER),
+                         Pressure.LastValue(FRESHWATER),
+                         Pressure.Divider(FRESHWATER),
+                         Pressure.Offset(FRESHWATER));
         response->print("<li>");
         response->printf("<button onclick=\"location=\'/pressure?n=2\'\">PS2: measure</button><span> </span>");
         response->printf("[%iUnits] [%u raw/Units] [%i correction]</li>",
-                         //pressure.measure(PRES_SENSOR_NUTRIENTS),
-                         pressure.LastValue(PRES_SENSOR_NUTRIENTS),
-                         pressure.DividerGet(PRES_SENSOR_NUTRIENTS),
-                         pressure.OffsetGet(PRES_SENSOR_NUTRIENTS));
+                         //Pressure.measure(NUTRIENTS),
+                         Pressure.LastValue(NUTRIENTS),
+                         Pressure.Divider(NUTRIENTS),
+                         Pressure.Offset(NUTRIENTS));
         response->print("<span>Ultrasonic Sensors</span>");
 
         for (byte i = 0; i < NUM_OF_BARRELS; i++)
         {
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/sonic?n=%u\'\">Sonic %u: measure</button><span> </span>", i, i);
-            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", barrels.SonicCalcLiters(i), barrels.SonicLastMM(i), barrels.SonicMLinMMGet(i), barrels.SonicOffsetGet(i), barrels.ErrorGet(i));
+            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", Barrels.SonicCalcLiters(i), Barrels.SonicLastMM(i), Barrels.SonicMLinMMGet(i), Barrels.SonicOffset(i), Barrels.Errors(i));
             response->print("</li>");
         }
-        response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", barrels.SonicLitersTotal(), barrels.SonicLitersUsable());
+        response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", Barrels.SonicLitersTotal(), Barrels.SonicLitersUsable());
 
         response->print("</ul>");
         response->print("<button onclick=\"location=location\">reload</button><span> </span>");
@@ -2287,6 +2398,7 @@ void setupServer()
         response->print("<button onclick=\"location=\'/man?start\'\">start</button><span> </span>");
         response->print("<button onclick=\"location=\'/man?stop\'\">stop</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
+        response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
         response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
@@ -2319,7 +2431,7 @@ void setupServer()
             }
         }
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        response->print("<html><body style=\"transform: scale(2);transform-origin: 0 0;\"><h3>manual F.M.S.D.</h3><ul>");
+        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>manual F.M.S.D.</h3><ul>");
         response->print("<form action=\"/fmsd\">");
         response->print("<li>fill-1 mix-2 store-3 drain-4</li>");
         response->printf("<li><input id=\"task\" name=\"task\" value=\"%u\"></li>", State.ManualTask());
@@ -2345,7 +2457,363 @@ void setupServer()
         response->print("</form>");
         response->print("</ul>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
+        response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><br>");
+        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
+        response->print("</body></html>");
+        request->send(response);
+    });
+
+    server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request) {
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
+
+        if (request->hasArg("Override"))
+        {
+            int Override = request->arg("Override").toInt();
+            State.Override(Override);
+        }
+
+        if (request->hasArg("OverrideError"))
+        {
+            int OverrideError = request->arg("OverrideError").toInt();
+            State.OverrideError(OverrideError);
+        }
+
+        if (request->hasArg("SetFillBarrel"))
+        {
+            int  SetFillBarrel = request->arg("SetFillBarrel").toInt();
+            State.SetFillBarrel(SetFillBarrel);
+        }
+
+        if (request->hasArg("SetFillReq"))
+        {
+            int SetFillReq = request->arg("SetFillReq").toInt();
+            State.SetFillReq(SetFillReq);
+        }
+
+        if (request->hasArg("SetMixReq"))
+        {
+            int SetMixReq = request->arg("SetMixReq").toInt();
+            State.SetMixReq(SetMixReq);
+        }
+
+        if (request->hasArg("MixReset"))
+        {
+            State.MixReset();
+        }
+
+        if (request->hasArg("SetStoreBarrel"))
+        {
+            int SetStoreBarrel = request->arg("SetStoreBarrel").toInt();
+            State.SetStoreBarrel(SetStoreBarrel);
+        }
+
+        if (request->hasArg("SetDrainReq"))
+        {
+            int SetDrainReq = request->arg("SetDrainReq").toInt();
+            State.SetDrainReq(SetDrainReq);
+        }
+
+        if (request->hasArg("ErrorOverride"))
+        {
+            int ErrorOverride = request->arg("ErrorOverride").toInt();
+            int ErrorOverrideData = request->arg("ErrorOverrideData").toInt();
+            Barrels.ErrorOverride(ErrorOverride, ErrorOverrideData);
+        }
+
+        if (request->hasArg("ErrorReset"))
+        {
+            int ErrorReset = request->arg("ErrorReset").toInt();
+            Barrels.Reset(ErrorReset);
+        }
+
+        if (request->hasArg("VolumeMaxSet"))
+        {
+            int VolumeMaxSet = request->arg("VolumeMaxSet").toInt();
+            int VolumeMaxSetData = request->arg("VolumeMaxSetData").toInt();
+            Barrels.VolumeMaxSet(VolumeMaxSet, VolumeMaxSetData);
+        }
+
+        if (request->hasArg("VolumeMinSet"))
+        {
+            int VolumeMinSet = request->arg("VolumeMinSet").toInt();
+            int VolumeMinSetData = request->arg("VolumeMinSetData").toInt();
+            Barrels.VolumeMinSet(VolumeMinSet, VolumeMinSetData);
+        }
+
+        if (request->hasArg("SonicOffsetSet"))
+        {
+            int SonicOffsetSet = request->arg("SonicOffsetSet").toInt();
+            int SonicOffsetSetData = request->arg("SonicOffsetSetData").toInt();
+            Barrels.SonicOffsetSet(SonicOffsetSet, SonicOffsetSetData);
+        }
+
+        if (request->hasArg("SonicMLinMMSet"))
+        {
+            int SonicMLinMMSet = request->arg("SonicMLinMMSet").toInt();
+            int SonicMLinMMSetData = request->arg("SonicMLinMMSetData").toInt();
+            Barrels.SonicMLinMMSet(SonicMLinMMSet, SonicMLinMMSetData);
+        }
+
+        if (request->hasArg("DividerSet"))
+        {
+            int DividerSet = request->arg("DividerSet").toInt();
+            int DividerSetData = request->arg("DividerSetData").toInt();
+            Flow.DividerSet(DividerSet, DividerSetData);
+        }
+
+        if (request->hasArg("PDividerSet"))
+        {
+            int PDividerSet = request->arg("PDividerSet").toInt();
+            int PDividerSetData = request->arg("PDividerSetData").toInt();
+            Pressure.DividerSet(PDividerSet, PDividerSetData);
+        }
+
+        if (request->hasArg("OffsetSet"))
+        {
+            int OffsetSet = request->arg("OffsetSet").toInt();
+            int OffsetSetData = request->arg("OffsetSetData").toInt();
+            Pressure.OffsetSet(OffsetSet, OffsetSetData);
+        }
+
+        if (request->hasArg("MinSet"))
+        {
+            int MinSet = request->arg("MinSet").toInt();
+            int MinSetData = request->arg("MinSetData").toInt();
+            Pressure.MinSet(MinSet, MinSetData);
+        }
+
+        if (request->hasArg("MaxSet"))
+        {
+            int MaxSet = request->arg("MaxSet").toInt();
+            int MaxSetData = request->arg("MaxSetData").toInt();
+            Pressure.MaxSet(MaxSet, MaxSetData);
+        }
+
+        if (request->hasArg("PErrorReset"))
+        {
+            int PErrorReset = request->arg("PErrorReset").toInt();
+            Pressure.Reset(PErrorReset);
+        }
+
+        if (request->hasArg("Enable"))
+        {
+            int Enable = request->arg("Enable").toInt();
+            Pressure.Enable(Enable);
+        }
+
+        if (request->hasArg("Disable"))
+        {
+            int Disable = request->arg("Disable").toInt();
+            Pressure.Disable(Disable);
+        }
+
+        if (request->hasArg("DryBarrel"))
+        {
+            int DryBarrel = request->arg("DryBarrel").toInt();
+            Barrels.SonicMeasure(DryBarrel);
+            if(Barrels.Errors(DryBarrel))
+            {
+                LOG.printf("Dry point set: Barrel:%u at error state:%u, unable to measure dry point\r\n", DryBarrel, Barrels.Errors(DryBarrel));
+            }
+            else
+            {
+                LOG.printf("Setting Dry barrel:%u point, from:%u to:%u\r\n", DryBarrel, Barrels.SonicOffset(DryBarrel), Barrels.SonicLastMM(DryBarrel));
+                Barrels.SonicOffsetSet(DryBarrel, Barrels.SonicLastMM(DryBarrel));
+            }
+        }
+
+        if (request->hasArg("EmptyBarrel"))
+        {
+            int EmptyBarrel = request->arg("EmptyBarrel").toInt();
+            Barrels.SonicMeasure(EmptyBarrel);
+            if(Barrels.Errors(EmptyBarrel))
+            {
+                LOG.printf("Empty point set: Barrel:%u at error state:%u, unable to measure Empty point\r\n", EmptyBarrel, Barrels.Errors(EmptyBarrel));
+            }
+            else
+            {
+                LOG.printf("Setting empty barrel:%u point, from:%u to:%u\r\n", EmptyBarrel, Barrels.VolumeMin(EmptyBarrel), Barrels.SonicLastMM(EmptyBarrel));
+                Barrels.VolumeMinSet(EmptyBarrel, Barrels.SonicLastMM(EmptyBarrel));
+            }
+        }
+
+        if (request->hasArg("FullBarrel"))
+        {
+            int FullBarrel = request->arg("FullBarrel").toInt();
+            Barrels.SonicMeasure(FullBarrel);
+            if(Barrels.Errors(FullBarrel))
+            {
+                LOG.printf("Full point set: Barrel:%u at error state:%u, unable to measure Full point\r\n", FullBarrel, Barrels.Errors(FullBarrel));
+            }
+            else
+            {
+                LOG.printf("Setting Full barrel:%u point, from:%u to:%u\r\n", FullBarrel, Barrels.VolumeMax(FullBarrel), Barrels.SonicLastMM(FullBarrel));
+                Barrels.VolumeMaxSet(FullBarrel, Barrels.SonicLastMM(FullBarrel));
+            }
+        }
+
+        if (request->hasArg("Save100LitersMark"))
+        {
+            int Save100LitersMark = request->arg("Save100LitersMark").toInt();
+            Barrels.SonicMeasure(Save100LitersMark);
+            if(Barrels.Errors(Save100LitersMark))
+            {
+                LOG.printf("100L point set: Barrel:%u at error state:%u, unable to measure 100L point\r\n", Save100LitersMark, Barrels.Errors(Save100LitersMark));
+            }
+            else
+            {
+                uint16_t CoeffBefore = Barrels.SonicMLinMMGet(Save100LitersMark);
+                Barrels.Save100LitersMark(Save100LitersMark);
+                LOG.printf("Setting 100L barrel:%u point, from:%u to:%u\r\n", Save100LitersMark, CoeffBefore, Barrels.SonicMLinMMGet(Save100LitersMark));
+            }         
+        }
+
+        AsyncResponseStream *response = request->beginResponseStream("text/html");
+        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>Settings and Calibrations</h3><style> form{margin:1;display:inline-block;} input:not([type]){width:63;} li{margin-top:4;}</style><ul>");
+
+        response->print("<li>override system state</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"Override\" name=\"Override\" value=\"%u\"><span> </span>", State.Get());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>override error state</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"OverrideError\" name=\"OverrideError\" value=\"%u\"><span> </span>", State.Errors());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>barrel to fill and mix</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetFillBarrel\" name=\"SetFillBarrel\" value=\"%u\"><span> </span>", State.FillBarrel());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>next barrel to store to</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetStoreBarrel\" name=\"SetStoreBarrel\" value=\"%u\"><span> </span>", State.StoreBarrel());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>fill requirement</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetFillReq\" name=\"SetFillReq\" value=\"%u\"><span> </span>", State.FillRequirement());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>mix requirement, mix timer reset</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetMixReq\" name=\"SetMixReq\" value=\"%u\"><span> </span>", State.MixRequirement());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<form action=\"/settings\">");
+        response->print("<input type=\"hidden\" id=\"MixReset\" name=\"MixReset\" value=\"1\">");
+        response->printf("<input type=\"submit\" value=\"Time left:%u, Reset\"></form>", State.MixTimer());        
+
+        response->print("<li>drain requirement</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetDrainReq\" name=\"SetDrainReq\" value=\"%u\"><span> </span>", State.DrainMore());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>barrels: Errors override.. Dry barrel lenght in mm point, mililitrage to lenght ratio, Full barrel point in liters, . . . . . Empty barrel point in liters</li>");
+        for (byte x=0;x<NUM_OF_BARRELS;x++)
+        {
+            response->printf("<span>Barrel %u </span>", x);
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"ErrorOverride\" name=\"ErrorOverride\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"ErrorOverrideData\" name=\"ErrorOverrideData\" value=\"%u\"><span> </span>", Barrels.Errors(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"DryBarrel\" name=\"DryBarrel\" value=\"%u\"><span> </span>", x);
+            response->print("<input type=\"submit\" value=\"Set Dry Point\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"SonicOffsetSet\" name=\"SonicOffsetSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"SonicOffsetSetData\" name=\"SonicOffsetSetData\" value=\"%u\"><span> </span>", Barrels.SonicOffset(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"Save100LitersMark\" name=\"Save100LitersMark\" value=\"%u\"><span> </span>", x);
+            response->print("<input type=\"submit\" value=\"Set 100L\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"SonicMLinMMSet\" name=\"SonicMLinMMSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"SonicMLinMMSetData\" name=\"SonicMLinMMSetData\" value=\"%u\"><span> </span>", Barrels.SonicMLinMMGet(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"FullBarrel\" name=\"FullBarrel\" value=\"%u\"><span> </span>", x);
+            response->print("<input type=\"submit\" value=\"Set Full point\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"VolumeMaxSet\" name=\"VolumeMaxSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"VolumeMaxSetData\" name=\"VolumeMaxSetData\" value=\"%u\"><span> </span>", Barrels.VolumeMax(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"EmptyBarrel\" name=\"EmptyBarrel\" value=\"%u\"><span> </span>", x);
+            response->print("<input type=\"submit\" value=\"Set Empty point\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"VolumeMinSet\" name=\"VolumeMinSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"VolumeMinSetData\" name=\"VolumeMinSetData\" value=\"%u\"><span> </span>", Barrels.VolumeMin(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<br>");
+        }
+
+        response->print("<li>Sensors: . . flow Divider, . pressure Divider, pressure Offset, Min pressure, . Max pressure, . Pressure Sensors</li>");
+        for (byte x=1;x<=2;x++)
+        {
+            response->printf("<span>%s </span>", x==1 ? "Freshwater" : "Nutrients .. ");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"DividerSet\" name=\"DividerSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"DividerSetData\" name=\"DividerSetData\" value=\"%u\"><span> </span>", Flow.Divider(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"PDividerSet\" name=\"PDividerSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"PDividerSetData\" name=\"PDividerSetData\" value=\"%u\"><span> </span>", Pressure.Divider(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"OffsetSet\" name=\"OffsetSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"OffsetSetData\" name=\"OffsetSetData\" value=\"%u\"><span> </span>", Pressure.Offset(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"MinSet\" name=\"MinSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"MinSetData\" name=\"MinSetData\" value=\"%u\"><span> </span>", Pressure.Min(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"MaxSet\" name=\"MaxSet\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"MaxSetData\" name=\"MaxSetData\" value=\"%u\"><span> </span>", Pressure.Max(x));
+            response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"PErrorReset\" name=\"PErrorReset\" value=\"%u\"><span> </span>", x);
+            response->print("<input type=\"submit\" value=\"Reset\"></form>");
+
+            if (Pressure.Enabled(x))
+            {
+                response->print("<form action=\"/settings\">");
+                response->printf("<input type=\"hidden\" id=\"Disable\" name=\"Disable\" value=\"%u\"><span> </span>", x);
+                response->print("<input type=\"submit\" value=\"Disable\"></form>");
+            }
+            else
+            {
+                response->print("<form action=\"/settings\">");
+                response->printf("<input type=\"hidden\" id=\"Enable\" name=\"Enable\" value=\"%u\"><span> </span>", x);
+                response->print("<input type=\"submit\" value=\"Enable\"></form>");
+            }
+            response->print("<br>");
+        }
+        response->print("</ul>");
+        response->print("<button onclick=\"location=\'settings\'\">reload</button><span> </span>");
+        response->print("<button onclick=\"location=\'/reset\'\">reset</button><span> </span>");
+        response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
+        response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
+        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
         request->send(response);
@@ -2361,27 +2829,27 @@ void setupServer()
                 int f = request->arg("f").toInt();
                 int o = request->arg("o").toInt();
                 LOG.printf("setting FillingRelay %i to %i\r\n", f, o);
-                expanders.FillingRelay(f, o);
+                Expanders.FillingRelay(f, o);
             }
             if (request->hasArg("s"))
             {
                 int s = request->arg("s").toInt();
                 int o = request->arg("o").toInt();
                 LOG.printf("setting StoringRelay %i to %i\r\n", s, o);
-                expanders.StoringRelay(s, o);
+                Expanders.StoringRelay(s, o);
             }
             if (request->hasArg("d"))
             {
                 int d = request->arg("d").toInt();
                 int o = request->arg("o").toInt();
                 LOG.printf("setting DrainingRelay %i to %i\r\n", d, o);
-                expanders.DrainingRelay(d, o);
+                Expanders.DrainingRelay(d, o);
             }
             if (request->hasArg("rgb"))
             {
                 int rgb = request->arg("rgb").toInt();
                 LOG.printf("setting setRGBLED to %i\r\n", rgb);
-                expanders.setRGBLED(rgb);
+                Expanders.setRGBLED(rgb);
             }
             if (request->hasArg("start"))
             {
@@ -2433,7 +2901,7 @@ void setupServer()
                 //char buf [6];
                 //sprintf (buf, "%05u", barrels.SonicMeasure(request->arg("n").toInt()));
                 //request->send(200, "text/html", buf);
-                barrels.SonicMeasure(request->arg("n").toInt(), 3, 500); // measure 3 times max 500 ms
+                Barrels.SonicMeasure(request->arg("n").toInt(), 3, 500); // measure 3 times max 500 ms
                 request->redirect("/manual");
             }
         }
@@ -2447,7 +2915,7 @@ void setupServer()
         { // Arguments were received
             if (request->hasArg("n"))
             {
-                pressure.measure(request->arg("n").toInt());
+                Pressure.measure(request->arg("n").toInt());
                 request->redirect("/manual");
             }
         }
@@ -2652,21 +3120,21 @@ void LoadStructs()
     }
 
     if (disk->exists("/Pressure.bin"))
-        pressure.LoadSD();
+        Pressure.LoadSD();
     else
     {
         LOG.println("/Pressure.bin\tnot exist");
     }
 
     if (disk->exists("/Flow.bin"))
-        flow.LoadSD();
+        Flow.LoadSD();
     else
     {
         LOG.println("/Flow.bin\tnot exist");
     }
 
     if (disk->exists("/Barrels.bin"))
-        barrels.LoadSD();
+        Barrels.LoadSD();
     else
     {
         LOG.println("/Barrels.bin\tnot exist");
@@ -2676,7 +3144,7 @@ void LoadStructs()
 // reimplement later to save on demand only what
 // this one will be used on system stop? save all...?
 // should run on a separate thread? or ommit the waits for no flow?
-// can also stop all relays (if not already stopped?) expanders.Protect
+// can also stop all relays (if not already stopped?) Expanders.Protect
 //and undo protect when finished.
 void SaveStructs()
 {
@@ -2701,17 +3169,17 @@ void SaveStructs()
             }
         }
         LOG.println(F("waiting for no flow.."));
-        while (flow.FlowGet(FLOW_SENSOR_FRESHWATER))
+        while (Flow.Get(FRESHWATER))
             ;
-        while (flow.FlowGet(FLOW_SENSOR_NUTRIENTS))
+        while (Flow.Get(NUTRIENTS))
             ;
         LOG.println(F("no flow ok - saving..."));
         State.SaveSD();
 
         // reimplement to save ondemand?
-        barrels.SaveSD();
-        pressure.SaveSD();
-        flow.SaveSD();
+        Barrels.SaveSD();
+        Pressure.SaveSD();
+        Flow.SaveSD();
         isSaving = false;
         LOG.println(F("all save finished."));
     }
@@ -2727,7 +3195,7 @@ void setup()
     Serial2.begin(9600, SERIAL_8N1);
 
     //initiate expander ports - I2C wire
-    expanders.Init();
+    Expanders.Init();
 
     // initiate SD Card - SPI bus + SPIFFS
     initStorage();
@@ -2735,13 +3203,13 @@ void setup()
     // load structs from SD card
     LoadStructs();
 
-    pressure.setSensor(PRES_SENSOR_FRESHWATER, PRESSUR_1_PIN);
-    pressure.setSensor(PRES_SENSOR_NUTRIENTS, PRESSUR_2_PIN);
+    Pressure.setSensor(FRESHWATER, PRESSUR_1_PIN);
+    Pressure.setSensor(NUTRIENTS, PRESSUR_2_PIN);
 
     // attach interrupts for flow sensors
-    flow.begin();
-    flow.CounterReset(FLOW_SENSOR_FRESHWATER);
-    flow.CounterReset(FLOW_SENSOR_NUTRIENTS);
+    Flow.begin();
+    Flow.Reset(FRESHWATER);
+    Flow.Reset(NUTRIENTS);
 
     // attach interrupts for start-stop buttons 
     State.begin();
@@ -2764,12 +3232,12 @@ void setup()
 
     //start Web Server
     setupServer();
-    ArduinoOTA.setHostname("barrels");
+    ArduinoOTA.setHostname("Barrels");
     ArduinoOTA.begin();
     //mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     MDNS.addService("http", "tcp", 80); // add mDNS http port
 
-   expanders.setRGBLED(LED_OFF);
+   Expanders.setRGBLED(LED_OFF);
     //SendSMS("System Started");
 }
 

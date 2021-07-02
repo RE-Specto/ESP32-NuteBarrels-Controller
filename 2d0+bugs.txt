@@ -1,21 +1,21 @@
 bugs:
-MUX previously locked to 255, 7 is waiting
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
-pressing Start after manual does not cancel the manual
 do Fill Mix Store Drain  SENSOR CHECK pressure.measure will break logic at pressure error?
     need to close taps, wait in loop, and reopen using OpenTaps() once error cleared
     ! also remeasures constantly at Fill first measure if sensor error
-system resets every time serial console connects/disconnects?
-    https://esp32.com/viewtopic.php?t=4988
-void store allways storing untill empty
-    must give option to store only required ammount
-if mix stopped in the middle - it will count from start again
-    separate mix_requirement to requirement and counter
-pressure offset is redundant?
-
 
 to implement:
+rename class methods to match
+mixing should also check for flow
+option to disable flow checks temporary by /settings webUI
+    fill can work by sonic
+    mix ok anyway
+    store drain require flow sens?
+        any sonic use for them?
+fmsTask should allow escaping from fill to mix on manual state change
+what happens if state = 0?
+check all divides for cpu panic crash
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
 start should trigger unprotect?
 separate manual fmsd from auto
@@ -79,6 +79,23 @@ use separate <forms> for each one?
     NTP Timezone + DTS
     manual mux unlock via webUI
 
+what needed for barrel sonic calibration?
+    dry barrel height - SonicOffsetSet
+        measure at start
+            SonicOffsetSet(barrX,SonicLastMM(barrX));
+    how many mililiters is in one milimeter - SonicMLinMM
+        fill with exact 100L
+            Save100LitersMark
+    full  barrel litrage - VolumeMaxSet
+        fill untill sonic error
+        drain safeguard value
+            VolumeMaxSet(barrX, SonicCalcLiters(barrX))
+    empty barrel litrage - VolumeMinSet
+        drain barrel fully
+            VolumeMinSet(barrX, SonicCalcLiters(barrX))
+    
+
+
 manual apply sonic value to flow barrel volume on request.
 
 WebUI from "1-pump idea test (1).png" file with overlays and jQuery
@@ -109,6 +126,14 @@ http://www.cplusplus.com/forum/general/67783/
 add to schematic:
 12v line add polyfuze
 optional: doser on expander x20 pin A7? serial scale mux#14?
+
+
+
+
+
+
+
+
 
 
 optional:
