@@ -20,6 +20,12 @@ more info and license - soon
 #include "ESPmDNS.h"
 //https://github.com/jandrassy/TelnetStream
 
+//#define DEBUG_SD
+//#define DEBUG_SONIC
+//#define DEBUG_MUX
+//#define DEBUG_NET
+//#define DEBUG_MORE
+
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
 #else
@@ -105,10 +111,6 @@ more info and license - soon
 // delay for SMS error report
 #define REPORT_DELAY 5000
 
-#define DEBUG
-//#define DEBUG_SD
-//define DEBUG_MORE
-
 // Globals
 FS *disk = &SPIFFS; // default
 File file;
@@ -135,6 +137,11 @@ void Fill(byte barrel, uint16_t requirement);
 void Mix(byte barrel);
 void Store(byte barrel, byte target);
 void Drain(byte barrel, uint16_t requirement);
+void FillManual();
+void MixManual();
+void StoreManual();
+void DrainManual();
+
 
 /*-------- Structs Begin ----------*/
 struct sSystem
@@ -225,6 +232,7 @@ struct sFlow
     uint16_t _conversion_divider = 450;
     volatile uint32_t _flow = 0;
     volatile uint32_t _lastMilis = 0;
+    bool _enabled = false;
 };
 /*-------- Structs END ----------*/
 
@@ -352,6 +360,9 @@ public:
     void Reset(uint_fast8_t sens);
     uint16_t Divider(byte sens);
     void DividerSet(byte sens, uint16_t div);
+    bool Enabled(byte sens);
+    void Enable(byte sens);
+    void Disable(byte sens);
 } Flow;
 
 class PSClass
@@ -439,7 +450,7 @@ bool Load(const char *fname, byte *stru_p, uint16_t len)
         for (; count < len; count++)
             if (file.available())
                 *(stru_p + count) = file.read();
-#ifdef DEBUG
+#ifdef DEBUG_SD
     LOG.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
 #else
     LOG.println();
@@ -461,7 +472,7 @@ bool Save(const char *fname, byte *stru_p, uint16_t len)
     }
     else
         count = file.write(stru_p, len); // save Logic
-#ifdef DEBUG
+#ifdef DEBUG_SD
     LOG.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
 #else
     LOG.println();
@@ -619,7 +630,9 @@ void ExpaClass::LockMUX(byte address)
     }
     while ((_muxLock != address) && (_muxLock != MUX_UNLOCKED))
         vTaskDelay(1);
+    #ifdef DEBUG_MUX
     LOG.printf("MUX is free. locking to %u\r\n", address);
+    #endif
     _muxLock = address;
     for (byte i = 0; i < 4; i++)
         expander1.getPin(i + 0).setValue(address & (1 << i));
@@ -634,7 +647,9 @@ void ExpaClass::UnlockMUX()
 {
     if (_muxLock != MUX_UNLOCKED)
     {
+        #ifdef DEBUG_MUX
         LOG.printf("MUX Unlocking %u\r\n", _muxLock);
+        #endif
         _muxLock = MUX_UNLOCKED;
     }
     else
@@ -762,7 +777,7 @@ AT+CBC – will return the lipo battery state. The second number is the % full (
 
 void modemInit()
 {
-    #ifdef DEBUG
+    #ifdef DEBUG_MORE
     LOG.println("-modem init");
     #endif
     Expanders.LockMUX(7); // modem is at port 7
@@ -912,13 +927,25 @@ void StatClass::SetMixReq(uint16_t req)
 }
 
 // returns time left to mix
-uint16_t StatClass::MixTimer() {return iState._mix_timer;}
+uint16_t StatClass::MixTimer() 
+{
+    if (iState._manual_task)
+        return iState._manual_ammo;
+    else
+        return iState._mix_timer;
+}
 
 // decreases mix timer
 void StatClass::MixLess() 
 {
-    if (iState._mix_timer) // prevent integer overflow
-        iState._mix_timer--;
+    if (iState._manual_task)
+    {
+        if (iState._manual_ammo)
+            iState._manual_ammo--;
+    }
+    else
+        if (iState._mix_timer) // prevent integer overflow
+            iState._mix_timer--;
 }
 
 // resets mix timer to default value
@@ -962,7 +989,13 @@ void StatClass::SetDrainReq(uint16_t req)
 }
 
 // returns how much to drain
-uint16_t StatClass::DrainMore() {return iState._drain_req;}
+uint16_t StatClass::DrainMore()
+{
+    if (iState._manual_task)
+        return iState._manual_ammo;
+    else
+        return iState._drain_req;
+}
 
 // substract flow sensor counted liters from drain requirement
 // increase total counted drain
@@ -976,10 +1009,24 @@ void StatClass::DrainRecalc(byte barrel)
     // because flowsensor works on interrupts
     // so capturing only the current state for count
     uint32_t liters = Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS);
-    if (iState._drain_req) // prevent integer overflow
-        iState._drain_req -= liters;
-    if (iState._drain_total<UINT32_MAX) // prevent integer overflow
+    if (iState._manual_task)
+    {
+        if (iState._manual_ammo > liters) // prevent integer overflow
+            iState._manual_ammo -= liters;
+        else
+            iState._manual_ammo = 0;
+    }
+    else
+    {
+        if (iState._drain_req > liters) // prevent integer overflow
+            iState._drain_req -= liters;
+        else
+            iState._drain_req = 0;
+    }
+    if ((iState._drain_total+liters)<UINT32_MAX) // prevent integer overflow
         iState._drain_total += liters;
+    else
+        iState._drain_total = UINT32_MAX;
     Barrels.NutriLess(barrel, liters);
     // decrement flow counter by "counted so far" pulses (liters times divider)
     Flow.CounterSubtract(NUTRIENTS, liters * Flow.Divider(NUTRIENTS));
@@ -1121,6 +1168,32 @@ void FSClass::DividerSet(byte sens, uint16_t div)
     LOG.printf("Changing flowsensor %u divider, from:%u to:%u\r\n", sens+1, iFsens[sens]._conversion_divider, div);
     iFsens[sens]._conversion_divider = div; 
 }
+
+// returns sensor checks state
+bool FSClass::Enabled(byte sens) 
+{ 
+    // sensors now start from 1 (but arrays from 0)
+    sens--;
+    return iFsens[sens]._enabled;
+}
+
+// sets sensor checks on
+void FSClass::Enable(byte sens) 
+{
+    // sensors now start from 1 (but arrays from 0)
+    sens--;
+    iFsens[sens]._enabled = true; 
+    LOG.printf("flowsensor %u Enabled\r\n", sens+1);
+}
+
+// sets sensor checks off
+void FSClass::Disable(byte sens)
+{
+    // sensors now start from 1 (but arrays from 0)
+    sens--;
+    iFsens[sens]._enabled = false; 
+    LOG.printf("flowsensor %u Disabled\r\n", sens+1);
+}
 /*-------- FlowSensor END ----------*/
 
 /*-------- PressureSensor Begin ----------*/
@@ -1170,6 +1243,7 @@ void PSClass::OffsetSet(byte sens, int16_t offs)
     iPsens[sens]._offset = offs; 
 }
 
+// gets maximal normal pressure point
 byte PSClass::Max(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
@@ -1177,6 +1251,7 @@ byte PSClass::Max(byte sens)
     return iPsens[sens]._max_pressure; 
 }
 
+// sets maximal normal pressure point
 void PSClass::MaxSet(byte sens, byte max) 
 { 
     // sensors now start from 1 (but arrays from 0)
@@ -1185,6 +1260,7 @@ void PSClass::MaxSet(byte sens, byte max)
     iPsens[sens]._max_pressure = max; 
 }
 
+// gets minimal normal pressure point
 byte PSClass::Min(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
@@ -1192,6 +1268,7 @@ byte PSClass::Min(byte sens)
     return iPsens[sens]._min_pressure; 
 }
 
+// sets minimal normal pressure point
 void PSClass::MinSet(byte sens, byte min) 
 { 
     // sensors now start from 1 (but arrays from 0)
@@ -1337,6 +1414,7 @@ void PSClass::Reset(byte sens)
         measure(sens);
 }
 
+// returns sensor checks state
 bool PSClass::Enabled(byte sens) 
 { 
     // sensors now start from 1 (but arrays from 0)
@@ -1344,6 +1422,7 @@ bool PSClass::Enabled(byte sens)
     return iPsens[sens]._enabled;
 }
 
+// sets sensor checks on
 void PSClass::Enable(byte sens) 
 {
     // sensors now start from 1 (but arrays from 0)
@@ -1352,6 +1431,7 @@ void PSClass::Enable(byte sens)
     LOG.printf("pressensor %u Enabled\r\n", sens+1);
 }
 
+// sets sensor checks off
 void PSClass::Disable(byte sens)
 {
     // sensors now start from 1 (but arrays from 0)
@@ -1366,16 +1446,23 @@ bool BarrClass::LoadSD() { return Load("/Barrels.bin", (byte *)&iBarrel, sizeof(
 
 bool BarrClass::SaveSD() { return Save("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
 
-// error handling
+// returns barrel error state
 byte BarrClass::Errors(byte barrel) { return iBarrel[barrel]._error_state; }
+
+// checks for specific error by mask
 bool BarrClass::ErrorCheck(byte barrel, byte mask) { return iBarrel[barrel]._error_state & mask; }
+
+// sets barrel error by mask
 void BarrClass::ErrorSet(byte barrel, byte mask)
 {
     iBarrel[barrel]._error_state |= mask;
     LOG.printf("[E] Barr%u:e%u\r\n", barrel, mask);
 }
+
+// unsets barrel error by mask
 void BarrClass::ErrorUnset(byte barrel, byte mask) { iBarrel[barrel]._error_state &= ~mask; }
 
+// removes error state from barrel
 void BarrClass::Reset(byte barrel) 
 { 
     LOG.printf("Barrel %u error state reset, from:%u to:0\r\n", barrel, iBarrel[barrel]._error_state);
@@ -1566,8 +1653,10 @@ void BarrClass::VolumeMinSet(byte barrel, uint16_t volume)
 // contact the sensor via UART, measure, return distance in mm
 void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte retryLeft)
 { // the hedgehog :P
+    #ifdef DEBUG_SONIC
     uint16_t temptimeout = timeLeft;
     byte tempretry = retryLeft;
+    #endif
     sBarrel *b = &iBarrel[barrel];
     // collect "measure" successful measurements to calculate total
     // wait "timeLeft" ms total time for sonic data
@@ -1617,7 +1706,9 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         if (((0xFF + upper_data + lower_data) & 0xFF) == sum) // fix to match JSN-SR04T-2.0 checksum calculation
         {
             uint16_t distance = (upper_data << 8) | (lower_data & 0xFF);
+            #ifdef DEBUG_SONIC
             LOG.printf("Sonic:%u Distance:%umm measurement:%u time left:%u retries left:%u\r\n", barrel, distance, x+1, timeLeft, retryLeft);
+            #endif
             if (distance)
             {
                 if (distance == 10555)
@@ -1693,6 +1784,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         b->_sonic_high_errors--;
     else
         ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
+    #ifdef DEBUG_SONIC
     LOG.printf("finished\r\nsonic:%u, accepted:%u, value:%umm, time:%ums, retries:%u\r\nDistance min:%u, max:%u, diff:%u, error:±%.1f%%\r\n",
                     barrel,
                     measure,
@@ -1704,6 +1796,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
                     distanceMax - distanceMin,
                     err
                     );
+    #endif
     //return distanceAvearge;
 } // end SonicMeasure
 
@@ -1797,6 +1890,10 @@ bool BarrClass::isDry(byte barrel)
 bool BarrClass::isEmpty(byte barrel)
 {
     SonicMeasure(barrel);
+    if( !Errors(barrel) && (SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min) )
+        {
+            LOG.printf("Barrel %u is empty\r\n", barrel);
+        }
     return SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min;
 }
 
@@ -1804,6 +1901,10 @@ bool BarrClass::isEmpty(byte barrel)
 bool BarrClass::isFull(byte barrel)
 {
     SonicMeasure(barrel);
+    if(SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max)
+        {
+            LOG.printf("Barrel %u is full\r\n", barrel);
+        }
     return SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max;
 }
 /*-------- Barrels END ----------*/
@@ -1844,27 +1945,21 @@ void ServiceManual()
 {
     if (State.ManualTask())
     {
-        //LOG.println("test");
         switch (State.ManualTask())
         {
             case 1:
-            Serial.println("test man case 1");
-            //FillManual
+            FillManual();
             break;
             case 2:
-            Serial.println("test man case 2");
-            //MixManual
+            MixManual();
             break;
             case 3:
-            Serial.println("test man case 3");
-            //StoreManual
+            StoreManual();
             break;
             case 4:
-            Serial.println("test man case 4");
-            //DrainManual
+            DrainManual();
             break;
         }
-        //move to tasks - State.ResetManual(); // important - no double-run
         LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
     }
     vTaskDelay(100);
@@ -1912,7 +2007,10 @@ void PressureCheck(byte sens)
         vTaskDelay(5000 / portTICK_PERIOD_MS);
         Pressure.measure(sens);
         if (Pressure.Errors(sens) == PRESSURE_NOPRESSURE)
+        {
+            LOG.printf("no pressure @sensor %u\r\n", sens);
             State.Set(STOPPED_STATE);
+        }
         break;
         case PRESSURE_OVERPRESSURE:            
         case PRESSURE_DISCONNECT:            
@@ -1961,7 +2059,10 @@ void FlowCheck(byte sens)
 void blinkDelay(unsigned long ms, byte color)
 {
     vTaskDelay(ms / 2 / portTICK_PERIOD_MS);
-    Expanders.setRGBLED(LED_OFF);
+    if (State.ManualTask()) // blinks differently for auto and manual
+        Expanders.setRGBLED(LED_WHITE);
+    else
+        Expanders.setRGBLED(LED_OFF);
     vTaskDelay(ms / 2 / portTICK_PERIOD_MS);
     Expanders.setRGBLED(color);
 }
@@ -1991,7 +2092,8 @@ void Fill(byte barrel, uint16_t requirement)
         // SENSOR CHECK
         if (Pressure.Enabled(FRESHWATER))
             PressureCheck(FRESHWATER);
-        FlowCheck(FRESHWATER);
+        if (Flow.Enabled(FRESHWATER))
+            FlowCheck(FRESHWATER);
         blinkDelay(1000, LED_YELLOW);
     }
     Expanders.FillingRelay(barrel, false); // close tap
@@ -2011,6 +2113,7 @@ void Mix(byte barrel)
     while (State.MixTimer())
     {
         // LOGIC
+        LOG.printf("barrel:%u %uMin remaining\r\n", barrel, State.MixTimer());
         for (byte s=0;s<60;s++)
         {
             // STOP-CHECK
@@ -2019,10 +2122,11 @@ void Mix(byte barrel)
             // SENSOR CHECK
             if (Pressure.Enabled(NUTRIENTS))
                 PressureCheck(NUTRIENTS);
+            if (Flow.Enabled(NUTRIENTS))
+                FlowCheck(NUTRIENTS);
             blinkDelay(1000, LED_GREEN);
         }
         State.MixLess();// decrement counter every minute
-        LOG.printf("barrel:%u %uMin remaining\r\n", barrel, State.MixTimer());
     }
     CloseTaps(barrel, barrel); // counter reached zero
     // report mixed ammount
@@ -2058,6 +2162,8 @@ void Store(byte barrel, byte target)
         // SENSOR CHECK
         if (Pressure.Enabled(NUTRIENTS))
             PressureCheck(NUTRIENTS);
+        if (Flow.Enabled(NUTRIENTS))
+            FlowCheck(NUTRIENTS);
         blinkDelay(1000, LED_CYAN);
     }
     CloseTaps(barrel, target);
@@ -2085,6 +2191,8 @@ void Drain(byte barrel, uint16_t requirement)
         // SENSOR CHECK
         if (Pressure.Enabled(NUTRIENTS))
             PressureCheck(NUTRIENTS);
+        if (Flow.Enabled(NUTRIENTS))
+            FlowCheck(NUTRIENTS);
         blinkDelay(1000, LED_BLUE);
     }
     CloseTaps(barrel, POOLS); // stop pump and taps
@@ -2192,6 +2300,114 @@ void fmsTask(void * pvParameters)
             State.Unset(STORING_STATE);
         } // if storing_state
     }     // endless loop ends here :)
+}
+
+void FillManual()
+{
+    LOG.println("Manual Filling");
+    byte barrel = State.ManualSource();
+    Flow.Reset(FRESHWATER); 
+    Expanders.FillingRelay(barrel, true);
+    while (!Barrels.isFillTargetReached(barrel, FRESHWATER, State.ManualAmmount()))
+    {
+        // LOGIC
+        Barrels.FreshwaterFillCalc(barrel); // assign flowcount to barrel         
+        if (Barrels.isFull(barrel))
+        {
+            LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
+            break;
+        }
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_YELLOW);
+    }
+    Expanders.FillingRelay(barrel, false);
+    Barrels.FreshwaterFillCalc(barrel);
+    Flow.Reset(FRESHWATER);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
+}
+
+void MixManual()
+{
+    LOG.println("Manual Mixing");
+    byte barrel = State.ManualSource();
+    Flow.Reset(NUTRIENTS);
+    OpenTaps(barrel, barrel);
+    while (State.MixTimer())
+    {
+        LOG.printf("barrel:%u manual %uMin remaining\r\n", barrel, State.MixTimer());
+        // LOGIC
+        for (byte s=0;s<60;s++)
+        {
+            // MAN Break
+            if (!State.ManualTask())
+                break;
+            blinkDelay(1000, LED_GREEN);
+        }
+        State.MixLess();// decrement counter every minute
+    }
+    CloseTaps(barrel, barrel); // counter reached zero
+    Flow.Reset(NUTRIENTS);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
+}
+
+void StoreManual()
+{
+    LOG.println("Manual Storing");
+    byte barrel = State.ManualSource();
+    byte target = State.ManualDestination();
+    Flow.Reset(NUTRIENTS);
+    if (barrel == target)
+    {
+        LOG.println("Error! trying to store to itself.\r\nstoring function exit now.");
+        State.ResetManual(); // important - no double-run
+        return; // exit right away
+    }
+    OpenTaps(barrel, target); // drain barrel into target
+    // loop - while source barrel not empty AND target not full
+    while (!Barrels.isEmpty(barrel) && !Barrels.isFull(target))
+    {
+        // LOGIC
+        // every 50 liters (not too often for good calculation accuracy)
+        if (Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS) > 50)
+            Barrels.NutrientsTransferCalc(barrel, target);
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_CYAN);
+    }
+    CloseTaps(barrel, target);
+    Barrels.NutrientsTransferCalc(barrel, target);
+    Flow.Reset(NUTRIENTS); 
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
+}
+
+void DrainManual()
+{
+    LOG.println("Manual Draining");
+    byte barrel = State.ManualSource();
+    Flow.Reset(NUTRIENTS);
+    OpenTaps(barrel, POOLS);
+    // loop while drain counter > 0 and barrel x not empty
+    while (State.DrainMore() && !Barrels.isEmpty(barrel))
+    {
+        // LOGIC
+        State.DrainRecalc(barrel);
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_BLUE);
+    }
+    CloseTaps(barrel, POOLS);
+    vTaskDelay(1000);
+    State.DrainRecalc(barrel); // last flow calculation
+    Flow.Reset(NUTRIENTS);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
 }
 /*-------- FMSD END ----------*/
 
@@ -2420,6 +2636,8 @@ void setupServer()
             // checking input is valid
             if (src > -1 && src < NUM_OF_BARRELS && task > -1 && task < 5 && ammo > -1 && ammo < 32768 && dest > -1 && dest < NUM_OF_BARRELS)
             {
+                // stopping auto
+                State.Set(STOPPED_STATE);
                 // running the task
                 State.SetManual(task, src, dest, ammo);
                 status = 1;
@@ -2560,6 +2778,24 @@ void setupServer()
             int DividerSet = request->arg("DividerSet").toInt();
             int DividerSetData = request->arg("DividerSetData").toInt();
             Flow.DividerSet(DividerSet, DividerSetData);
+        }
+
+        if (request->hasArg("FErrorReset"))
+        {
+            int FErrorReset = request->arg("FErrorReset").toInt();
+            Flow.Reset(FErrorReset);
+        }
+
+        if (request->hasArg("FEnable"))
+        {
+            int FEnable = request->arg("FEnable").toInt();
+            Flow.Enable(FEnable);
+        }
+
+        if (request->hasArg("FDisable"))
+        {
+            int FDisable = request->arg("FDisable").toInt();
+            Flow.Disable(FDisable);
         }
 
         if (request->hasArg("PDividerSet"))
@@ -2760,7 +2996,7 @@ void setupServer()
             response->print("<br>");
         }
 
-        response->print("<li>Sensors: . . flow Divider, . pressure Divider, pressure Offset, Min pressure, . Max pressure, . Pressure Sensors</li>");
+        response->print("<li>Sensors: . . flow Divider, . pressure Divider, pressure Offset, Min pressure, . Max pressure, . Pressure Sensors, Flow Sensors</li>");
         for (byte x=1;x<=2;x++)
         {
             response->printf("<span>%s </span>", x==1 ? "Freshwater" : "Nutrients .. ");
@@ -2804,6 +3040,23 @@ void setupServer()
             {
                 response->print("<form action=\"/settings\">");
                 response->printf("<input type=\"hidden\" id=\"Enable\" name=\"Enable\" value=\"%u\"><span> </span>", x);
+                response->print("<input type=\"submit\" value=\"Enable\"></form>");
+            }
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"FErrorReset\" name=\"FErrorReset\" value=\"%u\"><span> </span>", x);
+            response->print("<input type=\"submit\" value=\"Reset\"></form>");
+
+            if (Flow.Enabled(x))
+            {
+                response->print("<form action=\"/settings\">");
+                response->printf("<input type=\"hidden\" id=\"FDisable\" name=\"FDisable\" value=\"%u\"><span> </span>", x);
+                response->print("<input type=\"submit\" value=\"Disable\"></form>");
+            }
+            else
+            {
+                response->print("<form action=\"/settings\">");
+                response->printf("<input type=\"hidden\" id=\"FEnable\" name=\"FEnable\" value=\"%u\"><span> </span>", x);
                 response->print("<input type=\"submit\" value=\"Enable\"></form>");
             }
             response->print("<br>");
@@ -2984,7 +3237,9 @@ void setupServer()
     // Start server
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
     server.begin();
+    #ifdef DEBUG_NET
     LOG.print(F("-Server init\r\n"));
+    #endif
 }
 /*-------- WebServer END ----------*/
 
@@ -3020,7 +3275,7 @@ time_t getNtpTime()
     while (UDP.parsePacket() > 0)
         ;                                       // discard any previously received packets
     WiFi.hostByName(NTP_HOSTNAME, ntpServerIP); // get a random server from the pool
-#ifdef DEBUG
+#ifdef DEBUG_NET
     LOG.print("NTP time request via ");
     LOG.print(ntpServerIP);
 #endif
