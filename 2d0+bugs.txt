@@ -1,10 +1,11 @@
 bugs:
-sonic error 64 take too many start presses to reset
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
     try 2 reproduce with hardware
 
 to implement:
+isFull isEmpty can check flow if sonic error
+    work by flow system-wide if sonic error
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
 sonic remeasure on high error±
     ignore the one that is out of range? or remeasure all?

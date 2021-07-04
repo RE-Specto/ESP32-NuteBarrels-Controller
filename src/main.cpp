@@ -21,7 +21,7 @@ more info and license - soon
 //https://github.com/jandrassy/TelnetStream
 
 //#define DEBUG_SD
-//#define DEBUG_SONIC
+#define DEBUG_SONIC
 //#define DEBUG_FLOW
 //#define DEBUG_MUX
 //#define DEBUG_NET
@@ -109,8 +109,8 @@ more info and license - soon
 #define START_PIN 4
 #define STOP_PIN 0
 
-// delay for SMS error report
-#define REPORT_DELAY 5000
+// max allowed ultrasonic sensor deviation
+#define SONIC_DEV 5
 
 // Globals
 FS *disk = &SPIFFS; // default
@@ -202,8 +202,7 @@ struct sBarrel
     uint16_t _volume_nutrients = 0;      // data from flow sensor
     uint16_t _volume_nutrients_last = 0;  // data from flow sensor
     uint16_t _sonic_last_value = 0;       // updated on every sonic measurement
-    float _sonic_last_error = 0;          // +- percent error in measurement
-    byte _sonic_high_errors = 0;          // error > 5% last few times? how to calc?
+    float _sonic_deviation = 0;          // +- percent error in measurement
     uint16_t _volume_min = 0; // for flow and sonic sensors - calibrate by filling and draining
     uint16_t _volume_max = 500; // for flow and sonic sensors - calibrate by filling untill miscalculation
     uint16_t _ml_in_mm = 1130; // mililiters in 1 milimeter - calibrate by filling 100L, also can calculate by barrel diameter
@@ -242,6 +241,7 @@ class ExpaClass
 {
 private:
     byte _muxLock = MUX_UNLOCKED; // unlocked initially
+    byte _protect = false;
 public:
     void Init();
     void LockMUX(byte address);
@@ -249,6 +249,7 @@ public:
     void UnlockMUX();
     void setRGBLED(byte address);
     void Protect(bool state);
+    bool Protect();
     void FillingRelay(byte address, bool state);
     byte FillingRelayGet(byte address);
     void StoringRelay(byte address, bool state);
@@ -615,6 +616,10 @@ void ExpaClass::Init()
     expander1.setup();
     expander2.setup();
 
+    // set the init values from above
+    expander1.write();
+    expander2.write();
+
     // initial LED state
     setRGBLED(LED_WHITE);
 }
@@ -672,7 +677,7 @@ void ExpaClass::setRGBLED(byte address)
     expander1.write();
 }
 
-// setting true will disable all relays
+// setting this true will disable all relays
 void ExpaClass::Protect(bool state)
 {
     // triggers last relay in each relay board to disconnect 12v line
@@ -681,7 +686,14 @@ void ExpaClass::Protect(bool state)
     expander2.getPin(15).setValue(!state); // draining relay protect pin
     expander1.write();
     expander2.write();
+    _protect = state;
     LOG.printf("!! Protection %s\r\n", state ? "On!" : "Off");
+}
+
+// returns emergency protection status
+bool ExpaClass::Protect()
+{
+    return _protect;
 }
 
 // triggers filling relay
@@ -877,10 +889,27 @@ bool StatClass::isChanged()
             LOG.println("Start and Stop pressed together");
             State.Set(STOPPED_STATE);
             Apply(); // prevent double trigger
-            Expanders.Protect(true);
+            if (!Expanders.Protect())
+                Expanders.Protect(true);
             vTaskDelay(1000);
             State.Set(STOPPED_STATE); // set again in case it changed by interrupt
             Apply();
+        }
+        if (!digitalRead(START_PIN) && digitalRead(STOP_PIN))
+        {
+            vTaskDelay(2000 / portTICK_PERIOD_MS);
+            if (!digitalRead(START_PIN) && digitalRead(STOP_PIN))
+            {
+                LOG.println("Start long-pressed");
+                if (Expanders.Protect())
+                    Expanders.Protect(false);
+            }
+        }
+        if (Expanders.Protect())
+        {
+            State.Set(STOPPED_STATE);
+            Apply(); // prevent double trigger
+            LOG.println("Error! system in protect state. long-press start to unprotect");
         }
         //SaveStructs(); // disabled untill webUI implemented
         return true;
@@ -1790,33 +1819,29 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
             SendSMS("No signal @Ultrasonic", barrel);
         }
     }
-    float err = 0;
+    float deviation = 0;
     if (measure && distanceAvearge) // prevents DivideByZero below
     {                                                                           // taken more than 0 measurements, Avearge distance is not zero
         distanceAvearge /= measure;                                             // total divided by number of measurements taken
-        err = (float)100 * ((distanceMax - distanceMin) / 2) / distanceAvearge; // calculate measurement ±error
+        deviation = (float)100 * ((distanceMax - distanceMin) / 2) / distanceAvearge; // calculate measurement ±error
         ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
         ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
         b->_sonic_last_value = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
     }
-    b->_sonic_last_error = err;
-    if (err > 5)
-    { // if error > ±5%
-        if (b->_sonic_high_errors < 30)
-            b->_sonic_high_errors += 10;
-        // increment by 10 each measurement error, decrement by 1 each success
-        else
-        {
-            if(!ErrorCheck(barrel, BARREL_SONIC_INACCURATE))
-                ErrorSet(barrel, BARREL_SONIC_INACCURATE);
-        }
+    if (b->_sonic_deviation < deviation)
+        b->_sonic_deviation = deviation; // remember largest value
+    if (deviation > SONIC_DEV)
+    {
+        if(!ErrorCheck(barrel, BARREL_SONIC_INACCURATE))
+            ErrorSet(barrel, BARREL_SONIC_INACCURATE);
     }
-    else if (b->_sonic_high_errors) // if not err>5, and if errors not already zero, decrement
-        b->_sonic_high_errors--;
     else
-        ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
+    {
+        if(ErrorCheck(barrel, BARREL_SONIC_INACCURATE))
+            ErrorUnset(barrel, BARREL_SONIC_INACCURATE);
+    }
     #ifdef DEBUG_SONIC
-    LOG.printf("finished\r\nsonic:%u, accepted:%u, value:%umm, time:%ums, retries:%u\r\nDistance min:%u, max:%u, diff:%u, error:±%.1f%%\r\n",
+    LOG.printf("finished\r\nsonic:%u, accepted:%u, value:%umm, time:%ums, retries:%u\r\nDistance min:%u, max:%u, diff:%u, deviation:±%.1f%%\r\n",
                     barrel,
                     measure,
                     distanceAvearge,
@@ -1825,7 +1850,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
                     distanceMin,
                     distanceMax,
                     distanceMax - distanceMin,
-                    err
+                    deviation
                     );
     #endif
     //return distanceAvearge;
@@ -2168,7 +2193,7 @@ void Mix(byte barrel)
         {
             // STOP-CHECK
             if (State.Check(STOPPED_STATE))
-                fmsPause(barrel, POOLS);
+                fmsPause(barrel, barrel);
             // SENSOR CHECK
             if (Pressure.Enabled(NUTRIENTS))
                 PressureCheck(NUTRIENTS);
@@ -2220,7 +2245,7 @@ void Store(byte barrel, byte target)
         }
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
-            fmsPause(barrel, POOLS);
+            fmsPause(barrel, target);
         // SENSOR CHECK
         if (Pressure.Enabled(NUTRIENTS))
             PressureCheck(NUTRIENTS);
@@ -2343,6 +2368,7 @@ void fmsTask(void * pvParameters)
                     // wait for drain request
                     while (!State.DrainMore())
                         ServiceManual();
+                    State.Set(DRAINIG_STATE);
                     // drain the mixer first
                     State.SetStoreBarrel(State.FillBarrel());
                     // drain untill empty or requirement satisfied.
