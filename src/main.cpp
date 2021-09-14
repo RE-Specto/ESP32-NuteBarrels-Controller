@@ -835,7 +835,7 @@ void IRAM_ATTR StopButtonInterrupt()
     portEXIT_CRITICAL_ISR(&mux);
 }
 
-// returns system state raw integer value (0=uninitiated)
+// returns system state raw integer value (0=uninitialized)
 byte StatClass::Get() { return iState._state_now; }
 
 // set state using mask (FILLING_STALE,STORING_STATE....)
@@ -3549,16 +3549,16 @@ void SaveStructs()
 /* initial sequnence */
 void setup()
 {
-    // initiate UART0 - serial output
+    // initialize UART0 - serial output
     Serial.begin(115200);
 
     // initialize UART2 - serial MUX
     Serial2.begin(9600, SERIAL_8N1);
 
-    //initiate expander ports - I2C wire
+    // initialize expander ports - I2C wire
     Expanders.Init();
 
-    // initiate SD Card - SPI bus + SPIFFS
+    // initialize SD Card SPI bus + SPIFFS Storage
     initStorage();
 
     // load structs from SD card

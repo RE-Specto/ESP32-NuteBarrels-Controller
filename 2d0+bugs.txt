@@ -4,6 +4,8 @@ fmsTask sonic 0 timeout after sonic >0 error while storing
     try 2 reproduce with hardware
 
 to implement:
+rewrite to use flow sensor in critical measurements
+
 isFull isEmpty can check flow if sonic error
     work by flow system-wide if sonic error
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
