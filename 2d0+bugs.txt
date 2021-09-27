@@ -1,16 +1,47 @@
 bugs:
+if (request->hasArg("FullBarrel"))
+    sonic full barrel calibration point will create error
+        need to save last non-errorous - safeguard range 
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
     try 2 reproduce with hardware
 
 to implement:
 rewrite to use flow sensor in critical measurements
+    fill:
+    isFull
+    mix:
+    store:
+    isEmpty isFull
+    drain:
+    isEmpty
+    fmsTask:
+    isEmpty - checks nutes in mixer for mixing
+
+rewrite below to use flow
+    isDry
+    isEmpty
+    isFull
+    use VolumeMax VolumeMin volume=0 if use_flow is defined
+        when VolumeMin VolumeMax sets by flow?
+    FreshGet - flow counted freshwater for this barrel
+    NutriGet - flow counted nutrients for this barrel
+    apply flowsens to barrel, and then calculate:
+    isDry:   FreshGet + NutriGet < 2
+    isEmpty: FreshGet + NutriGet <= VolumeMin
+    isFull:  FreshGet + NutriGet >= VolumeMax
+        do i need to apply @each function that uses isEmpty isFull...?
+
+how flow freshwater becames nutes?
+
+
+sonic use highest value instead of avearge
+    change error64 from high sonic measurement error, to high deviation from flow sensor
+    remeasure 5 times, use the highest value, retry 5 times if error
 
 isFull isEmpty can check flow if sonic error
     work by flow system-wide if sonic error
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
-sonic remeasure on high error±
-    ignore the one that is out of range? or remeasure all?
 
 reenable //SaveStructs(); when ready
 
@@ -78,10 +109,10 @@ add to schematic:
 optional: doser on expander x20 pin A7? serial scale mux#14?
 
 can we work with bad flow sensor?
-    fill works by sonic
+    fill works by flow, protects from overfill by sonic
     mix works by timer
     store works by sonic
-    drain requires flow 
+    drain works by flow, protects from overdrain by sonic 
 
 
 
@@ -137,3 +168,5 @@ pressure - in next version:
     if no pressure - loop-measure for a while
     if still no pressure - check flow
     no flow - set pump error.
+
+deprecate sonic timeout - use retry count * constant time 
