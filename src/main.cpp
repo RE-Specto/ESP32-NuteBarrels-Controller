@@ -26,6 +26,7 @@ more info and license - soon
 //#define DEBUG_MUX
 //#define DEBUG_NET
 //#define DEBUG_MORE
+//#define USE_FLOW_INSTEAD
 
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
@@ -1580,8 +1581,8 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
 float BarrClass::ConcentrationTotal(byte barrel)
 {
     sBarrel *b = &iBarrel[barrel];
-    if (!b->_volume_nutrients && !b->_volume_freshwater)
-        return 0; // empty barrels - prevent Divide By Zero!
+    if (!b->_volume_nutrients)
+        return 0; // no nutes to calc + prevent Divide By Zero! on dry barrels
     else
         return b->_concentraion * b->_volume_nutrients / (b->_volume_nutrients + b->_volume_freshwater); // mix
 }
@@ -2148,7 +2149,7 @@ void Fill(byte barrel, uint16_t requirement)
     while (!Barrels.isFillTargetReached(barrel, FRESHWATER, requirement))
     { 
         // LOGIC
-        Barrels.FreshwaterFillCalc(barrel); // assign flowcount to barrel         
+        Barrels.FreshwaterFillCalc(barrel); // apply flowcount to barrel         
         if (Barrels.isFull(barrel) && !Barrels.Errors(barrel)) // if barrel ammount is Full then stop
         {
             LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
@@ -2170,7 +2171,7 @@ void Fill(byte barrel, uint16_t requirement)
         blinkDelay(1000, LED_YELLOW);
     }
     Expanders.FillingRelay(barrel, false); // close tap
-    Barrels.FreshwaterFillCalc(barrel);  // assign flowcount to barrel
+    Barrels.FreshwaterFillCalc(barrel);  // apply flowcount to barrel
     Flow.Reset(FRESHWATER); // reset flow counter 1
     LOG.printf("END filling barrel:%u to %uL\r\n", barrel, requirement);
     Serial.println();
@@ -2417,7 +2418,7 @@ void FillManual()
     while (!Barrels.isFillTargetReached(barrel, FRESHWATER, State.ManualAmmount()))
     {
         // LOGIC
-        Barrels.FreshwaterFillCalc(barrel); // assign flowcount to barrel         
+        Barrels.FreshwaterFillCalc(barrel); // apply flowcount to barrel         
         if (Barrels.isFull(barrel))
         {
             LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
