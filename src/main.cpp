@@ -110,8 +110,8 @@ more info and license - soon
 #define START_PIN 4
 #define STOP_PIN 0
 
-// max allowed ultrasonic sensor deviation
-#define SONIC_DEV 5
+// max allowed ultrasonic sensor deviation percents
+#define SONIC_DEV 50 //5 //strict check disabled until more accurate sonics available
 
 // Globals
 FS *disk = &SPIFFS; // default
@@ -1709,7 +1709,12 @@ void BarrClass::VolumeMinSet(byte barrel, uint16_t volume)
 }
 
 
-// contact the sensor via UART, measure, return distance in mm
+// contact the sensor via UART, measure, store max distance in mm
+// receives:
+// barrel number,
+// measure x times - default 10, 
+// max measuring time - default  1000 miliseconds,
+// retries on failure - default 5
 void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte retryLeft)
 { // the hedgehog :P
     #ifdef DEBUG_SONIC
@@ -1827,7 +1832,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
         deviation = (float)100 * ((distanceMax - distanceMin) / 2) / distanceAvearge; // calculate measurement ±error
         ErrorUnset(barrel, BARREL_SONIC_TIMEOUT);
         ErrorUnset(barrel, BARREL_SONIC_OUTOFRANGE);
-        b->_sonic_last_value = distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
+        b->_sonic_last_value = distanceMax; //distanceAvearge; // set value to be used by other functions. will leave previous if measurement was bad.
     }
     if (b->_sonic_deviation < deviation)
         b->_sonic_deviation = deviation; // remember largest value

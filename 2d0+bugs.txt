@@ -2,48 +2,22 @@ bugs:
 if (request->hasArg("FullBarrel"))
     sonic full barrel calibration point will create error
         need to save last non-errorous - safeguard range 
+    ErrorCheck(barrel, BARREL_SONIC_OUTOFRANGE)
 fmsTask sonic 0 timeout after sonic >0 error while storing
     do sonics need time after mux switch?
     try 2 reproduce with hardware
 
 to implement:
-rewrite to use flow sensor in critical measurements
-    fill:
-    isFull
-    mix:
-    store:
-    isEmpty isFull
-    drain:
-    isEmpty
-    fmsTask:
-    isEmpty - checks nutes in mixer for mixing
 
-rewrite below to use flow
-    isDry
-    isEmpty
-    isFull
-    use VolumeMax VolumeMin volume=0 if use_flow is defined
-        when VolumeMin VolumeMax sets by flow?
-    FreshGet - flow counted freshwater for this barrel
-    NutriGet - flow counted nutrients for this barrel
-    apply flowsens to barrel, and then calculate:
-    isDry:   FreshGet + NutriGet < 2
-    isEmpty: FreshGet + NutriGet <= VolumeMin
-    isFull:  FreshGet + NutriGet >= VolumeMax
-        do i need to apply @each function that uses isEmpty isFull...?
-
-how flow freshwater becames nutes?
-
-
-sonic use highest value instead of avearge
-    change error64 from high sonic measurement error, to high deviation from flow sensor
-    remeasure 5 times, use the highest value, retry 5 times if error
-
-isFull isEmpty can check flow if sonic error
-    work by flow system-wide if sonic error
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
 
 reenable //SaveStructs(); when ready
+
+change error64 from high sonic measurement error, to high deviation from flow sensor
+
+add barrel enable disable
+add FreshGet NutriGet to webUI at each barrel
+add flowsetmin flowsetmax at each barrel at webUI 
 
 check & print error states the same way as system states?
 
@@ -107,6 +81,14 @@ http://www.cplusplus.com/forum/general/67783/
 add to schematic:
 12v line add polyfuze
 optional: doser on expander x20 pin A7? serial scale mux#14?
+
+how flow freshwater becames nutes?
+    ConcentrationRecalc
+        NutrientsTransferCalc
+            Store
+            StoreManual
+    should i recalc at barrel 0 at start of mixing,
+     so we have flow ammount in nutes and not in freshwater even before storing
 
 can we work with bad flow sensor?
     fill works by flow, protects from overfill by sonic
