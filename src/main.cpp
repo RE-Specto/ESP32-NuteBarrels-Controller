@@ -26,7 +26,7 @@ more info and license - soon
 //#define DEBUG_MUX
 //#define DEBUG_NET
 //#define DEBUG_MORE
-//#define USE_FLOW_INSTEAD
+#define USE_FLOW_INSTEAD // in case of sonic inaccuracy
 
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
@@ -1941,30 +1941,44 @@ int16_t BarrClass::SonicLitersUsable()
 // totally empty (by ultrasonic)
 bool BarrClass::isDry(byte barrel)
 {
+    #ifdef USE_FLOW_INSTEAD
+    return (FreshGet(barrel) + NutriGet(barrel) + (Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS))) <= 2;
+    #else
     SonicMeasure(barrel);
     return SonicCalcLiters(barrel) < 2; // +1 spare as a safeguard
+    #endif
 }
 
 // reached min level (by ultrasonic)
 bool BarrClass::isEmpty(byte barrel)
 {
+    #ifdef USE_FLOW_INSTEAD
+    return (FreshGet(barrel) + NutriGet(barrel) - (Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS))) <= VolumeMin(barrel);
+    // used mostly while draining now.. so its totoal litrage minus drained so far
+    #else
     SonicMeasure(barrel);
     if( !Errors(barrel) && (SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min) )
         {
             LOG.printf("Barrel %u is empty\r\n", barrel);
         }
-    return SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min;
+    return SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min;    
+    #endif
 }
 
 // reached max level (by ultrasonic)
 bool BarrClass::isFull(byte barrel)
 {
+    #ifdef USE_FLOW_INSTEAD
+    return (FreshGet(barrel) + NutriGet(barrel) + (Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS))) >= VolumeMax(barrel);
+    // used mostly while filling/storing now.. so its totoal litrage plus added so far
+    #else
     SonicMeasure(barrel);
     if(SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max)
         {
             LOG.printf("Barrel %u is full\r\n", barrel);
         }
     return SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max;
+    #endif
 }
 
 // test all sonic sensors 
