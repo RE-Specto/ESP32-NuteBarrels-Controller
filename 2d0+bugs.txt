@@ -1,4 +1,5 @@
 bugs:
+isChanged will retriger SaveStructs over and over at each start press when Expanders.Protect is set
 if (request->hasArg("FullBarrel"))
     sonic full barrel calibration point will create error
         need to save last non-errorous - safeguard range 
@@ -10,8 +11,6 @@ fmsTask sonic 0 timeout after sonic >0 error while storing
 to implement:
 
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
-
-reenable //SaveStructs(); when ready
 
 change error64 from high sonic measurement error, to high deviation from flow sensor
 

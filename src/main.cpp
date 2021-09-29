@@ -912,7 +912,7 @@ bool StatClass::isChanged()
             Apply(); // prevent double trigger
             LOG.println("Error! system in protect state. long-press start to unprotect");
         }
-        //SaveStructs(); // disabled untill webUI implemented
+        SaveStructs();
         return true;
     }
     return false;
@@ -2357,7 +2357,7 @@ void fmsTask(void * pvParameters)
                     vTaskDelay(1000 / portTICK_PERIOD_MS);
                     // drain untill empty or requirement satisfied.
                     Drain(State.FillBarrel(), State.DrainMore());
-                    //SaveStructs(); // disabled untill webUI implemented
+                    SaveStructs();
                     if (Barrels.isEmpty(State.FillBarrel()))
                         break; // if drained filling barrel to empty - break store loop
                 }
@@ -2374,7 +2374,7 @@ void fmsTask(void * pvParameters)
                 if (!Barrels.isFull(stor) && !Barrels.Errors(stor) && stor > 0)
                 {
                     Store(State.FillBarrel(), stor);
-                    //SaveStructs(); // disabled untill webUI implemented
+                    SaveStructs(); 
                 }
                 // target full - goto next barrel
                 else if (stor > 1)
@@ -2393,7 +2393,7 @@ void fmsTask(void * pvParameters)
                     State.SetStoreBarrel(State.FillBarrel());
                     // drain untill empty or requirement satisfied.
                     Drain(State.FillBarrel(), State.DrainMore());
-                    //SaveStructs(); // disabled untill webUI implemented
+                    SaveStructs(); 
                 }
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
             } // got here cause filling_barrel is empty
@@ -2406,7 +2406,7 @@ void fmsTask(void * pvParameters)
                 if (!Barrels.isEmpty(State.StoreBarrel()) && !Barrels.Errors(State.StoreBarrel()))
                 {
                     Drain(State.StoreBarrel(), State.DrainMore());
-                    //SaveStructs(); // disabled untill webUI implemented
+                    SaveStructs(); 
                 }
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
                 else if (State.StoreBarrel() < NUM_OF_BARRELS - 1)
