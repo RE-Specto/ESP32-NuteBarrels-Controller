@@ -2729,7 +2729,7 @@ void setupServer()
         {
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/sonic?n=%u\'\">Sonic %u: measure</button><span> </span>", i, i);
-            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u]", Barrels.SonicCalcLiters(i), Barrels.SonicLastMM(i), Barrels.SonicMLinMMGet(i), Barrels.SonicOffset(i), Barrels.Errors(i));
+            response->printf("[%iL] [%imm] [%uml/mm] [%umm barrel] [problem:%u] [water:%u] [nutri:%u]", Barrels.SonicCalcLiters(i), Barrels.SonicLastMM(i), Barrels.SonicMLinMMGet(i), Barrels.SonicOffset(i), Barrels.Errors(i), Barrels.FreshGet(i), Barrels.NutriGet(i));
             response->print("</li>");
         }
         response->printf("<li>Sonic liters: [total %i] [usable %i] </li>", Barrels.SonicLitersTotal(), Barrels.SonicLitersUsable());
