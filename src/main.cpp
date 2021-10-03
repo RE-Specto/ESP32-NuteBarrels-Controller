@@ -457,7 +457,7 @@ bool Load(const char *fname, byte *stru_p, uint16_t len)
 #ifdef DEBUG_SD
     LOG.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
 #else
-    LOG.println();
+    Serial.println();
 #endif
     file.close();
     return count == len;

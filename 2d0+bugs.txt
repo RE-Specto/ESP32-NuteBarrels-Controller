@@ -13,6 +13,13 @@ to implement:
 add log levels to serial prints + shorten output format
     FATAL    ERROR    WARN    INFO    DEBUG    TRACE
     +add setting log level to webUI?
+    time[000012]line[1732]func[SonicMeasure] message
+    [W][T000012][SonicMeasure:1732] message
+    split define LOG into LOGERROR LOGWARN .....
+
+any way to check for Expander connectivity?
+    +hardware check for mux - loopback on leg 14?
+        test by serial.write + serial.read ?
 
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
 
