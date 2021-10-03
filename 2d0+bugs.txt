@@ -10,6 +10,10 @@ fmsTask sonic 0 timeout after sonic >0 error while storing
 
 to implement:
 
+add log levels to serial prints + shorten output format
+    FATAL    ERROR    WARN    INFO    DEBUG    TRACE
+    +add setting log level to webUI?
+
 check: State.SetStoreBarrel(State.FillBarrel()); for bugs
 
 change error64 from high sonic measurement error, to high deviation from flow sensor

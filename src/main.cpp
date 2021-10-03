@@ -399,7 +399,7 @@ public:
 // SD Card and SPIFFS
 void initStorage()
 {
-    byte retry = 5; // 5 times for SD
+    byte retry = 3; // 3 times for SD
     while (retry)
     {
         if (SD.begin())
@@ -420,10 +420,10 @@ void initStorage()
     }
     if (!isSD)
         SendSMS("SD Card Error - please check");
-    retry = 3; // 3 times for SPIFFS
+    retry = 2; // 2 times for SPIFFS
     while (retry)
     {
-        if (SPIFFS.begin())
+        if (SPIFFS.begin(true)) // formatOnFail enabled 
         {
             #ifdef DEBUG_SD
             LOG.println(F("SPIFFS OK"));
