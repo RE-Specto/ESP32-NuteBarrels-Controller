@@ -1,10 +1,7 @@
 # ESP32-NuteBarrels-Controller
-nutrient barrels automation project
-
-in late development stages..
-
-more info and license - later
-
+nutrient barrels automation project  
+in late development stages..  
+more info and license - later  
 
 ## 2do:
  - [ ] implement GUI via webUI
