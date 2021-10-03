@@ -1,7 +1,6 @@
 # ESP32-NuteBarrels-Controller
+nutrient barrels automation project
 in late development stages..
-
-## nutrient barrels automation project
 more info and license - later
 
 ## 2do:
