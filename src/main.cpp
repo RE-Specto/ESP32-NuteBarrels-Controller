@@ -111,7 +111,7 @@ more info and license - soon
 #define STOP_PIN 0
 
 // max allowed ultrasonic sensor deviation percents
-#define SONIC_DEV 50 //5 //strict check disabled until more accurate sonics available
+#define SONIC_DEV 200 //5 //strict check disabled until more accurate sonics available
 
 // Globals
 FS *disk = &SPIFFS; // default
