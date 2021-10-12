@@ -10,16 +10,22 @@ fmsTask sonic 0 timeout after sonic >0 error while storing
 settings not saving automaticly after change from webui - run savestructs
 deviation always to high for sonic
     am i measuring sonics too fast?
+
 to implement:
 manual setting of water+nutri for flow
+reuse sonic calib methods for flow calibration?
 add version string
 
-add log levels to serial prints + shorten output format
-    FATAL    ERROR    WARN    INFO    DEBUG    TRACE
-    +add setting log level to webUI?
-    time[000012]line[1732]func[SonicMeasure] message
-    [W][T000012][SonicMeasure:1732] message
-    split define LOG into LOGERROR LOGWARN .....
+implement proper logging: https://thingpulse.com/esp32-logging/
+    or manually add log levels to serial prints + shorten output format
+        +add setting log level to webUI?
+        time[000012]line[1732]func[SonicMeasure] message
+        [W][T000012][SonicMeasure:1732] message
+        split define LOG into LOGERROR LOGWARN .....
+
+upgrade spiffs to littlefs
+
+separate code into header files and modules
 
 any way to check for Expander connectivity?
     +hardware check for mux - loopback on leg 14?
