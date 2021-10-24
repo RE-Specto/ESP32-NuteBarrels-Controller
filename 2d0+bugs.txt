@@ -12,6 +12,12 @@ deviation always to high for sonic
     am i measuring sonics too fast?
 
 to implement:
+rewrite system to use concentrate from mixer barrel
+    disable automatic storing
+    drain from mixer
+    add drain freshwater?
+
+add SaveStructs button to calibration
 manual setting of water+nutri for flow
 reuse sonic calib methods for flow calibration?
 add version string
