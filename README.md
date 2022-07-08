@@ -3,7 +3,9 @@ nutrient barrels automation project
 in late development stages..  
 more info and license - later  
 
+all source files are under src/  
+
 ## 2do:
  - [ ] implement GUI via webUI
  - [ ] split main.cpp into separate units by functionality
- - [ ] add schematic and photos
+ - [x] add schematic and photos
