@@ -143,6 +143,7 @@ void FillManual();
 void MixManual();
 void StoreManual();
 void DrainManual();
+void MixerPump(bool on);
 
 
 /*-------- Structs Begin ----------*/
@@ -171,16 +172,17 @@ struct sSystem
     uint16_t _error_now = 0;
     uint16_t _error_before = 0;
     uint16_t _fill_req = 500;            // total liters to fill 
-    uint16_t _mix_req = 3;               // total minutes to mix
+    uint16_t _mix_req = 30;               // total minutes to mix
     uint16_t _mix_timer = _mix_req;   // minutes to mix this time
     uint16_t _drain_req = 0;             // how many liters to drain
     uint32_t _drain_total = 0;                 // how many liters totally drained
     byte _filling_barrel = 0;                    // mixer barrel
-    byte _storing_barrel = NUM_OF_BARRELS - 1;   // last barrel (NUM_OF_BARRELS -1 cause we start from zero)
+    byte _storing_barrel = 0; //storing disabled from init state //NUM_OF_BARRELS - 1;   // last barrel (NUM_OF_BARRELS -1 cause we start from zero)
     byte _manual_task = 0; // 0 cancel, 1 fill, 2 mix, 3 store, 4 drain
     byte _manual_src = 0;
     byte _manual_dest = 0;
     uint16_t _manual_ammo = 0;
+    uint16_t _bypass_req = 0;           // how many liters to fill freshwater to pools
 };
 
 struct sBarrel
@@ -296,8 +298,11 @@ public:
     void MoveStoreUp();
     void MoveStoreDown();
     void SetDrainReq(uint16_t req);
+    void SetBypassReq(uint16_t req);
     uint16_t DrainMore();
+    uint16_t BypassMore();
     void DrainRecalc(byte barrel);
+    //void BypassRecalc(byte barrel);
     void SetManual(byte task, byte src, byte dest, uint16_t ammo);
     void IRAM_ATTR ResetManual();
     byte ManualTask();
@@ -1023,6 +1028,13 @@ void StatClass::SetDrainReq(uint16_t req)
     iState._drain_req = req;
 }
 
+void StatClass::SetBypassReq(uint16_t req) 
+{
+    LOG.printf("Changing bypass requirement from:%u to:%u\r\n", iState._bypass_req, req);
+    iState._bypass_req = req;
+}
+
+
 // returns how much to drain
 uint16_t StatClass::DrainMore()
 {
@@ -1030,6 +1042,15 @@ uint16_t StatClass::DrainMore()
         return iState._manual_ammo;
     else
         return iState._drain_req;
+}
+
+// returns how much to bypass
+uint16_t StatClass::BypassMore()
+{
+    if (iState._manual_task)
+        return iState._manual_ammo;
+    else
+        return iState._bypass_req;
 }
 
 // substract flow sensor counted liters from drain requirement
@@ -1066,6 +1087,21 @@ void StatClass::DrainRecalc(byte barrel)
     // decrement flow counter by "counted so far" pulses (liters times divider)
     Flow.CounterSubtract(NUTRIENTS, liters * Flow.Divider(NUTRIENTS));
 }
+
+// void StatClass::BypassRecalc(byte barrel)
+// {
+//     #ifdef DEBUG_MORE
+//     LOG.println(__FUNCTION__);
+//     #endif
+//     uint32_t tempflow = Flow.Counted(FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
+//     if (tempflow)
+//     {
+//         tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
+//         iState._bypass_req -= tempflow;
+//         tempflow *= Flow.Divider(FRESHWATER); // getting pulse count back - only the integral part
+//         Flow.CounterSubtract(FRESHWATER, tempflow);
+//     }
+// }
 
 void StatClass::SetManual(byte task, byte src, byte dest, uint16_t ammo)
 {
@@ -1992,7 +2028,7 @@ void BarrClass::TestSensors()
     for(byte x=0;x<NUM_OF_BARRELS;x++)
     {
         SonicMeasure(x, 1);
-        //vTaskDelay(10); //try without delay first to reproduce mux overload bug
+        //vTaskDelay(10); //without delay first, trying to reproduce mux overload bug
     }
 }
 /*-------- Barrels END ----------*/
@@ -2027,6 +2063,11 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
     Expanders.DrainingRelay(drainBarrel, false);
     // close barrel store tap
     Expanders.StoringRelay(storeBarrel, false);
+}
+
+void MixerPump(bool on)
+{
+    Expanders.DrainingRelay(POOLS, on);
 }
 
 void ServiceManual()
@@ -2204,6 +2245,7 @@ void Mix(byte barrel)
     LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, State.MixTimer());
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     OpenTaps(barrel, barrel); // open both taps of the same barrel to mix it :)
+    MixerPump(true); // turn on optional mixer motor at drain6
     // loop - while mix timer > 0
     while (State.MixTimer())
     {
@@ -2223,6 +2265,7 @@ void Mix(byte barrel)
         }
         State.MixLess();// decrement counter every minute
     }
+    MixerPump(false); // turn off optional mixer motor at drain6
     CloseTaps(barrel, barrel); // counter reached zero
     // report mixed ammount
     LOG.printf("mixed %u liters\r\n", Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS));
@@ -2317,6 +2360,64 @@ void Drain(byte barrel, uint16_t requirement)
     Serial.println();
 }
 
+void Bypass(uint16_t requirement)
+{
+    Serial.println();
+    LOG.printf("filling pools with %uL\r\n", requirement);
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(1, true); // open barrel filling tap //!!! for now - bypass at barrel1 - reimplement later
+    Expanders.StoringRelay(POOLS, true);
+    // fill until requirement OR barrel_high_level
+    while (requirement) // implement !Barrels.isFillTargetReached(POOLS, FRESHWATER, requirement) instead? + FreshwaterFillCalc...
+    { 
+        // LOGIC
+        uint32_t tempflow = Flow.Counted(FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
+        if (tempflow)
+        {
+            tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
+            if (requirement > tempflow)
+            {
+                requirement -= tempflow;
+            }
+            else
+            {
+                requirement = 0;
+                break;
+            }
+            tempflow *= Flow.Divider(FRESHWATER); // getting pulse count back - only the integral part
+            Flow.CounterSubtract(FRESHWATER, tempflow);
+        }
+    //     Barrels.FreshwaterFillCalc(barrel); // apply flowcount to barrel         
+    //     if (Barrels.isFull(barrel) && !Barrels.Errors(barrel)) // if barrel ammount is Full then stop
+    //     {
+    //         LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
+    //         break;
+    //     }
+    //     if (Barrels.Errors(barrel))
+    //     {
+    //         LOG.printf("Barrel %u error state %u auto paused.\r\n", barrel, Barrels.Errors(barrel));
+    //         State.Set(STOPPED_STATE);
+    //     }
+        // STOP-CHECK
+        if (State.Check(STOPPED_STATE))
+            Expanders.StoringRelay(POOLS, false);//!!! for now - bypass at barrel1 - reimplement later fill7?
+            fmsPause(0xff, 1); //!!! for now - bypass at barrel1 - reimplement later
+            Expanders.StoringRelay(POOLS, true);//!!! for now - bypass at barrel1 - reimplement later to fill7?
+        // SENSOR CHECK
+        if (Pressure.Enabled(FRESHWATER))
+            PressureCheck(FRESHWATER);
+        if (Flow.Enabled(FRESHWATER))
+            FlowCheck(FRESHWATER);
+        blinkDelay(1000, LED_MAGENTA);
+    }
+    Expanders.FillingRelay(1, false); // close tap
+    Expanders.StoringRelay(POOLS, false);
+    //Barrels.FreshwaterFillCalc(barrel);  // apply flowcount to barrel
+    LOG.printf("END filling pools with %uL\r\n", Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER)); // requirement
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Serial.println();
+}
+
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
     //LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
@@ -2379,6 +2480,7 @@ void fmsTask(void * pvParameters)
                 // target full - goto next barrel
                 else if (stor > 1)
                 {
+                    LOG.printf("barrel %u busy (e-state %u), skipping to %u..\r\n", stor, Barrels.Errors(stor), stor - 1);
                     State.MoveStoreDown();
                 }
                 else
@@ -2534,6 +2636,12 @@ void DrainManual()
     Flow.Reset(NUTRIENTS);
     State.ResetManual(); // important - no double-run
     Expanders.setRGBLED(LED_WHITE);
+}
+
+// bypass freshwater to pools
+void BypassManual()
+{
+    //
 }
 /*-------- FMSD END ----------*/
 
@@ -2858,6 +2966,12 @@ void setupServer()
             State.SetDrainReq(SetDrainReq);
         }
 
+        if (request->hasArg("SetBypassReq"))
+        {
+            int SetBypassReq = request->arg("SetBypassReq").toInt();
+            State.SetBypassReq(SetBypassReq);
+        }
+
         if (request->hasArg("ErrorOverride"))
         {
             int ErrorOverride = request->arg("ErrorOverride").toInt();
@@ -3071,6 +3185,11 @@ void setupServer()
         response->print("<li>drain requirement</li>");
         response->print("<form action=\"/settings\">");
         response->printf("<input id=\"SetDrainReq\" name=\"SetDrainReq\" value=\"%u\"><span> </span>", State.DrainMore());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>Bypass requirement</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetBypassReq\" name=\"SetBypassReq\" value=\"%u\"><span> </span>", State.BypassMore());
         response->print("<input type=\"submit\" value=\"Go\"></form>");
 
         response->print("<li>barrels: Errors override.. Dry barrel lenght in mm point, mililitrage to lenght ratio, Full barrel point in liters, . . . . . Empty barrel point in liters</li>");

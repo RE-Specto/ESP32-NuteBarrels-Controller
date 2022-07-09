@@ -10,12 +10,26 @@ fmsTask sonic 0 timeout after sonic >0 error while storing
 settings not saving automaticly after change from webui - run savestructs
 deviation always to high for sonic
     am i measuring sonics too fast?
+check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
 rewrite system to use concentrate from mixer barrel
-    disable automatic storing
-    drain from mixer
-    add drain freshwater?
+    [x]disable automatic storing
+    [x]drain from mixer
+    [-]add drain freshwater via f1 s1 bypass!!
+    [ ]add proper barrel_disabled webui
+    [ ]move pump to drain6? a7?
+    [ ]reimplement bypass at fill(POOLS) (f7)
+    [ ] bypass is drain multiplied by x? or ammount by itself? ask rivka..
+
+interface:
+- [ ] liters to drain total requirement - up down arrow
+- [ ] concentrate to clean water ratio requirement  - up down arrow
+- [ ] water level in mixer graphically by sonic
+
+info:
+- [ ] ask R.ka approximate barrel to clean water ratio
+- [ ] ask dry to 500l ratio?
 
 add SaveStructs button to calibration
 manual setting of water+nutri for flow
