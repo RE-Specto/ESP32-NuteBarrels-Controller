@@ -8,9 +8,9 @@
 #include "globals.h"
 
 /*-------- Barrels Begin ----------*/
-bool BarrClass::LoadSD() { return Storage.Load("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
+bool BarrClass::LoadSD() { return Filesys.Load("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
 
-bool BarrClass::SaveSD() { return Storage.Save("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
+bool BarrClass::SaveSD() { return Filesys.Save("/Barrels.bin", (byte *)&iBarrel, sizeof(iBarrel)); }
 
 // returns barrel error state
 byte BarrClass::Errors(byte barrel) { return iBarrel[barrel]._error_state; }

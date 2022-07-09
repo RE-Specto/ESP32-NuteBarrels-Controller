@@ -48,7 +48,7 @@ void ServerClass::begin()
 
     server.on("/index", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
-        request->send(*Storage.disk, "/index.html", String(), false);
+        request->send(*Filesys.disk, "/index.html", String(), false);
     });
 
     server.on(
@@ -57,7 +57,7 @@ void ServerClass::begin()
             {
                 LOG.printf("\r\nUpload Started: %s\r\n", filename.c_str());
                 // open the file on first call and store the file handle in the request object
-                request->_tempFile = Storage.disk->open("/"+filename, "w");
+                request->_tempFile = Filesys.disk->open("/"+filename, "w");
             }
             if(len) 
             {
@@ -76,7 +76,7 @@ void ServerClass::begin()
     server.on("/list", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        File dir = Storage.disk->open("/");
+        File dir = Filesys.disk->open("/");
         File file = dir.openNextFile();
         response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>file system</h3><ul>");
         while (file)
@@ -97,7 +97,7 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
         response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
-        if (Storage.isSD())
+        if (Filesys.isSD())
         {
             response->print("<div>filesystem is: SD Card</div>");
             response->print("<button onclick=\"location=\'/switchFS\'\">Switch to SPIFFS</button><br><br>");
@@ -112,15 +112,15 @@ void ServerClass::begin()
     });
 
     server.on("/switchFS", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if (Storage.isSD())
+        if (Filesys.isSD())
         {
             LOG.println(F("switching to SPIFFS"));
-            Storage.useSD(false);
+            Filesys.useSD(false);
         }
         else
         { // IMPORTANT !! add check for filesystem availability
             LOG.println(F("switching to SD Card"));
-            Storage.useSD(true);
+            Filesys.useSD(true);
         }
         request->redirect("/list");
     });
@@ -133,7 +133,7 @@ void ServerClass::begin()
             {
                 const char *file = request->arg("f").c_str();
                 LOG.printf("Deleting file %s ", file);
-                Storage.disk->remove(file) ? Serial.println("Successfully") : Serial.println("Failed");
+                Filesys.disk->remove(file) ? Serial.println("Successfully") : Serial.println("Failed");
             }
         }
         else
@@ -151,7 +151,7 @@ void ServerClass::begin()
             {
                 const char *file = request->arg("f").c_str();
                 LOG.printf("Downloading file %s \r\n", file);
-                request->send(*Storage.disk, file, "text/plain");
+                request->send(*Filesys.disk, file, "text/plain");
             }
         }
         else
@@ -160,7 +160,7 @@ void ServerClass::begin()
 
     server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(404);
-        //request->send(*Storage.disk, "/favicon.png", "image/png");
+        //request->send(*Filesys.disk, "/favicon.png", "image/png");
     });
 
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -740,18 +740,18 @@ void ServerClass::begin()
     server.on("/backup", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         //char buf [4];
-        //sprintf (buf, "%03u", Storage.Backup());
+        //sprintf (buf, "%03u", Filesys.Backup());
         //request->send(200, "text/html", buf);
-        Storage.Backup();
+        Filesys.Backup();
         request->redirect("/list");
     });
 
     server.on("/restore", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         //char buf [4];
-        //sprintf (buf, "%03u",  Storage.Restore());
+        //sprintf (buf, "%03u",  Filesys.Restore());
         //request->send(200, "text/html", buf);
-        Storage.Restore();
+        Filesys.Restore();
         request->redirect("/list");
     });
 

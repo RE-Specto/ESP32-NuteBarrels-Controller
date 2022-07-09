@@ -17,9 +17,9 @@
 // and Analog reads
 // task pressure sensors - stops pumps on overpressure
 
-bool PSClass::LoadSD() { return Storage.Load("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
+bool PSClass::LoadSD() { return Filesys.Load("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
 
-bool PSClass::SaveSD() { return Storage.Save("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
+bool PSClass::SaveSD() { return Filesys.Save("/Pressure.bin", (byte *)&iPsens, sizeof(iPsens)); }
 
 void PSClass::begin()
 {

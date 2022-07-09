@@ -310,4 +310,4 @@ void StorageClass::SaveStructs()
 }
 
 /*-------- Filesystem END ----------*/
-StorageClass Storage;
+StorageClass Filesys;

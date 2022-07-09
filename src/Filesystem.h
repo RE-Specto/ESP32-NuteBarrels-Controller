@@ -23,5 +23,5 @@ public:
     void SaveStructs();
 };
 
-extern StorageClass Storage;
+extern StorageClass Filesys;
 #endif

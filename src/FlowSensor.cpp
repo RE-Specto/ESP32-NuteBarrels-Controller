@@ -61,9 +61,9 @@ void FSClass::begin()
     Reset(NUTRIENTS);
 }
 
-bool FSClass::LoadSD() { return Storage.Load("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
+bool FSClass::LoadSD() { return Filesys.Load("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
 
-bool FSClass::SaveSD() { return Storage.Save("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
+bool FSClass::SaveSD() { return Filesys.Save("/Flow.bin", (byte *)&iFsens, sizeof(iFsens)); }
 
 
 // returns flow in mililiters per second for sensor No(sens)

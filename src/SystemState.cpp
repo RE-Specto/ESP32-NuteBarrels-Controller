@@ -26,9 +26,9 @@ void StatClass::begin()
     State.SetStoreBarrel(NUM_OF_BARRELS - 1); //(NUM_OF_BARRELS -1 cause we start from zero)
 }
 
-bool StatClass::LoadSD() { return Storage.Load("/SysState.bin", (byte *)&iState, sizeof(iState)); }
+bool StatClass::LoadSD() { return Filesys.Load("/SysState.bin", (byte *)&iState, sizeof(iState)); }
 
-bool StatClass::SaveSD() { return Storage.Save("/SysState.bin", (byte *)&iState, sizeof(iState)); }
+bool StatClass::SaveSD() { return Filesys.Save("/SysState.bin", (byte *)&iState, sizeof(iState)); }
 
 void IRAM_ATTR StartButtonInterrupt()
 {
@@ -122,7 +122,7 @@ bool StatClass::isChanged()
             Apply(); // prevent double trigger
             LOG.println("Error! system in protect state. long-press start to unprotect");
         }
-        Storage.SaveStructs();
+        Filesys.SaveStructs();
         return true;
     }
     return false;
