@@ -16,11 +16,13 @@ to implement:
 rewrite system to use concentrate from mixer barrel
     [x]disable automatic storing
     [x]drain from mixer
-    [-]add drain freshwater via f1 s1 bypass!!
+    [x]add drain freshwater via f1 s1 spools bypass!!
     [ ]add proper barrel_disabled webui
     [ ]move pump to drain6? a7?
     [ ]reimplement bypass at fill(POOLS) (f7)
-    [ ] bypass is drain multiplied by x? or ammount by itself? ask rivka..
+    [ ]bypass is drain multiplied by x? or ammount by itself? ask rivka..
+    [ ]separate calib for nutes flowsensor - using separate calib5L func?
+    [ ]fill less than drain cause huge nutes ammount
 
 interface:
 - [ ] liters to drain total requirement - up down arrow
@@ -30,6 +32,8 @@ interface:
 info:
 - [ ] ask R.ka approximate barrel to clean water ratio
 - [ ] ask dry to 500l ratio?
+
+check for unused functions and methods
 
 add SaveStructs button to calibration
 manual setting of water+nutri for flow
