@@ -14,15 +14,17 @@ check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
 rewrite system to use concentrate from mixer barrel
-    [x]disable automatic storing
-    [x]drain from mixer
-    [x]add drain freshwater via f1 s1 spools bypass!!
+    [ ] edit drain to drain fully!!
+    [ ] drain by ammount of barrels not liters??
+    [ ] add Fill 5 Liters, Store 5 Liters for flow calibration!!
+    [ ] add 'state bitmap to human readable string' translator function
     [ ]add proper barrel_disabled webui
     [ ]move pump to drain6? a7?
     [ ]reimplement bypass at fill(POOLS) (f7)
     [ ]bypass is drain multiplied by x? or ammount by itself? ask rivka..
     [ ]separate calib for nutes flowsensor - using separate calib5L func?
     [ ]fill less than drain cause huge nutes ammount
+    [ ] add DrainTotal BypassTotal to webUI + add DrainTotalSet BypassTotalSet
 
 interface:
 - [ ] liters to drain total requirement - up down arrow
@@ -36,6 +38,7 @@ info:
 system mods:
 - [ ] add filter before pump
 - [ ] install new sonic?
+- [ ] swith external mixer from F6 to A7spare @Expander0x20 + add separate relay to A7spare
 
 check for unused functions and methods
 
