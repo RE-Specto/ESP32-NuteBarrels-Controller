@@ -33,6 +33,10 @@ info:
 - [ ] ask R.ka approximate barrel to clean water ratio
 - [ ] ask dry to 500l ratio?
 
+system mods:
+- [ ] add filter before pump
+- [ ] install new sonic?
+
 check for unused functions and methods
 
 add SaveStructs button to calibration
