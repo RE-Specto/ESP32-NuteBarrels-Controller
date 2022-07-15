@@ -2154,9 +2154,25 @@ void fmsPause(byte Source, byte Destination)
     // if no source barrel = we are filling
     if (Source == 0xFF)
     {
-        Expanders.FillingRelay(Destination, false);
-        StoppedWait();
-        Expanders.FillingRelay(Destination, true);
+        // bypassing freshwater to pools
+        if (Destination == 0xBB)
+        {
+            //!!! for now - bypass at barrel1 - reimplement later fill7?
+            Expanders.FillingRelay(1, false);
+            Expanders.StoringRelay(1, false);
+            Expanders.StoringRelay(POOLS, false);
+            StoppedWait();
+            Expanders.FillingRelay(1, true);
+            Expanders.StoringRelay(1, true);
+            Expanders.StoringRelay(POOLS, true);
+        }
+        // filling target barrel
+        else 
+        {
+            Expanders.FillingRelay(Destination, false);
+            StoppedWait();
+            Expanders.FillingRelay(Destination, true);
+        }
     }
     else
     {
@@ -2304,10 +2320,10 @@ void Mix(byte barrel)
             // STOP-CHECK
             if (State.Check(STOPPED_STATE))
                 MixerExternal(false); // turn off optional mixer motor at drain6
-                LOG.println(F("Status Stopped! auto paused\r\n"));
                 #ifdef MIX_INTERNAL
                 fmsPause(barrel, barrel);
                 #else
+                LOG.println(F("Status Stopped! auto paused\r\n"));
                 StoppedWait();
                 #endif
                 #ifdef MIX_EXTERNAL
@@ -2327,7 +2343,7 @@ void Mix(byte barrel)
     MixerExternal(false); // turn off optional mixer motor at drain6
     #ifdef MIX_INTERNAL
     CloseTaps(barrel, barrel); // counter reached zero
-    // // report mixed ammount
+    // report mixed ammount
     LOG.printf("mixed %u liters\r\n", Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS));
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     #endif
@@ -2436,12 +2452,7 @@ void Bypass()
         State.BypassRecalc();      
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
-            Expanders.StoringRelay(1, false);
-            Expanders.StoringRelay(POOLS, false);//!!! for now - bypass at barrel1 - reimplement later fill7?
-            //fmsPause will close filling relay 1
-            fmsPause(0xff, 1); //!!! for now - bypass at barrel1 - reimplement later
-            Expanders.StoringRelay(1, true);
-            Expanders.StoringRelay(POOLS, true);//!!! for now - bypass at barrel1 - reimplement later to fill7?
+            fmsPause(0xff, 0xbb); //!!! for now - bypass at barrel1 - reimplement later
         // SENSOR CHECK
         if (Pressure.Enabled(FRESHWATER))
             PressureCheck(FRESHWATER);
