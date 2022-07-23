@@ -21,24 +21,34 @@ rewrite system to use concentrate from mixer barrel
     [ ]add proper barrel_disabled webui
     [ ]move pump to drain6? a7?
     [ ]reimplement bypass at fill(POOLS) (f7)
-    [ ]bypass is drain multiplied by x? or ammount by itself? ask rivka..
+    [ ]bypass separately from drain
     [ ]separate calib for nutes flowsensor - using separate calib5L func?
-    [ ]fill less than drain cause huge nutes ammount
+
     [ ] add DrainTotal BypassTotal to webUI + add DrainTotalSet BypassTotalSet
+    [ ] ignore drain requirement - allways drain until empty
+
+    [ ] separate total drain and total bypass into 5 pools (4 + 1spare
+    [ ] if bypass is via manual, how to pause without clearing? via interface?
+            edit ResetManual to save value aside instead of clearing
+
+    [ ] check if I can use barrels 1-4 as pool1-4
+    [ ] use store instead of drain? _storing_barrel for target pool?
 
 interface:
-- [ ] liters to drain total requirement - up down arrow
-- [ ] concentrate to clean water ratio requirement  - up down arrow
-- [ ] water level in mixer graphically by sonic
+- [ ] 4 pools:
+total drain cycles
+total bypass cubic meters
+select pool
+- [ ] mixing barrel:
+ammount
+state (f,m,s,d)
+- [ ] bypass in liters
 
-info:
-- [ ] ask R.ka approximate barrel to clean water ratio
-- [ ] ask dry to 500l ratio?
 
 system mods:
-- [ ] add filter before pump
 - [ ] install new sonic?
 - [ ] swith external mixer from F6 to A7spare @Expander0x20 + add separate relay to A7spare
+- [ ] use stor1-4 as pools1-4?
 
 check for unused functions and methods
 
