@@ -2718,6 +2718,43 @@ void BypassManual()
     State.ResetManual(); // important - no double-run
     Expanders.setRGBLED(LED_WHITE);
 }
+
+// fill 5L freshwater for calibration
+// drain 5L nutrients for calibration
+void Calib5L(byte sensor=FRESHWATER, byte barrel=0)
+{
+    Flow.Reset(sensor); 
+    if (sensor == FRESHWATER)
+    {
+        Expanders.FillingRelay(barrel, true);
+    }
+    else
+    {
+        Expanders.DrainingRelay(barrel, true);
+        Expanders.StoringRelay(barrel, true);
+        Expanders.Pump(true);
+    }
+    uint16_t pulsesIn5L = Flow.Divider(sensor) * 5; // 2d0: substract compensation for flow1 flow2 enertia
+    while (Flow.Counted(sensor) < pulsesIn5L)
+    {
+        vTaskDelay(1);
+    }
+    if (sensor == FRESHWATER)
+    {
+        Expanders.FillingRelay(barrel, false);
+    }
+    else
+    {
+        Expanders.Pump(false);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        Expanders.DrainingRelay(barrel, false);
+        Expanders.StoringRelay(barrel, false);
+    }
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    LOG.printf("calib5L pulsed %u expected %u.\r\n", Flow.Counted(sensor), pulsesIn5L);
+    Flow.Reset(sensor);
+}
+
 /*-------- FMSD END ----------*/
 
 /*-------- WebServer Begin ----------*/
