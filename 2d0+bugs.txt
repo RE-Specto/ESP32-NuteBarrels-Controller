@@ -10,12 +10,47 @@ fmsTask sonic 0 timeout after sonic >0 error while storing
 settings not saving automaticly after change from webui - run savestructs
 deviation always to high for sonic
     am i measuring sonics too fast?
+check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
 rewrite system to use concentrate from mixer barrel
-    disable automatic storing
-    drain from mixer
-    add drain freshwater?
+    [ ] edit drain to drain fully!!
+    [ ] drain by ammount of barrels not liters??
+    [ ] add Fill 5 Liters, Store 5 Liters for flow calibration!!
+    [ ] add 'state bitmap to human readable string' translator function
+    [ ]add proper barrel_disabled webui
+    [ ]move pump to drain6? a7?
+    [ ]reimplement bypass at fill(POOLS) (f7)
+    [ ]bypass separately from drain
+    [ ]separate calib for nutes flowsensor - using separate calib5L func?
+
+    [ ] add DrainTotal BypassTotal to webUI + add DrainTotalSet BypassTotalSet
+    [ ] ignore drain requirement - allways drain until empty
+
+    [ ] separate total drain and total bypass into 5 pools (4 + 1spare
+    [ ] if bypass is via manual, how to pause without clearing? via interface?
+            edit ResetManual to save value aside instead of clearing
+
+    [ ] check if I can use barrels 1-4 as pool1-4
+    [ ] use store instead of drain? _storing_barrel for target pool?
+
+interface:
+- [ ] 4 pools:
+total drain cycles
+total bypass cubic meters
+select pool
+- [ ] mixing barrel:
+ammount
+state (f,m,s,d)
+- [ ] bypass in liters
+
+
+system mods:
+- [ ] install new sonic?
+- [ ] swith external mixer from F6 to A7spare @Expander0x20 + add separate relay to A7spare
+- [ ] use stor1-4 as pools1-4?
+
+check for unused functions and methods
 
 add SaveStructs button to calibration
 manual setting of water+nutri for flow

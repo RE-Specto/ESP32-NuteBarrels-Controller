@@ -49,16 +49,18 @@ struct sSystem
     uint16_t _error_now = 0;
     uint16_t _error_before = 0;
     uint16_t _fill_req = 500;            // total liters to fill 
-    uint16_t _mix_req = 3;               // total minutes to mix
+    uint16_t _mix_req = 30;               // total minutes to mix
     uint16_t _mix_timer = _mix_req;   // minutes to mix this time
     uint16_t _drain_req = 0;             // how many liters to drain
     uint32_t _drain_total = 0;                 // how many liters totally drained
     byte _filling_barrel = 0;                    // mixer barrel
     byte _storing_barrel = 0;   // will be set to last barrel in StatClass::begin 
-    byte _manual_task = 0; // 0 cancel, 1 fill, 2 mix, 3 store, 4 drain
+    byte _manual_task = 0; // 0 cancel, 1 fill, 2 mix, 3 store, 4 drain, 5 bypass
     byte _manual_src = 0;
     byte _manual_dest = 0;
     uint16_t _manual_ammo = 0;
+    uint16_t _bypass_req = 0;           // how many liters to fill freshwater to pools
+    uint32_t _bypass_total = 0;                 // how many liters totally bypassed
 };
 
 class StatClass
@@ -97,8 +99,13 @@ public:
     void MoveStoreUp();
     void MoveStoreDown();
     void SetDrainReq(uint16_t req);
+    void SetBypassReq(uint16_t req);
     uint16_t DrainMore();
+    uint16_t BypassMore();
     void DrainRecalc(byte barrel);
+    void BypassRecalc();
+    uint32_t DrainTotal();
+    uint32_t BypassTotal();
     void SetManual(byte task, byte src, byte dest, uint16_t ammo);
     void IRAM_ATTR ResetManual();
     byte ManualTask();

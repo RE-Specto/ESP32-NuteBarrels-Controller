@@ -45,6 +45,11 @@ void CloseTaps(byte drainBarrel, byte storeBarrel)
     Expanders.StoringRelay(storeBarrel, false);
 }
 
+void MixerExternal(bool state)
+{
+    Expanders.FillingRelay(POOLS, state);
+}
+
 void ServiceManual()
 {
     if (State.ManualTask())
@@ -62,6 +67,9 @@ void ServiceManual()
             break;
             case 4:
             DrainManual();
+            break;
+            case 5:
+            BypassManual();
             break;
         }
         LOG.printf("watermark:%u\r\n", uxTaskGetStackHighWaterMark(loop1));
@@ -85,9 +93,25 @@ void fmsPause(byte Source, byte Destination)
     // if no source barrel = we are filling
     if (Source == 0xFF)
     {
-        Expanders.FillingRelay(Destination, false);
-        StoppedWait();
-        Expanders.FillingRelay(Destination, true);
+        // bypassing freshwater to pools
+        if (Destination == 0xBB)
+        {
+            //!!! for now - bypass at barrel1 - reimplement later fill7?
+            Expanders.FillingRelay(1, false);
+            Expanders.StoringRelay(1, false);
+            Expanders.StoringRelay(POOLS, false);
+            StoppedWait();
+            Expanders.FillingRelay(1, true);
+            Expanders.StoringRelay(1, true);
+            Expanders.StoringRelay(POOLS, true);
+        }
+        // filling target barrel
+        else 
+        {
+            Expanders.FillingRelay(Destination, false);
+            StoppedWait();
+            Expanders.FillingRelay(Destination, true);
+        }
     }
     else
     {
@@ -218,8 +242,13 @@ void Mix(byte barrel)
 {
     Serial.println();
     LOG.printf("mixing barrel:%u for %uMin.\r\n", barrel, State.MixTimer());
+    #ifdef MIX_INTERNAL
     Flow.Reset(NUTRIENTS); // reset flow counter 2
-    OpenTaps(barrel, barrel); // open both taps of the same barrel to mix it :)
+    OpenTaps(barrel, barrel); // open both taps of the same barrel to mix it :) 
+    #endif
+    #ifdef MIX_EXTERNAL
+    MixerExternal(true); // turn on optional mixer motor at drain6
+    #endif
     // loop - while mix timer > 0
     while (State.MixTimer())
     {
@@ -229,20 +258,34 @@ void Mix(byte barrel)
         {
             // STOP-CHECK
             if (State.Check(STOPPED_STATE))
+                MixerExternal(false); // turn off optional mixer motor at drain6
+                #ifdef MIX_INTERNAL
                 fmsPause(barrel, barrel);
+                #else
+                LOG.println(F("Status Stopped! auto paused\r\n"));
+                StoppedWait();
+                #endif
+                #ifdef MIX_EXTERNAL
+                MixerExternal(true); // turn on optional mixer motor at drain6
+                #endif
             // SENSOR CHECK
             if (Pressure.Enabled(NUTRIENTS))
                 PressureCheck(NUTRIENTS);
+            #ifdef MIX_INTERNAL
             if (Flow.Enabled(NUTRIENTS))
                 FlowCheck(NUTRIENTS);
+            #endif
             blinkDelay(1000, LED_GREEN);
         }
         State.MixLess();// decrement counter every minute
     }
+    MixerExternal(false); // turn off optional mixer motor at drain6
+    #ifdef MIX_INTERNAL
     CloseTaps(barrel, barrel); // counter reached zero
     // report mixed ammount
     LOG.printf("mixed %u liters\r\n", Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS));
     Flow.Reset(NUTRIENTS); // reset flow counter 2
+    #endif
     State.MixReset(); // reset mix timer for next run
     LOG.printf("END mixing barrel:%u.\r\n", barrel);
     Serial.println();
@@ -333,6 +376,36 @@ void Drain(byte barrel, uint16_t requirement)
     Serial.println();
 }
 
+void Bypass()
+{
+    Serial.println();
+    LOG.printf("filling pools with %uL\r\n", State.BypassMore());
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(1, true); // open barrel filling tap //!!! for now - bypass at barrel1 - reimplement later
+    Expanders.StoringRelay(1, true);
+    Expanders.StoringRelay(POOLS, true);
+    // fill, decrement requirement
+    while (State.BypassMore()) // implement !Barrels.isFillTargetReached(POOLS, FRESHWATER, requirement) instead? + FreshwaterFillCalc...
+    {
+        // LOGIC
+        State.BypassRecalc();      
+        // STOP-CHECK
+        if (State.Check(STOPPED_STATE))
+            fmsPause(0xff, 0xbb); //!!! for now - bypass at barrel1 - reimplement later
+        // SENSOR CHECK
+        if (Pressure.Enabled(FRESHWATER))
+            PressureCheck(FRESHWATER);
+        if (Flow.Enabled(FRESHWATER))
+            FlowCheck(FRESHWATER);
+        blinkDelay(1000, LED_MAGENTA);
+    }
+    Expanders.FillingRelay(1, false); // close tap
+    Expanders.StoringRelay(POOLS, false);
+    LOG.printf("END filling pools with %uL\r\n", Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER)); // requirement
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Serial.println();
+}
+
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
     //LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
@@ -374,6 +447,8 @@ void fmsTask(void * pvParameters)
                     // drain untill empty or requirement satisfied.
                     Drain(State.FillBarrel(), State.DrainMore());
                     Filesys.SaveStructs();
+                    Bypass(); // fill pools with freshwater 
+                    Filesys.SaveStructs();
                     if (Barrels.isEmpty(State.FillBarrel()))
                         break; // if drained filling barrel to empty - break store loop
                 }
@@ -395,6 +470,7 @@ void fmsTask(void * pvParameters)
                 // target full - goto next barrel
                 else if (stor > 1)
                 {
+                    LOG.printf("barrel %u busy (e-state %u), skipping to %u..\r\n", stor, Barrels.Errors(stor), stor - 1);
                     State.MoveStoreDown();
                 }
                 else
@@ -410,6 +486,8 @@ void fmsTask(void * pvParameters)
                     // drain untill empty or requirement satisfied.
                     Drain(State.FillBarrel(), State.DrainMore());
                     Filesys.SaveStructs(); 
+                    Bypass(); // fill pools with freshwater 
+                    Filesys.SaveStructs();
                 }
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
             } // got here cause filling_barrel is empty
@@ -423,6 +501,8 @@ void fmsTask(void * pvParameters)
                 {
                     Drain(State.StoreBarrel(), State.DrainMore());
                     Filesys.SaveStructs(); 
+                    Bypass(); // fill pools with freshwater 
+                    Filesys.SaveStructs();
                 }
                 // storing_barrel empty but not the last barrel (i filled from last to first)  // try next barrel
                 else if (State.StoreBarrel() < NUM_OF_BARRELS - 1)
@@ -551,4 +631,67 @@ void DrainManual()
     State.ResetManual(); // important - no double-run
     Expanders.setRGBLED(LED_WHITE);
 }
+
+// bypass freshwater to pools
+void BypassManual()
+{
+    LOG.println("Manual Water to pools");
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(1, true); // open barrel filling tap //!!! for now - bypass at barrel1 - reimplement later
+    Expanders.StoringRelay(1, true);
+    Expanders.StoringRelay(POOLS, true);
+    while (State.BypassMore())
+    {
+        // LOGIC
+        State.BypassRecalc();      
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_MAGENTA);
+    }
+    Expanders.FillingRelay(1, false); // open barrel filling tap //!!! for now - bypass at barrel1 - reimplement later
+    Expanders.StoringRelay(1, false);
+    Expanders.StoringRelay(POOLS, false);
+    State.BypassRecalc();      
+    Flow.Reset(FRESHWATER);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
+}
+
+// fill 5L freshwater for calibration
+// drain 5L nutrients for calibration
+void Calib5L(byte sensor=FRESHWATER, byte barrel=0)
+{
+    Flow.Reset(sensor); 
+    if (sensor == FRESHWATER)
+    {
+        Expanders.FillingRelay(barrel, true);
+    }
+    else
+    {
+        Expanders.DrainingRelay(barrel, true);
+        Expanders.StoringRelay(barrel, true);
+        Expanders.Pump(true);
+    }
+    uint16_t pulsesIn5L = Flow.Divider(sensor) * 5; // 2d0: substract compensation for flow1 flow2 enertia
+    while (Flow.Counted(sensor) < pulsesIn5L)
+    {
+        vTaskDelay(1);
+    }
+    if (sensor == FRESHWATER)
+    {
+        Expanders.FillingRelay(barrel, false);
+    }
+    else
+    {
+        Expanders.Pump(false);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        Expanders.DrainingRelay(barrel, false);
+        Expanders.StoringRelay(barrel, false);
+    }
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    LOG.printf("calib5L pulsed %u expected %u.\r\n", Flow.Counted(sensor), pulsesIn5L);
+    Flow.Reset(sensor);
+}
+
 /*-------- FMSD END ----------*/

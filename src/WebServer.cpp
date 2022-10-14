@@ -244,7 +244,7 @@ void ServerClass::begin()
             // printing message
             LOG.printf("[man]fmsd task received: task%i ammo%i src%i dest%i\r\n", task, ammo, src, dest);
             // checking input is valid
-            if (src > -1 && src < NUM_OF_BARRELS && task > -1 && task < 5 && ammo > -1 && ammo < 32768 && dest > -1 && dest < NUM_OF_BARRELS)
+            if (src > -1 && src < NUM_OF_BARRELS && task > -1 && task < 6 && ammo > -1 && ammo < 32768 && dest > -1 && dest < NUM_OF_BARRELS)
             {
                 // stopping auto
                 State.Set(STOPPED_STATE);
@@ -259,9 +259,9 @@ void ServerClass::begin()
             }
         }
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>manual F.M.S.D.</h3><ul>");
+        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>manual F.M.S.D.B.</h3><ul>");
         response->print("<form action=\"/fmsd\">");
-        response->print("<li>fill-1 mix-2 store-3 drain-4</li>");
+        response->print("<li>fill-1 mix-2 store-3 drain-4 bypass-5</li>");
         response->printf("<li><input id=\"task\" name=\"task\" value=\"%u\"></li>", State.ManualTask());
         response->print("<li>how much</li>");
         response->printf("<li><input id=\"ammo\" name=\"ammo\" value=\"%u\"></li>", State.ManualAmmount());
@@ -340,6 +340,12 @@ void ServerClass::begin()
         {
             int SetDrainReq = request->arg("SetDrainReq").toInt();
             State.SetDrainReq(SetDrainReq);
+        }
+
+        if (request->hasArg("SetBypassReq"))
+        {
+            int SetBypassReq = request->arg("SetBypassReq").toInt();
+            State.SetBypassReq(SetBypassReq);
         }
 
         if (request->hasArg("ErrorOverride"))
@@ -555,6 +561,11 @@ void ServerClass::begin()
         response->print("<li>drain requirement</li>");
         response->print("<form action=\"/settings\">");
         response->printf("<input id=\"SetDrainReq\" name=\"SetDrainReq\" value=\"%u\"><span> </span>", State.DrainMore());
+        response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>Bypass requirement</li>");
+        response->print("<form action=\"/settings\">");
+        response->printf("<input id=\"SetBypassReq\" name=\"SetBypassReq\" value=\"%u\"><span> </span>", State.BypassMore());
         response->print("<input type=\"submit\" value=\"Go\"></form>");
 
         response->print("<li>barrels: Errors override.. Dry barrel lenght in mm point, mililitrage to lenght ratio, Full barrel point in liters, . . . . . Empty barrel point in liters</li>");

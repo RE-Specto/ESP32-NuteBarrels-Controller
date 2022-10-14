@@ -509,7 +509,7 @@ void BarrClass::TestSensors()
     for(byte x=0;x<NUM_OF_BARRELS;x++)
     {
         SonicMeasure(x, 1);
-        //vTaskDelay(10); //try without delay first to reproduce mux overload bug
+        //vTaskDelay(10); //without delay first, trying to reproduce mux overload bug
     }
 }
 /*-------- Barrels END ----------*/
