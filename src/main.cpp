@@ -15,8 +15,6 @@ more info and license - soon
 #include "FMSD.h"
 #include "globals.h"
 
-// Globals
-
 /* initial sequnence */
 void setup()
 {
@@ -50,10 +48,10 @@ void setup()
     // Create tasks
     xTaskCreatePinnedToCore(fmsTask, "loop1", 10000, (void *)1, 1, &loop1, ARDUINO_RUNNING_CORE);
 
-
-
     // setup NTP
-
+    // test ntp:
+    // LOG.println(TimeClient.getNtpTime());
+  
     //start Web Server
     WebServer.begin();
     ArduinoOTA.setHostname("Barrels");
@@ -68,9 +66,6 @@ void setup()
 
     Expanders.setRGBLED(LED_OFF);
     //SendSMS("System Started");
-
-    // test ntp:
-    // LOG.println(TimeClient.getNtpTime());
 }
 
 void loop()
