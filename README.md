@@ -9,5 +9,5 @@ all source files are under src/
 
 ## 2do:
  - [ ] implement GUI via webUI
- - [ ] split main.cpp into separate units by functionality
+ - [x] split main.cpp into separate units by functionality
  - [x] add schematic and photos
