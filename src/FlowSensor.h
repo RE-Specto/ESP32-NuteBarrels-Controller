@@ -40,6 +40,7 @@ public:
     bool Enabled(byte sens);
     void Enable(byte sens);
     void Disable(byte sens);
+    void Calib5L();
 };
 
 extern FSClass Flow;

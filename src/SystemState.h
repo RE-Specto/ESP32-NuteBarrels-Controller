@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 //hex codes for "state" bit field
-#define FILLING_STATE 0X10 // F = filling task on
+#define FILLING_STATE 0x10 // F = filling task on
 #define MIXING_STATE 0x08  // M = mixing task on
 #define STORING_STATE 0x04 // S = storing task on
 #define DRAINIG_STATE 0x02 // E = draining task on
@@ -33,7 +33,7 @@ struct sSystem
     // S = Storing state
     // D = Draining state
     // X = stopped state
-    byte _state_now = 17; // 00010001 - filling + waiting for nutes - initial system state
+    byte _state_now = FILLING_STATE + STOPPED_STATE ; // 00010001 - filling + waiting for nutes - initial system state
     byte _state_before = 0;
     // bit field
     //000CBA987654321

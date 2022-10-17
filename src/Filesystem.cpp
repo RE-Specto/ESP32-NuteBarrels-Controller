@@ -294,8 +294,9 @@ void StorageClass::SaveStructs()
         LOG.println(F("waiting for no flow.."));
         while (Flow.Get(FRESHWATER))
             ;
-        while (Flow.Get(NUTRIENTS))
-            ;
+        // use 1 sensor for small system
+        // while (Flow.Get(NUTRIENTS))
+        //     ;
         LOG.println(F("no flow ok - saving..."));
         State.SaveSD();
 

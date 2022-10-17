@@ -13,7 +13,6 @@
 #include "globals.h"
 
 
-/*-------- State Begin ----------*/
 void StatClass::begin()
 {
     #ifdef DEBUG_MORE
@@ -23,7 +22,7 @@ void StatClass::begin()
     // pinMode(STOP_PIN, INPUT_PULLUP); // already pulled up by hardware
     attachInterrupt(digitalPinToInterrupt(START_PIN), StartButtonInterrupt, FALLING);
     attachInterrupt(digitalPinToInterrupt(STOP_PIN), StopButtonInterrupt, FALLING);
-    State.SetStoreBarrel(State.FillBarrel()); //storing disabled. //(NUM_OF_BARRELS -1 cause we start from zero)
+    // State.SetStoreBarrel(State.FillBarrel()); //storing disabled. //(NUM_OF_BARRELS -1 cause we start from zero)
 }
 
 bool StatClass::LoadSD() { return Filesys.Load("/SysState.bin", (byte *)&iState, sizeof(iState)); }
@@ -356,5 +355,5 @@ byte StatClass::ManualSource() {return iState._manual_src;}
 byte StatClass::ManualDestination() {return iState._manual_dest;}
 
 uint16_t StatClass::ManualAmmount() {return iState._manual_ammo;}
-/*-------- State END ----------*/
+
 StatClass State;

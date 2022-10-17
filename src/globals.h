@@ -13,7 +13,7 @@
 
 // sensor number
 #define FRESHWATER 1
-#define NUTRIENTS 2
+#define NUTRIENTS 1 // using 1 sensor system for now...
 
 #define LOG Serial.printf("t[%06lli]l[%04i]f[%s] ", esp_timer_get_time() / 1000000, __LINE__, __FUNCTION__);Serial   //SerialAndTelnet or file
 

@@ -3,13 +3,13 @@
 #define PRESSURE_SENSOR
 #include <Arduino.h>
 
-//Pressure sensor Pin declarations
+// _sensorPin Pressure sensor Pin declarations 
 #define PRESSUR_SENSORS 2
 #define PRESSUR_1_PIN 36
 #define PRESSUR_2_PIN 34
 //#define PRESSUR_3_PIN 35
 
-// pressure sensor state codes
+// _error_state pressure sensor state codes
 #define PRESSURE_NORMAL 0
 #define PRESSURE_NOPRESSURE 1
 #define PRESSURE_OVERPRESSURE 2
@@ -18,11 +18,6 @@
 
 struct sPressure
 {
-    //0 normal pressure
-    //1 no pressure
-    //3 overpressure
-    //2 disconnected
-    //4 short circuit
     byte _error_state = 0;
     byte _sensorPin = 255; // defaults
     byte _divider = 10;    //36;

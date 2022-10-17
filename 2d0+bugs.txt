@@ -13,6 +13,25 @@ deviation always to high for sonic
 check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
+edit fmsd for new simple 1barrel system:
+    * reuse storing barrel for pool selection?
+
+    changes:
+    1 flow sensor for all
+    1 pressure sensor (disabled for now)
+    1 sonic (5 'barrels')
+
+    need f5 together with every fill
+    need f6 with every drain
+    store instead of drain now? 
+    reuse store barrel for pool selection?
+        SetFillBarrel already in webserver
+
+    cleanwater pressure vs pump pressure on the same sensor (_min_pressure _max_pressure)
+
+    Calib5L add timeout!! + add need calib var to trigger? same as manual mode check?
+    Relay( usage search
+
 rewrite system to use concentrate from mixer barrel
     [ ] edit drain to drain fully!!
     [ ] drain by ammount of barrels not liters??

@@ -187,11 +187,12 @@ void ServerClass::begin()
                          Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER),
                          Flow.Get(FRESHWATER),
                          Flow.Divider(FRESHWATER));
-        response->printf("<li>Fs2: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
-                         Flow.Counted(NUTRIENTS),
-                         Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS),
-                         Flow.Get(NUTRIENTS),
-                         Flow.Divider(NUTRIENTS));
+        // Disabling Fs2 for now - using 1 sensor with smaller system
+        // response->printf("<li>Fs2: [%up] [%uL] [%umL/s] [%upulse/L]</li>",
+        //                  Flow.Counted(NUTRIENTS),
+        //                  Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS),
+        //                  Flow.Get(NUTRIENTS),
+        //                  Flow.Divider(NUTRIENTS));
         response->print("<span>Pressure Sensors</span>");
         response->print("<li>");
         response->printf("<button onclick=\"location=\'/pressure?n=1\'\">PS1: measure</button><span> </span>");
@@ -200,13 +201,13 @@ void ServerClass::begin()
                          Pressure.LastValue(FRESHWATER),
                          Pressure.Divider(FRESHWATER),
                          Pressure.Offset(FRESHWATER));
-        response->print("<li>");
-        response->printf("<button onclick=\"location=\'/pressure?n=2\'\">PS2: measure</button><span> </span>");
-        response->printf("[%iUnits] [%u raw/Units] [%i correction]</li>",
-                         //Pressure.measure(NUTRIENTS),
-                         Pressure.LastValue(NUTRIENTS),
-                         Pressure.Divider(NUTRIENTS),
-                         Pressure.Offset(NUTRIENTS));
+        // response->print("<li>");
+        // response->printf("<button onclick=\"location=\'/pressure?n=2\'\">PS2: measure</button><span> </span>");
+        // response->printf("[%iUnits] [%u raw/Units] [%i correction]</li>",
+        //                  //Pressure.measure(NUTRIENTS),
+        //                  Pressure.LastValue(NUTRIENTS),
+        //                  Pressure.Divider(NUTRIENTS),
+        //                  Pressure.Offset(NUTRIENTS));
         response->print("<span>Ultrasonic Sensors</span>");
 
         for (byte i = 0; i < NUM_OF_BARRELS; i++)
@@ -521,6 +522,11 @@ void ServerClass::begin()
             }         
         }
 
+        if (request->hasArg("Calib5L"))
+        {
+            Flow.Calib5L();
+        }
+
         AsyncResponseStream *response = request->beginResponseStream("text/html");
         response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>Settings and Calibrations</h3><style> form{margin:1;display:inline-block;} input:not([type]){width:63;} li{margin-top:4;}</style><ul>");
 
@@ -567,6 +573,11 @@ void ServerClass::begin()
         response->print("<form action=\"/settings\">");
         response->printf("<input id=\"SetBypassReq\" name=\"SetBypassReq\" value=\"%u\"><span> </span>", State.BypassMore());
         response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+        response->print("<li>open tap with 5 Liters Freshwater</li>");
+        response->print("<form action=\"/settings\">");
+        response->print("<input type=\"hidden\" id=\"Calib5L\" name=\"Calib5L\" value=\"1\">");
+        response->printf("<input type=\"submit\" value=\"Calib5L\"></form>"); 
 
         response->print("<li>barrels: Errors override.. Dry barrel lenght in mm point, mililitrage to lenght ratio, Full barrel point in liters, . . . . . Empty barrel point in liters</li>");
         for (byte x=0;x<NUM_OF_BARRELS;x++)
@@ -618,7 +629,7 @@ void ServerClass::begin()
         }
 
         response->print("<li>Sensors: . . flow Divider, . pressure Divider, pressure Offset, Min pressure, . Max pressure, . Pressure Sensors, Flow Sensors</li>");
-        for (byte x=1;x<=2;x++)
+        for (byte x=FRESHWATER;x<=NUTRIENTS;x++)
         {
             response->printf("<span>%s </span>", x==1 ? "Freshwater" : "Nutrients .. ");
 

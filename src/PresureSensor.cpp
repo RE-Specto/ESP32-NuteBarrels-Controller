@@ -23,8 +23,8 @@ bool PSClass::SaveSD() { return Filesys.Save("/Pressure.bin", (byte *)&iPsens, s
 
 void PSClass::begin()
 {
-    setSensor(FRESHWATER, PRESSUR_1_PIN);
-    setSensor(NUTRIENTS, PRESSUR_2_PIN);
+    setSensor(1, PRESSUR_1_PIN);
+    setSensor(2, PRESSUR_2_PIN);
 }
 
 // init the sensor

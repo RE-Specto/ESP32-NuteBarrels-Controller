@@ -1,7 +1,7 @@
 //#include "main.h"
 #include "FlowSensor.h"
 
-// #include "Expanders.h"
+#include "Expanders.h"
 // #include "SystemState.h"
 // #include "Barrels.h"
 // #include "FlowSensor.h"
@@ -14,8 +14,6 @@
 #include "globals.h"
 
 
-
-/*-------- FlowSensor Begin ----------*/
 // flow Sensors Pin Declarations
 // and Interrupt routines
 /*
@@ -168,5 +166,25 @@ void FSClass::Disable(byte sens)
     iFsens[sens]._enabled = false; 
     LOG.printf("flowsensor %u Disabled\r\n", sens+1);
 }
-/*-------- FlowSensor END ----------*/
+
+// fill 5L freshwater for calibration
+void FSClass::Calib5L()
+{
+    LOG.println("Calib5L");
+    // Flow.Reset(1); 
+    // Expanders.FillingRelay(5, true); // f5 is bypass tap in new system
+    // Expanders.FillingRelay(0, true);
+    // uint16_t pulsesIn5L = Flow.Divider(1) * 5; // 2d0: substract compensation for flow1 enertia
+    // while (Flow.Counted(1) < pulsesIn5L)
+    // {
+    //     // Need timeout protection
+    //     vTaskDelay(1);
+    // }
+    // Expanders.FillingRelay(5, false); // f5 is bypass tap in new system
+    // Expanders.FillingRelay(0, false);
+    // vTaskDelay(500 / portTICK_PERIOD_MS);
+    // LOG.printf("calib5L pulsed %u expected %u.\r\n", Flow.Counted(1), pulsesIn5L);
+    // Flow.Reset(1);
+}
+
 FSClass Flow;
