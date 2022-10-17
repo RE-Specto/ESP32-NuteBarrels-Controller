@@ -12,14 +12,14 @@
 // #include "FMSD.h"
 #include "globals.h"
 
+AsyncWebServer server(80);
+DNSServer dns;
 
 /*-------- WebServer Begin ----------*/
 //https://github.com/me-no-dev/ESPAsyncWebServer
 
 void ServerClass::begin()
 {
-    AsyncWebServer server(80);
-    DNSServer dns;
 
     //WiFiManager Local intialization. Once its business is done, there is no need to keep it around
     AsyncWiFiManager wifiManager(&server, &dns);

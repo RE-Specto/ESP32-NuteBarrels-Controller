@@ -16,8 +16,8 @@ class NTPClass
 {
 private:
     bool isTimeSync = false;
-public:
     void sendNTPpacket(IPAddress &address, byte (&packetBuffer)[NTP_PACKET_SIZE]);
+public:
     time_t getNtpTime();
 };
 

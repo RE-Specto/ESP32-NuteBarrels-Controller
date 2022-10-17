@@ -31,10 +31,9 @@ void setup()
 
     // initialize SD Card SPI bus + SPIFFS Storage
     Filesys.begin();
-    //initStorage();
 
     // load structs from SD card
-    //LoadStructs();
+    Filesys.LoadStructs();
 
     // set pins for pressure sonsors
     Pressure.begin();
@@ -63,10 +62,15 @@ void setup()
     MDNS.addService("http", "tcp", 80); // add mDNS http port
 
     // test all ultrasonic sensors
-    Barrels.TestSensors();
+    // Barrels.TestSensors();
+    // or only the first one
+    // Barrels.SonicMeasure(0, 1);
 
     Expanders.setRGBLED(LED_OFF);
     //SendSMS("System Started");
+
+    // test ntp:
+    // LOG.println(TimeClient.getNtpTime());
 }
 
 void loop()

@@ -17,7 +17,6 @@
 // SD Card and SPIFFS
 void StorageClass::begin()
 {
-    //FS *disk = &SPIFFS; // default
     disk = &SPIFFS; // default
     byte retry = 3; // 3 times for SD
     while (retry)
@@ -35,7 +34,7 @@ void StorageClass::begin()
         {
             LOG.println(F("Error: Failed to initialize SD card"));
             vTaskDelay(1000 / portTICK_PERIOD_MS);
-            retry--; // prevent dead loop
+            retry--;
         }
     }
     if (!_isSD)
@@ -54,7 +53,7 @@ void StorageClass::begin()
         {
             LOG.println(F("Error: Failed to initialize SPIFFS"));
             vTaskDelay(1000 / portTICK_PERIOD_MS);
-            retry--; // prevent dead loop
+            retry--;
         }
     }
 }
@@ -73,17 +72,17 @@ bool StorageClass::Load(const char *fname, byte *stru_p, uint16_t len)
     File file = disk->open(fname, "r");
     if (!file)
     {
-        LOG.print(F("unable to open file\r\n\r\n"));
+        Serial.print(F("unable to open file\r\n\r\n"));
+        return false;
     }
-    else
-        for (; count < len; count++)
-            if (file.available())
-                *(stru_p + count) = file.read();
-#ifdef DEBUG_SD
-    LOG.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
-#else
+    for (; count < len; count++)
+        if (file.available())
+            *(stru_p + count) = file.read();
+    #ifdef DEBUG_SD
+    Serial.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
+    #else
     Serial.println();
-#endif
+    #endif
     file.close();
     return count == len;
 }
@@ -112,15 +111,15 @@ bool StorageClass::Save(const char *fname, byte *stru_p, uint16_t len)
     //file.setTimeCallback(timeCallback);
     if (!file)
     {
-        LOG.print(F("unable to open file\r\n\r\n"));
+        Serial.print(F("unable to open file\r\n\r\n"));
+        return false;
     }
-    else
-        count = file.write(stru_p, len); // save Logic
-#ifdef DEBUG_SD
-    LOG.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
-#else
-    LOG.println();
-#endif
+    count = file.write(stru_p, len); // save Logic
+    #ifdef DEBUG_SD
+    Serial.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
+    #else
+    Serial.println();
+    #endif
     file.close();
     return count == len;
 }
