@@ -167,24 +167,46 @@ void FSClass::Disable(byte sens)
     LOG.printf("flowsensor %u Disabled\r\n", sens+1);
 }
 
-// fill 5L freshwater for calibration
-void FSClass::Calib5L()
+// request Calib() run for sensor
+void FSClass::RequestCalib(byte sens)
 {
-    LOG.println("Calib5L");
-    // Flow.Reset(1); 
-    // Expanders.FillingRelay(5, true); // f5 is bypass tap in new system
-    // Expanders.FillingRelay(0, true);
-    // uint16_t pulsesIn5L = Flow.Divider(1) * 5; // 2d0: substract compensation for flow1 enertia
-    // while (Flow.Counted(1) < pulsesIn5L)
-    // {
-    //     // Need timeout protection
-    //     vTaskDelay(1);
-    // }
-    // Expanders.FillingRelay(5, false); // f5 is bypass tap in new system
-    // Expanders.FillingRelay(0, false);
-    // vTaskDelay(500 / portTICK_PERIOD_MS);
-    // LOG.printf("calib5L pulsed %u expected %u.\r\n", Flow.Counted(1), pulsesIn5L);
-    // Flow.Reset(1);
+    sens--;
+    iFsens[sens]._need_calib == true;
+}
+
+// check for Calib() run requests
+void FSClass::CheckNeedCalib()
+{
+    // sizeof iFsens / sizeof iFsens[0]
+    // hardcoded for better performance
+    for (byte sens = 1; sens <= 2; sens++)  // two sensors
+    {
+        if (iFsens[sens]._need_calib)
+        {
+            LOG.printf("calibrating sensor %u\r\n", sens);
+            Calib(sens, 5);
+        }
+    }
+}
+
+// fill 5L freshwater for calibration
+void FSClass::Calib(byte sens, byte liters)
+{
+    LOG.printf("Calib %u with %u liters.\r\n", sens, liters);
+    Flow.Reset(1); 
+    Expanders.FillingRelay(5, true); // f5 is bypass tap in new system
+    Expanders.FillingRelay(0, true);
+    uint16_t pulsesIn5L = Flow.Divider(1) * 5; // 2d0: substract compensation for flow1 enertia
+    while (Flow.Counted(1) < pulsesIn5L)
+    {
+        // Need timeout protection
+        vTaskDelay(1);
+    }
+    Expanders.FillingRelay(5, false); // f5 is bypass tap in new system
+    Expanders.FillingRelay(0, false);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    LOG.printf("calib5L pulsed %u expected %u.\r\n", Flow.Counted(1), pulsesIn5L);
+    Flow.Reset(1);
 }
 
 FSClass Flow;

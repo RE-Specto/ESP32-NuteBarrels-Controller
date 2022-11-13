@@ -541,7 +541,8 @@ void ServerClass::begin()
 
         if (request->hasArg("Calib5L"))
         {
-            Flow.Calib5L();
+            // request calibration of flow sensor 1 with default 5 Liters.
+            Flow.RequestCalib(1);
         }
 
         AsyncResponseStream *response = request->beginResponseStream("text/html");

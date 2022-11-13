@@ -20,6 +20,7 @@ struct sFlow
     volatile uint32_t _flow = 0;
     volatile uint32_t _lastMilis = 0;
     bool _enabled = false;
+    bool _need_calib = false;
 };
 
 class FSClass
@@ -40,7 +41,9 @@ public:
     bool Enabled(byte sens);
     void Enable(byte sens);
     void Disable(byte sens);
-    void Calib5L();
+    void RequestCalib(byte sens);
+    void CheckNeedCalib();
+    void Calib(byte sens = 1, byte liters = 5);
 };
 
 extern FSClass Flow;
