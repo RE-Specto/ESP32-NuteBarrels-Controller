@@ -68,20 +68,18 @@ bool StorageClass::isSD()
 bool StorageClass::Load(const char *fname, byte *stru_p, uint16_t len)
 {
     uint16_t count = 0;
-    LOG.printf("Loading %s\t", fname);
     File file = disk->open(fname, "r");
     if (!file)
     {
-        Serial.print(F("unable to open file\r\n\r\n"));
+        LOG.printf("Loading %s: unable to open file\r\n\r\n", fname);
         return false;
     }
     for (; count < len; count++)
         if (file.available())
             *(stru_p + count) = file.read();
+    LOG.printf("Loading %s\t%s\r\n", fname, count == len ? "successfully" : "failed");
     #ifdef DEBUG_SD
-    Serial.printf("%s\r\n%u out of %u Bytes read. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
-    #else
-    Serial.println();
+    LOG.printf("%u out of %u Bytes read. filesize %satch.\r\n", count, len, len == file.size() ? "M" : "Mism");
     #endif
     file.close();
     return count == len;
@@ -106,19 +104,17 @@ void StorageClass::useSD(bool sdcard)
 bool StorageClass::Save(const char *fname, byte *stru_p, uint16_t len)
 {
     uint16_t count = 0;
-    LOG.printf("Saving %s\t", fname);
     File file = disk->open(fname, "w"); // creates the file of not exist
     //file.setTimeCallback(timeCallback);
     if (!file)
     {
-        Serial.print(F("unable to open file\r\n\r\n"));
+        LOG.printf("Saving %s: unable to open file\r\n\r\n", fname);
         return false;
     }
     count = file.write(stru_p, len); // save Logic
+    LOG.printf("Saving %s\t%s\r\n", fname, count == len ? "successfully" : "failed");
     #ifdef DEBUG_SD
-    Serial.printf("%s\r\n%u out of %u Bytes writen. filesize %satch.\r\n", count == len ? "successfully" : "failed", count, len, len == file.size() ? "M" : "Mism");
-    #else
-    Serial.println();
+    LOG.printf("%u out of %u Bytes writen. filesize %satch.\r\n", count, len, len == file.size() ? "M" : "Mism");
     #endif
     file.close();
     return count == len;
