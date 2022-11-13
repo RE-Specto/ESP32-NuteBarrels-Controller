@@ -82,7 +82,7 @@ void ServerClass::begin()
         while (file)
         {
             response->print("<li>");
-            response->printf("<button onclick=\"location=\'/del?f=%s\'\">Delete</button><span>\t</span>", file.name());
+            response->printf("<button onclick=\"location=\'/del?f=/%s\'\">Delete</button><span>\t</span>", file.name());
             response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes \t %li timestamp</li>", file.name(), file.name(), file.size(), file.getLastWrite());
             file.close();
             file = dir.openNextFile();
@@ -161,6 +161,23 @@ void ServerClass::begin()
     server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(404);
         //request->send(*Filesys.disk, "/favicon.png", "image/png");
+    });
+
+    server.on("/json", HTTP_GET, [](AsyncWebServerRequest *request) {
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->print("{");
+        response->printf("\"%s\":\"%u\",", "time", State.MixTimer());
+        response->printf("\"%s\":\"%u\",", "pool", State.StoreBarrel());
+
+        for (byte x=1;x<=4;x++){
+            // Serial.println(x);
+            response->printf("\"pool%un\":\"%u\",", x, Barrels.NutriGet(x));
+            response->printf("\"pool%uw\":\"%u\",", x, Barrels.FreshGet(x));
+        }
+
+        response->printf("\"t\":%u}", esp_timer_get_time() / 1000000);
+        request->send(response);
     });
 
     server.on("/manual", HTTP_GET, [](AsyncWebServerRequest *request) {
