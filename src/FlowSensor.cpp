@@ -171,7 +171,7 @@ void FSClass::Disable(byte sens)
 void FSClass::RequestCalib(byte sens)
 {
     sens--;
-    iFsens[sens]._need_calib == true;
+    iFsens[sens]._need_calib = true;
 }
 
 // check for Calib() run requests
@@ -181,9 +181,8 @@ void FSClass::CheckNeedCalib()
     // hardcoded for better performance
     for (byte sens = 1; sens <= 2; sens++)  // two sensors
     {
-        if (iFsens[sens]._need_calib)
+        if (iFsens[sens-1]._need_calib)
         {
-            LOG.printf("calibrating sensor %u\r\n", sens);
             Calib(sens, 5);
         }
     }
@@ -192,21 +191,28 @@ void FSClass::CheckNeedCalib()
 // fill 5L freshwater for calibration
 void FSClass::Calib(byte sens, byte liters)
 {
-    LOG.printf("Calib %u with %u liters.\r\n", sens, liters);
-    Flow.Reset(1); 
+    iFsens[sens-1]._need_calib = false; //prevent double runs
+    LOG.printf("Calibrating flow sensor %u, with %u liters.\r\n", sens, liters);
+    uint16_t timeLeft = 15000 / portTICK_PERIOD_MS; //hardcoced to 15sec at this point
+    Flow.Reset(sens); 
     Expanders.FillingRelay(5, true); // f5 is bypass tap in new system
     Expanders.FillingRelay(0, true);
-    uint16_t pulsesIn5L = Flow.Divider(1) * 5; // 2d0: substract compensation for flow1 enertia
-    while (Flow.Counted(1) < pulsesIn5L)
+    uint16_t pulsesIn5L = Flow.Divider(sens) * 5; // 2d0: substract compensation for flow1 enertia
+    while (timeLeft && Flow.Counted(sens) < pulsesIn5L)
     {
         // Need timeout protection
         vTaskDelay(1);
+        timeLeft--;
     }
     Expanders.FillingRelay(5, false); // f5 is bypass tap in new system
     Expanders.FillingRelay(0, false);
+    if(!timeLeft)
+    {
+        LOG.println("[E] timed out waiting for Calib flow");
+    }
     vTaskDelay(500 / portTICK_PERIOD_MS);
     LOG.printf("calib5L pulsed %u expected %u.\r\n", Flow.Counted(1), pulsesIn5L);
-    Flow.Reset(1);
+    Flow.Reset(sens);
 }
 
 FSClass Flow;
