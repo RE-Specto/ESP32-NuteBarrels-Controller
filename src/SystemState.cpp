@@ -288,7 +288,7 @@ void StatClass::DrainRecalc(byte barrel)
             iState._drain_total += liters;
         else
             iState._drain_total = UINT32_MAX;
-        Barrels.NutriLess(barrel, liters);
+        // Barrels.NutriLess(barrel, liters);
         // decrement flow counter by "counted so far" pulses (liters times divider)
         Flow.CounterSubtract(NUTRIENTS, liters * Flow.Divider(NUTRIENTS)); 
     }

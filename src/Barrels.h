@@ -21,23 +21,14 @@
 
 struct sBarrel
 {
-    //bit field
-    //76543210
-    //0 0x1  - flush solenoid error
-    //1 0x2  - store solenoid error
-    //2 0x4  - drain solenoid error
-    //3 0x8  - Ultrasonic sensor checksum error
-    //4 0x10 - Ultrasonic sensor  timeout error
-    //5 0x20 -
-    //6 0x40 - disabled manually
-    //7 0x80 - other error
+    //bit field - see defines above
     byte _error_state = 0;
-    float _concentraion = 0;            // percent of nutrients in solution
-    float _concentraion_last = 0;        // percent of nutrients in solution
-    uint16_t _volume_freshwater = 0;     // data from flow sensor
-    uint16_t _volume_freshwater_last = 0; // data from flow sensor
-    uint16_t _volume_nutrients = 0;      // data from flow sensor
-    uint16_t _volume_nutrients_last = 0;  // data from flow sensor
+    //float _concentraion = 0;            // percent of nutrients in solution
+    //float _concentraion_last = 0;        // percent of nutrients in solution
+    uint32_t _volume_freshwater = 0;     // data from flow sensor
+    uint32_t _volume_freshwater_last = 0; // data from flow sensor
+    uint32_t _volume_nutrients = 0;      // data from flow sensor
+    uint32_t _volume_nutrients_last = 0;  // data from flow sensor
     uint16_t _sonic_last_value = 0;       // updated on every sonic measurement
     float _sonic_deviation = 0;          // +- percent error in measurement
     uint16_t _volume_min = 0; // for flow and sonic sensors - calibrate by filling and draining
@@ -61,10 +52,10 @@ public:
     void ErrorOverride(byte barrel, byte error);
     uint16_t FreshGet(byte barrel);
     uint16_t NutriGet(byte barrel);
-    void NutriLess(byte barrel, uint32_t liters);
+    //void NutriLess(byte barrel, uint32_t liters);
     void FreshwaterFillCalc(byte barrel);
-    float ConcentrationTotal(byte barrel);
-    void ConcentrationRecalc(byte barrel);
+    //float ConcentrationTotal(byte barrel);
+    //void ConcentrationRecalc(byte barrel);
     bool isFillTargetReached(byte barrel, byte type, uint16_t target);
     void NutrientsTransferCalc(byte from, byte to);
     uint16_t VolumeMax(byte barrel);

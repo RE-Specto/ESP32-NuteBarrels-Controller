@@ -48,11 +48,12 @@ uint16_t BarrClass::FreshGet(byte barrel) { return iBarrel[barrel]._volume_fresh
 // nutrients counted by flow for (barrel)
 uint16_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._volume_nutrients; }
 
-// decrease barrel by drained ammount
-void BarrClass::NutriLess(byte barrel, uint32_t liters)
-{
-    iBarrel[barrel]._volume_nutrients -= liters;
-}
+// // decrease barrel by drained ammount
+// void BarrClass::NutriLess(byte barrel, uint32_t liters)
+// {
+//     iBarrel[barrel]._volume_nutrients -= liters;
+//     iBarrel[barrel]._volume_nutrients_last = iBarrel[barrel]._volume_nutrients;
+// }
 
 // add fresh flow couter to barrel, then Subtract it from flowsensor
 void BarrClass::FreshwaterFillCalc(byte barrel)
@@ -89,40 +90,40 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
     b->_volume_freshwater_last = b->_volume_freshwater; // after
 }
 
-//https://sciencing.com/calculate-concentration-solution-different-concentrations-8680786.html
-// concentration of nutrient solution
-// ((concA/100 *LitersA) + (concB/100 *LitersB)) / LitersA + LitersB  * 100%
-// concB is allways 0 ( b is freshwater) since that is irrelevant, so:
-// (concA/100 *LitersA)  / LitersA + LitersB  * 100%
-// concA * LitersA  / LitersA + LitersB
-float BarrClass::ConcentrationTotal(byte barrel)
-{
-    sBarrel *b = &iBarrel[barrel];
-    if (!b->_volume_nutrients)
-        return 0; // no nutes to calc + prevent Divide By Zero! on dry barrels
-    else
-        return b->_concentraion * b->_volume_nutrients / (b->_volume_nutrients + b->_volume_freshwater); // mix
-}
+// //https://sciencing.com/calculate-concentration-solution-different-concentrations-8680786.html
+// // concentration of nutrient solution
+// // ((concA/100 *LitersA) + (concB/100 *LitersB)) / LitersA + LitersB  * 100%
+// // concB is allways 0 ( b is freshwater) since that is irrelevant, so:
+// // (concA/100 *LitersA)  / LitersA + LitersB  * 100%
+// // concA * LitersA  / LitersA + LitersB
+// float BarrClass::ConcentrationTotal(byte barrel)
+// {
+//     sBarrel *b = &iBarrel[barrel];
+//     if (!b->_volume_nutrients)
+//         return 0; // no nutes to calc + prevent Divide By Zero! on dry barrels
+//     else
+//         return b->_concentraion * b->_volume_nutrients / (b->_volume_nutrients + b->_volume_freshwater); // mix
+// }
 
-// calc new concentration:
-// counts all as nutrinets after calculation, at concentration X
-void BarrClass::ConcentrationRecalc(byte barrel)
-{
-    sBarrel *b = &iBarrel[barrel];
-    if (b->_volume_freshwater)
-    {
-        if (b->_concentraion_last != b->_concentraion)
-            b->_concentraion = b->_concentraion_last; // safeguard
-        b->_concentraion = ConcentrationTotal(barrel);
-        b->_volume_nutrients += b->_volume_freshwater;
-        b->_volume_freshwater = 0;
-        b->_concentraion_last = b->_concentraion;
-    }
-    else
-    {
-        LOG.println(F("[W] ConcentrationRecalc called but already calculated"));
-    }
-}
+// // calc new concentration:
+// // counts all as nutrinets after calculation, at concentration X
+// void BarrClass::ConcentrationRecalc(byte barrel)
+// {
+//     sBarrel *b = &iBarrel[barrel];
+//     if (b->_volume_freshwater)
+//     {
+//         if (b->_concentraion_last != b->_concentraion)
+//             b->_concentraion = b->_concentraion_last; // safeguard
+//         b->_concentraion = ConcentrationTotal(barrel);
+//         b->_volume_nutrients += b->_volume_freshwater;
+//         b->_volume_freshwater = 0;
+//         b->_concentraion_last = b->_concentraion;
+//     }
+//     else
+//     {
+//         LOG.println(F("[W] ConcentrationRecalc called but already calculated"));
+//     }
+// }
 
 // checks if current barrel freshwater/nutrients level is at/above target
 // uses barrel current level + flow counted level
@@ -142,31 +143,27 @@ bool BarrClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
     return tempLiters >= target;
 }
 
-// Subtracting flowcount from source, adding to destination, recalculating concentration @destination
-// run less often for concentration accuracy
+// Subtracting flowcount from source, adding to destination
 void BarrClass::NutrientsTransferCalc(byte from, byte to)
 {
     sBarrel *a = &iBarrel[from];
     sBarrel *b = &iBarrel[to];
-    // calc new concentration before transer so transfeting only nutrients @concentration
-    if (a->_volume_freshwater)
-        ConcentrationRecalc(from);
-    if (b->_volume_freshwater)
-        ConcentrationRecalc(to);
-    // both barrels now have only Nutrients @ concentration
 
-    // safeguards below
-    if (a->_volume_nutrients_last != a->_volume_nutrients)
-        a->_volume_nutrients = a->_volume_nutrients_last;
+    // // recalculating concentration @destination
+    // // run less often for concentration accuracy
+    // // calc new concentration before transer so transfeting only nutrients @concentration
+    // if (a->_volume_freshwater)
+    //     ConcentrationRecalc(from);
+    // if (b->_volume_freshwater)
+    //     ConcentrationRecalc(to);
+    // // both barrels now have only Nutrients @ concentration
 
-    if (b->_volume_nutrients_last != b->_volume_nutrients)
-        b->_volume_nutrients = b->_volume_nutrients_last;
+    // safeguards
+    a->_volume_nutrients = a->_volume_nutrients_last;
+    b->_volume_nutrients = b->_volume_nutrients_last;
 
-    if (a->_concentraion_last != a->_concentraion)
-        a->_concentraion = a->_concentraion_last;
-
-    if (b->_concentraion_last != b->_concentraion)
-        b->_concentraion = b->_concentraion_last;
+    // a->_concentraion = a->_concentraion_last;
+    // b->_concentraion = b->_concentraion_last;
 
     uint32_t tempflow = Flow.Counted(NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
     if (tempflow) // prevents DivideByZero below
@@ -174,13 +171,13 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
         tempflow /= Flow.Divider(NUTRIENTS);         // integral part, fractional part discarded.
         LOG.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
         LOG.printf("source barrel %u before: %u, target barrel %u before: %u\r\n", from, a->_volume_nutrients, to, b->_volume_nutrients);
-        // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
-        // recheck this implementation !!! should I calc before adding counter?
-        LOG.printf("concentration before: %f\r\n", b->_concentraion);
-        b->_concentraion = ((a->_concentraion / 100 * tempflow) + (b->_concentraion / 100 * b->_volume_nutrients)) / (tempflow + b->_volume_nutrients) * 100;
-        // recheck this implementation !!!
-        // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
-        // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
+        // // barrel b concentration =  (concentrationA/100 *Aliters) + (concentrationB/100 *Bliters)   / (Aliters + Bliters)  * 100%
+        // // recheck this implementation !!! should I calc before adding counter?
+        // LOG.printf("concentration before: %f\r\n", b->_concentraion);
+        // b->_concentraion = ((a->_concentraion / 100 * tempflow) + (b->_concentraion / 100 * b->_volume_nutrients)) / (tempflow + b->_volume_nutrients) * 100;
+        // // recheck this implementation !!!
+        // // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
+        // // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
 
         a->_volume_nutrients -= tempflow;
         b->_volume_nutrients += tempflow;
@@ -194,12 +191,12 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
 
     a->_volume_nutrients_last = a->_volume_nutrients;
     b->_volume_nutrients_last = b->_volume_nutrients;
-    a->_concentraion_last = a->_concentraion;
-    b->_concentraion_last = b->_concentraion;
+    // a->_concentraion_last = a->_concentraion;
+    // b->_concentraion_last = b->_concentraion;
     if (tempflow)
     {
         LOG.printf("source barrel %u after: %u, target barrel %u after: %u\r\n", from, a->_volume_nutrients, to, b->_volume_nutrients);
-        LOG.printf("concentration after: %f\r\n", b->_concentraion);
+        // LOG.printf("concentration after: %f\r\n", b->_concentraion);
     }
 }
 
