@@ -381,10 +381,10 @@ int16_t BarrClass::SonicLastMMfromEmpty(byte barrel) { return iBarrel[barrel]._b
 uint16_t BarrClass::SonicOffset(byte barrel) { return iBarrel[barrel]._barrel_height; }
 uint16_t BarrClass::SonicMLinMMGet(byte barrel) { return iBarrel[barrel]._ml_in_mm; }
 
-// empty barrel (full barrel lenght) in mm
+// empty barrel (full barrel length) in mm
 void BarrClass::SonicOffsetSet(byte barrel, uint16_t offs) 
 { 
-    LOG.printf("Barrel %u changing barrel lenght, from:%u to:%u\r\n", barrel, iBarrel[barrel]._barrel_height, offs);
+    LOG.printf("Barrel %u changing barrel length, from:%u to:%u\r\n", barrel, iBarrel[barrel]._barrel_height, offs);
     iBarrel[barrel]._barrel_height = offs; 
 }
 
@@ -397,9 +397,9 @@ void BarrClass::SonicMLinMMSet(byte barrel, uint16_t coef)
 // sonic calculate liters of last measurement
 int16_t BarrClass::SonicCalcLiters(byte barrel)
 {
-    // _barrel_height = empty barrel (full barrel lenght) in mm
-    // "full barrel lenght" - SonicMeasure = water level from empty in mm
-    // lenght * _ml_in_mm / 1000mlINliter ) = current barrel volume in liters from sonic
+    // _barrel_height = empty barrel (full barrel length) in mm
+    // "full barrel length" - SonicMeasure = water level from empty in mm
+    // length * _ml_in_mm / 1000mlINliter ) = current barrel volume in liters from sonic
     sBarrel *b = &iBarrel[barrel];
     //Serial.printf("barrel %u (offset %u - value %u) * MLinMM %u / 1000ml\r\n", barrel, b->_barrel_height, b->_sonic_last_value, b->_ml_in_mm);
     if (!b->_sonic_last_value)
@@ -414,7 +414,7 @@ void BarrClass::Save100LitersMark(byte barrel)
     sBarrel *b = &iBarrel[barrel];
     if (b->_barrel_height - b->_sonic_last_value) // Prevent scary DivideByZero CPU Panic crash! :)
     {
-        // mL in mm = mL / (mm whole lenght - mm now)
+        // mL in mm = mL / (mm whole length - mm now)
         b->_ml_in_mm = 100000 / (b->_barrel_height - b->_sonic_last_value);
         LOG.printf("100L calibration - Barrel:%u, %umL in one mm\r\n", barrel, b->_ml_in_mm);
     }

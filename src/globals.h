@@ -3,7 +3,7 @@
 #define FMSD
 #include <Arduino.h>
 
-//#define DEBUG_SD
+#define DEBUG_SD
 #define DEBUG_SONIC
 //#define DEBUG_FLOW
 //#define DEBUG_MUX

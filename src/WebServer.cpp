@@ -596,7 +596,7 @@ void ServerClass::begin()
         response->print("<input type=\"hidden\" id=\"Calib5L\" name=\"Calib5L\" value=\"1\">");
         response->printf("<input type=\"submit\" value=\"Calib5L\"></form>"); 
 
-        response->print("<li>barrels: Errors override.. Dry barrel lenght in mm point, mililitrage to lenght ratio, Full barrel point in liters, . . . . . Empty barrel point in liters</li>");
+        response->print("<li>barrels: Errors override.. Dry barrel length in mm point, mililitrage to length ratio, Full barrel point in liters, . . . . . Empty barrel point in liters</li>");
         for (byte x=0;x<NUM_OF_BARRELS;x++)
         {
             response->printf("<span>Barrel %u </span>", x);

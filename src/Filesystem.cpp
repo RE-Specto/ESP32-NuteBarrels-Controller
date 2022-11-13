@@ -64,7 +64,7 @@ bool StorageClass::isSD()
 }
 
 // loading Structs from files
-// filename, struct pointer, struct lenght "sizeof(myStruct)"
+// filename, struct pointer, struct length "sizeof(myStruct)"
 bool StorageClass::Load(const char *fname, byte *stru_p, uint16_t len)
 {
     uint16_t count = 0;
@@ -129,15 +129,23 @@ byte StorageClass::Backup()
 {
     LOG.println(F("Backing up all files from SD to SPIFFS"));
     File dir = SD.open("/");
-    File file = dir.openNextFile();
-    size_t len = 0; // file chunk lenght at the buffer
+    File file;
+    size_t len = 0; // file chunk length at the buffer
     byte counter = 0;
-    while (file)
+    while(counter < 255) // timeout, should break earlier
     {
         static byte buf[512];
+        static char name[256];
+        file = dir.openNextFile();
+        if (!file) // no more files
+        {
+            break;
+        }
+        // littleFS requires full path
+        snprintf(name, sizeof name, "%s/%s", dir.name(), file.name());
         if (!file.size())
         {
-            LOG.printf("skipping empty file %s\r\n", file.name());
+            LOG.printf("skipping empty file %s\r\n", name);
         }
         else
         {
@@ -148,7 +156,7 @@ byte StorageClass::Backup()
                 break;
             }             // protect against endless loop on SD error
             file.seek(0); // start from start
-            File destFile = SPIFFS.open(file.name(), FILE_WRITE);
+            File destFile = SPIFFS.open(name, FILE_WRITE);
             while (file.available())
             {
                 len = file.read(buf, 512);
@@ -160,7 +168,6 @@ byte StorageClass::Backup()
             counter++;
         }
         file.close();
-        file = dir.openNextFile();
     }
     dir.close();
     LOG.printf("Backup finished. %u files copied\r\n", counter);
@@ -174,28 +181,37 @@ byte StorageClass::Restore()
     LOG.println(F("Restoring missing files from SPIFFS to SD"));
     #endif
     File dir = SPIFFS.open("/");
-    File file = dir.openNextFile();
-    size_t len = 0; // file chunk lenght at the buffer
+    File file;
+    size_t len = 0; // file chunk length at the buffer
     byte counter = 0;
-    while (file)
+    while(counter < 255) // timeout, should break earlier
     {
+        file = dir.openNextFile();
+        if (!file) // no more files
+        {
+            break;
+        }
+        static char name[256];
+        // littleFS requires full path
+        snprintf(name, sizeof name, "%s/%s", dir.name(), file.name());
+
         //file.name() file.size());
-        if (SD.exists(file.name()))
+        if (SD.exists(name))
         {
             #ifdef DEBUG_SD
-            LOG.printf("file %s already exist on SD\r\n", file.name());
+            LOG.printf("file %s already exist on SD\r\n", name);
             #endif
         }
         else if (!file.size())
         {
             #ifdef DEBUG_SD
-            LOG.printf("skipping empty file %s\r\n", file.name());
+            LOG.printf("skipping empty file %s\r\n", name);
             #endif
         }
         else
         {
-            File destFile = SD.open(file.name(), FILE_WRITE);
-            LOG.println(file.name());
+            File destFile = SD.open(name, FILE_WRITE);
+            LOG.println(name);
             if (destFile)
             {
                 static byte buf[512];
@@ -214,13 +230,12 @@ byte StorageClass::Restore()
             destFile.close();
             if (file.size() != destFile.size())
             {
-                LOG.printf("[E] file %s size mismatch!\r\n", file.name());
+                LOG.printf("[E] file %s size mismatch!\r\n", name);
             }
             else
                 counter++;
         }
         file.close();
-        file = dir.openNextFile();
     }
     dir.close();
     #ifdef DEBUG_SD
