@@ -167,16 +167,20 @@ void ServerClass::begin()
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         response->print("{");
-        response->printf("\"%s\":\"%u\",", "time", State.MixTimer());
-        response->printf("\"%s\":\"%u\",", "pool", State.StoreBarrel());
+        response->printf("\"%s\":%u,", "MixTimer", State.MixTimer());
+        response->printf("\"%s\":%u,", "StoreBarrel", State.StoreBarrel());
 
-        for (byte x=1;x<=4;x++){
-            // Serial.println(x);
-            response->printf("\"pool%un\":\"%u\",", x, Barrels.NutriGet(x));
-            response->printf("\"pool%uw\":\"%u\",", x, Barrels.FreshGet(x));
+        for (byte x=0;x<=4;x++){
+            response->printf("\"FreshGet%u\":%u,", x, Barrels.FreshGet(x));
+            response->printf("\"NutriGet%u\":%u,", x, Barrels.NutriGet(x));
         }
 
-        response->printf("\"t\":%u}", esp_timer_get_time() / 1000000);
+        response->printf("\"BypassMore\":%u,", State.BypassMore());
+        response->printf("\"Get\":%u,", State.Get());
+        response->printf("\"Errors\":%u,", State.Errors());
+        response->printf("\"Pump\":%u,", Expanders.FillingRelayGet(6));
+        response->printf("\"Tap\":%u,", Expanders.FillingRelayGet(5));
+        response->printf("\"Uptime\":%u}", esp_timer_get_time() / 1000000);
         request->send(response);
     });
 
@@ -722,6 +726,262 @@ void ServerClass::begin()
         request->send(response);
     });
 
+
+    server.on("/settingsJSON", HTTP_GET, [](AsyncWebServerRequest *request) {
+        LOG.printf("Requested: %s\r\n", request->url().c_str());
+
+        AsyncResponseStream *response = request->beginResponseStream("application/json");
+        response->print("{");
+        if (request->hasArg("Override"))
+        {
+            int Override = request->arg("Override").toInt();
+            State.Override(Override);
+            response->printf("\"Override\": %u,", State.Get());
+        }
+
+        if (request->hasArg("OverrideError"))
+        {
+            int OverrideError = request->arg("OverrideError").toInt();
+            State.OverrideError(OverrideError);
+            response->printf("\"OverrideError\": %u,", State.Errors());
+        }
+
+        if (request->hasArg("SetFillBarrel"))
+        {
+            int  SetFillBarrel = request->arg("SetFillBarrel").toInt();
+            State.SetFillBarrel(SetFillBarrel);
+            response->printf("\"SetFillBarrel\": %u,", State.FillBarrel());
+        }
+
+        if (request->hasArg("SetFillReq"))
+        {
+            int SetFillReq = request->arg("SetFillReq").toInt();
+            State.SetFillReq(SetFillReq);
+            response->printf("\"SetFillReq\": %u,", State.FillRequirement());
+        }
+
+        if (request->hasArg("SetMixReq"))
+        {
+            int SetMixReq = request->arg("SetMixReq").toInt();
+            State.SetMixReq(SetMixReq);
+            response->printf("\"SetMixReq\": %u,", State.MixRequirement());
+        }
+
+        if (request->hasArg("MixReset"))
+        {
+            State.MixReset();
+            response->printf("\"MixReset\": %u,", State.MixTimer());
+        }
+
+        if (request->hasArg("SetStoreBarrel"))
+        {
+            int SetStoreBarrel = request->arg("SetStoreBarrel").toInt();
+            State.SetStoreBarrel(SetStoreBarrel);
+            response->printf("\"SetStoreBarrel\": %u,", State.StoreBarrel());
+        }
+
+        if (request->hasArg("SetDrainReq"))
+        {
+            int SetDrainReq = request->arg("SetDrainReq").toInt();
+            State.SetDrainReq(SetDrainReq);
+            response->printf("\"SetDrainReq\": %u,", State.DrainMore());
+        }
+
+        if (request->hasArg("SetBypassReq"))
+        {
+            int SetBypassReq = request->arg("SetBypassReq").toInt();
+            State.SetBypassReq(SetBypassReq);
+            response->printf("\"SetBypassReq\": %u,", State.BypassMore());
+        }
+
+        // if (request->hasArg("ErrorOverride"))
+        // {
+        //     int ErrorOverride = request->arg("ErrorOverride").toInt();
+        //     int ErrorOverrideData = request->arg("ErrorOverrideData").toInt();
+        //     Barrels.ErrorOverride(ErrorOverride, ErrorOverrideData);
+        // }
+
+        if (request->hasArg("ErrorReset"))
+        {
+            int ErrorReset = request->arg("ErrorReset").toInt();
+            Barrels.Reset(ErrorReset);
+            response->printf("\"ErrorReset\": %u,", ErrorReset);
+        }
+
+        // if (request->hasArg("VolumeMaxSet"))
+        // {
+        //     int VolumeMaxSet = request->arg("VolumeMaxSet").toInt();
+        //     int VolumeMaxSetData = request->arg("VolumeMaxSetData").toInt();
+        //     Barrels.VolumeMaxSet(VolumeMaxSet, VolumeMaxSetData);
+        //     response->printf("\"VolumeMaxSet\": %u,", Barrels.VolumeMax(VolumeMaxSet));
+        // }
+
+        // if (request->hasArg("VolumeMinSet"))
+        // {
+        //     int VolumeMinSet = request->arg("VolumeMinSet").toInt();
+        //     int VolumeMinSetData = request->arg("VolumeMinSetData").toInt();
+        //     Barrels.VolumeMinSet(VolumeMinSet, VolumeMinSetData);
+        //     response->printf("\"VolumeMinSet\": %u,", Barrels.VolumeMin(VolumeMinSet));
+        // }
+
+        // if (request->hasArg("SonicOffsetSet"))
+        // {
+        //     int SonicOffsetSet = request->arg("SonicOffsetSet").toInt();
+        //     int SonicOffsetSetData = request->arg("SonicOffsetSetData").toInt();
+        //     Barrels.SonicOffsetSet(SonicOffsetSet, SonicOffsetSetData);
+        //     response->printf("\"SonicOffsetSet\": %u,", Barrels.SonicOffset(SonicOffsetSet));
+        // }
+
+        // if (request->hasArg("SonicMLinMMSet"))
+        // {
+        //     int SonicMLinMMSet = request->arg("SonicMLinMMSet").toInt();
+        //     int SonicMLinMMSetData = request->arg("SonicMLinMMSetData").toInt();
+        //     Barrels.SonicMLinMMSet(SonicMLinMMSet, SonicMLinMMSetData);
+        // }
+
+        // if (request->hasArg("DividerSet"))
+        // {
+        //     int DividerSet = request->arg("DividerSet").toInt();
+        //     int DividerSetData = request->arg("DividerSetData").toInt();
+        //     Flow.DividerSet(DividerSet, DividerSetData);
+        // }
+
+        // if (request->hasArg("FErrorReset"))
+        // {
+        //     int FErrorReset = request->arg("FErrorReset").toInt();
+        //     Flow.Reset(FErrorReset);
+        // }
+
+        // if (request->hasArg("FEnable"))
+        // {
+        //     int FEnable = request->arg("FEnable").toInt();
+        //     Flow.Enable(FEnable);
+        // }
+
+        // if (request->hasArg("FDisable"))
+        // {
+        //     int FDisable = request->arg("FDisable").toInt();
+        //     Flow.Disable(FDisable);
+        // }
+
+        // if (request->hasArg("PDividerSet"))
+        // {
+        //     int PDividerSet = request->arg("PDividerSet").toInt();
+        //     int PDividerSetData = request->arg("PDividerSetData").toInt();
+        //     Pressure.DividerSet(PDividerSet, PDividerSetData);
+        // }
+
+        // if (request->hasArg("OffsetSet"))
+        // {
+        //     int OffsetSet = request->arg("OffsetSet").toInt();
+        //     int OffsetSetData = request->arg("OffsetSetData").toInt();
+        //     Pressure.OffsetSet(OffsetSet, OffsetSetData);
+        // }
+
+        // if (request->hasArg("MinSet"))
+        // {
+        //     int MinSet = request->arg("MinSet").toInt();
+        //     int MinSetData = request->arg("MinSetData").toInt();
+        //     Pressure.MinSet(MinSet, MinSetData);
+        // }
+
+        // if (request->hasArg("MaxSet"))
+        // {
+        //     int MaxSet = request->arg("MaxSet").toInt();
+        //     int MaxSetData = request->arg("MaxSetData").toInt();
+        //     Pressure.MaxSet(MaxSet, MaxSetData);
+        // }
+
+        if (request->hasArg("PErrorReset"))
+        {
+            int PErrorReset = request->arg("PErrorReset").toInt();
+            Pressure.Reset(PErrorReset);
+            response->printf("\"PErrorReset\": %u,", Pressure.Errors(PErrorReset));
+        }
+
+        // if (request->hasArg("Enable"))
+        // {
+        //     int Enable = request->arg("Enable").toInt();
+        //     Pressure.Enable(Enable);
+        // }
+
+        // if (request->hasArg("Disable"))
+        // {
+        //     int Disable = request->arg("Disable").toInt();
+        //     Pressure.Disable(Disable);
+        // }
+
+        // if (request->hasArg("DryBarrel"))
+        // {
+        //     int DryBarrel = request->arg("DryBarrel").toInt();
+        //     Barrels.SonicMeasure(DryBarrel);
+        //     if(Barrels.Errors(DryBarrel))
+        //     {
+        //         LOG.printf("Dry point set: Barrel:%u at error state:%u, unable to measure dry point\r\n", DryBarrel, Barrels.Errors(DryBarrel));
+        //     }
+        //     else
+        //     {
+        //         LOG.printf("Setting Dry barrel:%u point, from:%u to:%u\r\n", DryBarrel, Barrels.SonicOffset(DryBarrel), Barrels.SonicLastMM(DryBarrel));
+        //         Barrels.SonicOffsetSet(DryBarrel, Barrels.SonicLastMM(DryBarrel));
+        //     }
+        // }
+
+        // if (request->hasArg("EmptyBarrel"))
+        // {
+        //     int EmptyBarrel = request->arg("EmptyBarrel").toInt();
+        //     Barrels.SonicMeasure(EmptyBarrel);
+        //     if(Barrels.Errors(EmptyBarrel))
+        //     {
+        //         LOG.printf("Empty point set: Barrel:%u at error state:%u, unable to measure Empty point\r\n", EmptyBarrel, Barrels.Errors(EmptyBarrel));
+        //     }
+        //     else
+        //     {
+        //         LOG.printf("Setting empty barrel:%u point, from:%u to:%u\r\n", EmptyBarrel, Barrels.VolumeMin(EmptyBarrel), Barrels.SonicLastMM(EmptyBarrel));
+        //         Barrels.VolumeMinSet(EmptyBarrel, Barrels.SonicLastMM(EmptyBarrel));
+        //     }
+        // }
+
+        // if (request->hasArg("FullBarrel"))
+        // {
+        //     int FullBarrel = request->arg("FullBarrel").toInt();
+        //     Barrels.SonicMeasure(FullBarrel);
+        //     if(Barrels.Errors(FullBarrel))
+        //     {
+        //         LOG.printf("Full point set: Barrel:%u at error state:%u, unable to measure Full point\r\n", FullBarrel, Barrels.Errors(FullBarrel));
+        //     }
+        //     else
+        //     {
+        //         LOG.printf("Setting Full barrel:%u point, from:%u to:%u\r\n", FullBarrel, Barrels.VolumeMax(FullBarrel), Barrels.SonicLastMM(FullBarrel));
+        //         Barrels.VolumeMaxSet(FullBarrel, Barrels.SonicLastMM(FullBarrel));
+        //     }
+        // }
+
+        // if (request->hasArg("Save100LitersMark"))
+        // {
+        //     int Save100LitersMark = request->arg("Save100LitersMark").toInt();
+        //     Barrels.SonicMeasure(Save100LitersMark);
+        //     if(Barrels.Errors(Save100LitersMark))
+        //     {
+        //         LOG.printf("100L point set: Barrel:%u at error state:%u, unable to measure 100L point\r\n", Save100LitersMark, Barrels.Errors(Save100LitersMark));
+        //     }
+        //     else
+        //     {
+        //         uint16_t CoeffBefore = Barrels.SonicMLinMMGet(Save100LitersMark);
+        //         Barrels.Save100LitersMark(Save100LitersMark);
+        //         LOG.printf("Setting 100L barrel:%u point, from:%u to:%u\r\n", Save100LitersMark, CoeffBefore, Barrels.SonicMLinMMGet(Save100LitersMark));
+        //     }         
+        // }
+
+        if (request->hasArg("Calib5L"))
+        {
+            int Calib5L = request->arg("Calib5L").toInt();
+            Flow.RequestCalib(Calib5L);
+            response->printf("\"Calib5L\": %u,", Calib5L);
+        }
+
+        response->printf("\"Uptime\":%u}", esp_timer_get_time() / 1000000);
+        request->send(response);
+    });
 
     server.on("/man", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());

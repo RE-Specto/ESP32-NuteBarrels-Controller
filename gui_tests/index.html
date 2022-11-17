@@ -13,6 +13,24 @@
 function ajaxGet(data,callback){
  $.ajax({
   type: "GET",
+  url: "http://192.168.1.23/settingsJSON",
+  headers: {
+      'Access-Control-Allow-Credentials' : true,
+      'Access-Control-Allow-Origin':'*',
+      'Access-Control-Allow-Methods':'GET',
+      'Access-Control-Allow-Headers':'application/json',
+    },
+  data: data,
+  contentType: "application/json; charset=utf-8",
+  dataType: "json",
+  success: callback||true,
+  failure: function(errMsg) {alert(errMsg);}
+ });
+}
+
+function ajaxGetJSON(data,callback){
+ $.ajax({
+  type: "GET",
   url: "http://192.168.1.23/json",
   headers: {
       'Access-Control-Allow-Credentials' : true,
@@ -28,56 +46,109 @@ function ajaxGet(data,callback){
  });
 }
 
+// update all objects with data from server via ajax
+function update(){
+ajaxGetJSON('test', function(obj) {
+
+  s = {
+    0x10:"מילוי",
+    0x08:"ערבוב",
+    0x04:"העברה",
+    0x02:"ניקוז",
+    0x01:"ממתין"
+  }
+
+  state = ""
+  for (x=0x80; x>=0x01; x/=2){
+    state += obj.Get & x ? s[x]+" " : ""
+  }
+  $("#state").text(state) 
+
+  for (y=0;y<5;y++){
+    $("#pool"+y+"w").text(parseFloat(obj["FreshGet"+y]/1000).toFixed(2)) 
+    $("#pool"+y+"n").text(parseFloat(obj["NutriGet"+y]/1000).toFixed(2))
+  }
+
+  $("#bypass").text(parseFloat(obj.BypassMore/1000).toFixed(2)) 
+  $("#mixer_liters").text(obj.FreshGet0+"L") 
+  $("#mixer_minutes").text(obj.MixTimer + "M") 
+  for(z=1;z<5;z++){ // reset all pools + set selected
+    $("#pool"+z).attr('fill', 'url(#gradient-grey)')}
+  $("#pool"+obj.StoreBarrel).attr('fill', 'url(#gradient-blue)')
+
+  obj.Tap?$("#tap").attr('fill', 'url(#gradient-green)'):$("#tap").attr('fill', 'url(#gradient-grey)')
+  obj.Pump?$("#pump").attr('fill', 'url(#gradient-green)'):$("#pump").attr('fill', 'url(#gradient-grey)')
+})}
+
 $(document).ready(function(){
-//ajaxGet('test', function(msg) {console.log(msg)})
-obj = {
-  "time": "33",
-  "pool": "2",
-  "pool1n": "11",
-  "pool1w": "12",
-  "pool2n": "21",
-  "pool2w": "22",
-  "pool3n": "31",
-  "pool3w": "32",
-  "pool4n": "41",
-  "pool4w": "42",
-  "state": 9,
-  "error": 0,
-  "t": 1341
-}
 
-s = {
-0x10:"מילוי",
-0x08:"ערבוב",
-0x04:"העברה",
-0x02:"ניקוז",
-0x01:"ממתין"
-}
+// obj = {
+//   "MixTimer": 30,
+//   "StoreBarrel": 3,
+//   "FreshGet0": 22,
+//   "NutriGet0": 23,
+//   "FreshGet1": 0,
+//   "NutriGet1": 01,
+//   "FreshGet2": 0,
+//   "NutriGet2": 0,
+//   "FreshGet3": 33,
+//   "NutriGet3": 333,
+//   "FreshGet4": 44,
+//   "NutriGet4": 444,
+//   "BypassMore": 10,
+//   "Get": 17,
+//   "Errors": 0,
+//   "Pump": 1,
+//   "Tap": 0,
+//   "Uptime": 74
+// }
 
-state = ""
-for (x=0x80; x>=0x01; x/=2)
-{
-  obj.state & x ? state += s[x]+" " : true
-  //console.log(x, Boolean(obj.state & x))
-}
+  $("#down").click(function(){
+    $(this).attr('style', "stroke: red")
+    ajaxGetJSON('', function(obj) {
+      b=parseInt(obj.BypassMore)<1000?0:parseInt(obj.BypassMore)-1000
+      ajaxGet("SetBypassReq="+b, function(ret){
+        $("#down").attr('style', "stroke: black")
+        console.log(ret.SetBypassReq)
+        update();
+      })
+    })
+  })
 
-$("#bypass").text(9999) 
-$("#pool2n").text(obj.pool2n) 
-$("#mixer_liters").text("400L") 
-$("#mixer_minutes").text(obj.time + "M") 
-$("#state").text(state) 
+  $("#up").click(function(){
+    $(this).attr('style', "stroke: red")
+    ajaxGetJSON('', function(obj) {
+      b=parseInt(obj.BypassMore)>64535?65535:parseInt(obj.BypassMore)+1000
+      ajaxGet("SetBypassReq="+b, function(ret){
+        $("#up").attr('style', "stroke: black")
+        console.log(ret.SetBypassReq)
+        update();
+      })
+    })
+  })
 
-$("#pool"+obj.pool).attr('fill', 'url(#gradient-blue)')
+  // attach click handler for ok button
+  $("#ok").click(function(){
+    // $(this).attr('style', "stroke: red")
+    // ajaxGet("SetBypassReq="+parseInt($("#bypass").text()), function(ret){
+    //   $("#ok").attr('style', "stroke: black")
+    //   console.log(ret.SetBypassReq)
+       update();
+    // })
+  })
 
-$("#down").click(function(){console.log($(this));$(this).attr('style', "stroke: red")})
-$("#up").click(function(){console.log($(this));$(this).attr('style', "stroke: red")})
-$("#ok").click(function(){console.log($(this));$(this).attr('style', "stroke: red").attr('fill', 'url(#gradient-blue)')})
-$("#pool1").click(function(){console.log($(this));$(this).attr('fill', 'url(#gradient-blue)')})
-$("#pool2").click(function(){console.log($(this));$(this).attr('fill', 'url(#gradient-blue)')})
-$("#pool3").click(function(){console.log($(this));$(this).attr('fill', 'url(#gradient-blue)')})
-$("#pool4").click(function(){console.log($(this));$(this).attr('fill', 'url(#gradient-blue)')})
+  // attach click handler to pools
+  for(p=1;p<5;p++){
+    $("#pool"+p).click(function(){
+      $(this).attr('style', "stroke: red")
+      ajaxGet("SetStoreBarrel="+parseInt($(this)[0].id.replace('pool','')), function(ret){
+        $("#pool"+ret.SetStoreBarrel).attr('style', "stroke: black")
+        update()
+      })
+    })}
 
-
+  // pull data from server
+  update();
 });
 </script>
 <meta http-equiv="content-type" content="text/html; charset=UTF-8">
@@ -304,7 +375,7 @@ $("#pool4").click(function(){console.log($(this));$(this).attr('fill', 'url(#gra
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 28px; height: 1px; padding-top: 113px; margin-left: 321px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div onclick='$("#ok").click()' style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">ok</div>
+<div onclick='$("#ok").click()' style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">רענן</div>
 </div>
 </div>
 </foreignObject>
@@ -342,7 +413,7 @@ $("#pool4").click(function(){console.log($(this));$(this).attr('fill', 'url(#gra
 <path d="M 200 167 L 200 190.63" fill="none" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="stroke"/>
 <path d="M 200 195.88 L 196.5 188.88 L 200 190.63 L 203.5 188.88 Z" fill="rgb(0, 0, 0)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
 <path d="M 175 172 L 200 172" fill="none" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="stroke"/>
-<path d="M 145 157 L 175 172 L 145 187 Z" fill="url(#gradient-grey)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
+<path id="pump" d="M 145 157 L 175 172 L 145 187 Z" fill="url(#gradient-grey)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
 <g transform="translate(-0.5 -0.5)">
 <switch>
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
@@ -359,7 +430,7 @@ $("#pool4").click(function(){console.log($(this));$(this).attr('fill', 'url(#gra
 <path d="M 67.4 28.23 L 63.89 21.23 L 67.39 22.98 L 70.89 21.23 Z" fill="rgb(0, 0, 0)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
 <path d="M 20 105 L 20 177 L 100 177 L 100 190.63" fill="none" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="stroke"/>
 <path d="M 100 195.88 L 96.5 188.88 L 100 190.63 L 103.5 188.88 Z" fill="rgb(0, 0, 0)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
-<path d="M 20 65 L 40 85 L 20 105 L 0 85 Z" fill="url(#gradient-grey)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
+<path id="tap" d="M 20 65 L 40 85 L 20 105 L 0 85 Z" fill="url(#gradient-grey)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
 <g transform="translate(-0.5 -0.5)">
 <switch>
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
