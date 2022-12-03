@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
   <style>
@@ -46,11 +46,8 @@ function ajaxGetJSON(data,callback){
  });
 }
 
-// update all objects with data from server via ajax
-function update(){
-ajaxGetJSON('test', function(obj) {
-
-  s = {
+// Global, for now..
+s = {
     0x10:"מילוי",
     0x08:"ערבוב",
     0x04:"העברה",
@@ -58,15 +55,19 @@ ajaxGetJSON('test', function(obj) {
     0x01:"ממתין"
   }
 
+// update all objects with data from server via ajax
+function update(){
+ajaxGetJSON('test', function(obj) {
   state = ""
   for (x=0x80; x>=0x01; x/=2){
     state += obj.Get & x ? s[x]+" " : ""
   }
   $("#state").text(state) 
 
-  for (y=0;y<5;y++){
+  for (y=1;y<5;y++){
     $("#pool"+y+"w").text(parseFloat(obj["FreshGet"+y]/1000).toFixed(2)) 
     $("#pool"+y+"n").text(parseFloat(obj["NutriGet"+y]/1000).toFixed(2))
+    obj["Relay"+y]? $("#pool"+y+"r")[0].style.color="rgb(0, 150, 0)" : $("#pool"+y+"r")[0].style.color="rgb(0, 0, 0)"
   }
 
   $("#bypass").text(parseFloat(obj.BypassMore/1000).toFixed(2)) 
@@ -323,7 +324,7 @@ $(document).ready(function(){
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 202px; margin-left: 21px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">1</div>
+<div id="pool1r" style="display: inline-block; font-size: 15px; font-weight: 900; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">1</div>
 </div>
 </div>
 </foreignObject>
@@ -336,7 +337,7 @@ $(document).ready(function(){
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 202px; margin-left: 111px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">2</div>
+<div id="pool2r" style="display: inline-block; font-size: 15px; font-weight: 900; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">2</div>
 </div>
 </div>
 </foreignObject>
@@ -349,7 +350,7 @@ $(document).ready(function(){
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 202px; margin-left: 201px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">3</div>
+<div id="pool3r" style="display: inline-block; font-size: 15px; font-weight: 900; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">3</div>
 </div>
 </div>
 </foreignObject>
@@ -362,7 +363,7 @@ $(document).ready(function(){
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 202px; margin-left: 291px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">4</div>
+<div id="pool4r" style="display: inline-block; font-size: 15px; font-weight: 900; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">4</div>
 </div>
 </div>
 </foreignObject>

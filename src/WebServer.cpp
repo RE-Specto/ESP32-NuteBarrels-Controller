@@ -173,6 +173,7 @@ void ServerClass::begin()
         for (byte x=0;x<=4;x++){
             response->printf("\"FreshGet%u\":%u,", x, Barrels.FreshGet(x));
             response->printf("\"NutriGet%u\":%u,", x, Barrels.NutriGet(x));
+            response->printf("\"Relay%u\":%u,", x, Expanders.FillingRelayGet(x));
         }
 
         response->printf("\"BypassMore\":%u,", State.BypassMore());

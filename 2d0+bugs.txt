@@ -1,4 +1,6 @@
 bugs:
+!! calibration page as well as pool selection from webUI should trigger save!
+
 isChanged will retriger SaveStructs over and over at each start press when Expanders.Protect is set
 if (request->hasArg("FullBarrel"))
     sonic full barrel calibration point will create error
