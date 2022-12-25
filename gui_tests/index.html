@@ -138,6 +138,26 @@ $(document).ready(function(){
     // })
   })
 
+  // attach click handler for bottom buttons
+  $("#btn4").click(function(){
+    $(location).attr('href', '/manual');
+  })
+
+  $("#btn3").click(function(){
+    $(location).attr('href', '/settings');
+  })
+
+  
+  $("#btn2").click(function(){
+    zoomLevel = parseInt($("svg").attr('height')) * 1.1
+    $("svg").attr('height', zoomLevel+"px").attr('width', zoomLevel+"px")
+  })
+  
+  $("#btn1").click(function(){
+    zoomLevel = parseInt($("svg").attr('height')) * 0.9
+    $("svg").attr('height', zoomLevel+"px").attr('width', zoomLevel+"px")
+  })
+
   // attach click handler to pools
   for(p=1;p<5;p++){
     $("#pool"+p).click(function(){
@@ -162,8 +182,8 @@ $(document).ready(function(){
 <meta http-equiv="pragma" content="no-cache" />
 
 </head>
-<body>
-<svg xmlns="http://www.w3.org/2000/svg" style="background-color: rgb(255, 255, 255);margin: 20px" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="400px" height="400px" viewBox="-0.5 -0.5 380 380" content="&lt;mxfile host=&quot;app.diagrams.net&quot; modified=&quot;2022-07-23T20:57:27.191Z&quot; agent=&quot;5.0 (Windows)&quot; etag=&quot;EppMWQn6IU9Jx7z6n2ni&quot; version=&quot;20.2.0&quot; type=&quot;device&quot;&gt;&lt;diagram id=&quot;PBZHQQ1PvWd_bC5udLai&quot; name=&quot;Page-1&quot;&gt;7Vpbb+MoFP41fpzKNnYuj2ku3dW0mkrV7rTzRmLiMHVMhMltf/2CDb7hJE4TJ9loE8mCwwHs833AOYAB+vPNE4WL2QvxUGDYprcxwMCw7W7H5k8h2CYC1waJwKfYS0RWJnjD/yApNKV0iT0UFRQZIQHDi6JwQsIQTVhBBikl66LalATFXhfQR5rgbQIDXfoTe2yWSDuumcn/QNifqZ4tU5aM4eTTp2QZyv4MG4ziX1I8h6otqR/NoEfWOREYGqBPCWFJar7po0CYVpktqTfaUZq+N0Uhq1Nh/bQa/j1/aX/8/vlX+Gf/e/jr9f0bkGBFbKsMgjxuH5kllM2IT0IYDDPpY/zRSDRr8lym80zIggstLvyNGNtKsOGSES6asXkgS9EGs3dR/cGVuY9cyWAjW44z21zmFVE8RwxRJQsZ3b7nMx9ZqyKbNRXnVFu66aQ1I7KkE7THXoqhkPqI7dGz3URRGDPXg0TmCRH+GXTLFSgKIMOrIhmh5LSf6mW48oSE9giYZbsrGCyRYmsr4B/w6OEVT/oi6ZrmsxLzXnIlFcrAfFHSMS3rlWuXGMZHwkIkJ9sAcyJRwJXWM8zQ2wLG1l/zmabImHFCuedxKkhH348l480gKY8SzlmCAj6FHuYQ90lAaNw1GLTEP1c2wJTPKpiEvBzBiO1jxwpRhjZ74VSlHTno5aRotztJfp1NMZaaGGb56UUJz04BUIcCppjcajIgp3s0A7IZxDqMfQWMEI5GEJ4JK7eIldM2NaxaF4XKvS+optMYqikOAiX30BQugzMNNtu5NQBbdwXg9EwDDYBbw6n9P04VODn2reFkOXWA+mbYR1hfq/5l4BjFMPRjz/gAahGj5BPpk2AiV+GHtXOyLKMeEuH38I/IfBjuwYpGHgXcmEc5vQD7Qj7Hnhe/4pSETLn3FTHEyWwBFWyp8nSaI0vV8nnjqIUiiKpAjYmAqokxDRzryijpa6RpqtD6q7NiQ0gtVNgpesahbyRRpB/AKJLpNLiPM5+ITWbGgVjziIWz5KECt1VrQm4OvIqFc9A2usP42Y2fA33EoQ3bh5e0dh4aKYJyOEy4DUXwv3t2qyJIcbuiCTyAPpiq8ACN4dHR8LDu1/xawObU80+aM39XM799v+bXwq1rm19Ncznz67uad2N+LYq6uvn1zUXnfs2vBUdXN7+tmZ983qQbdQ7r1/CEwCU9IbtiWzXzhFzx7CX+kCOfdzsyyl5R1Z73ZUdGxa5Bik2vFafv2E1ywI3hAXTyX+KsMT0jfOi46cHgh5E/F9RPCZ0HkOqWTx13YnPwVFDqne9QUFZ9JZi/ym4XQZ1GqiaSY05ZK0O1Rync5tQWQiE6vp9RTX1Fv136dgfs0+eJ5I0zSqY2PIGlrWuwdCenLs4VtzT8E1JrXKlBhlJDO0h3NtzaV5ld5E0Glc7dP9h9kyH0euLiSrZycMkIi8898XbC+W8d1B74D/H2nfq5tTh0Lujtih1fsbiDnPs10hf6W9oAllcPlAsRoOm5DkfbbhEqS49Xqjzm5rwAfY/3ajeOzAPjNPUcLKdZz+HgyAY35mKU9+DsbqcRF0Pr54DLYHXbV3AZ9N2+G71EdzoBmyaW/UV/5FRiqWhppy9afi9wCWJV3Ns7fM5CZ2Q+Xkb/5X0eq2RtYOmxq1OxajnHr1o8m93BTYDL7jmD4b8=&lt;/diagram&gt;&lt;/mxfile&gt;">
+<body style="text-align:center">
+<svg xmlns="http://www.w3.org/2000/svg" style="background-color: rgb(255, 255, 255);margin: 20px" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="800px" height="800px" viewBox="-0.5 -0.5 380 380" content="&lt;mxfile host=&quot;app.diagrams.net&quot; modified=&quot;2022-07-23T20:57:27.191Z&quot; agent=&quot;5.0 (Windows)&quot; etag=&quot;EppMWQn6IU9Jx7z6n2ni&quot; version=&quot;20.2.0&quot; type=&quot;device&quot;&gt;&lt;diagram id=&quot;PBZHQQ1PvWd_bC5udLai&quot; name=&quot;Page-1&quot;&gt;7Vpbb+MoFP41fpzKNnYuj2ku3dW0mkrV7rTzRmLiMHVMhMltf/2CDb7hJE4TJ9loE8mCwwHs833AOYAB+vPNE4WL2QvxUGDYprcxwMCw7W7H5k8h2CYC1waJwKfYS0RWJnjD/yApNKV0iT0UFRQZIQHDi6JwQsIQTVhBBikl66LalATFXhfQR5rgbQIDXfoTe2yWSDuumcn/QNifqZ4tU5aM4eTTp2QZyv4MG4ziX1I8h6otqR/NoEfWOREYGqBPCWFJar7po0CYVpktqTfaUZq+N0Uhq1Nh/bQa/j1/aX/8/vlX+Gf/e/jr9f0bkGBFbKsMgjxuH5kllM2IT0IYDDPpY/zRSDRr8lym80zIggstLvyNGNtKsOGSES6asXkgS9EGs3dR/cGVuY9cyWAjW44z21zmFVE8RwxRJQsZ3b7nMx9ZqyKbNRXnVFu66aQ1I7KkE7THXoqhkPqI7dGz3URRGDPXg0TmCRH+GXTLFSgKIMOrIhmh5LSf6mW48oSE9giYZbsrGCyRYmsr4B/w6OEVT/oi6ZrmsxLzXnIlFcrAfFHSMS3rlWuXGMZHwkIkJ9sAcyJRwJXWM8zQ2wLG1l/zmabImHFCuedxKkhH348l480gKY8SzlmCAj6FHuYQ90lAaNw1GLTEP1c2wJTPKpiEvBzBiO1jxwpRhjZ74VSlHTno5aRotztJfp1NMZaaGGb56UUJz04BUIcCppjcajIgp3s0A7IZxDqMfQWMEI5GEJ4JK7eIldM2NaxaF4XKvS+optMYqikOAiX30BQugzMNNtu5NQBbdwXg9EwDDYBbw6n9P04VODn2reFkOXWA+mbYR1hfq/5l4BjFMPRjz/gAahGj5BPpk2AiV+GHtXOyLKMeEuH38I/IfBjuwYpGHgXcmEc5vQD7Qj7Hnhe/4pSETLn3FTHEyWwBFWyp8nSaI0vV8nnjqIUiiKpAjYmAqokxDRzryijpa6RpqtD6q7NiQ0gtVNgpesahbyRRpB/AKJLpNLiPM5+ITWbGgVjziIWz5KECt1VrQm4OvIqFc9A2usP42Y2fA33EoQ3bh5e0dh4aKYJyOEy4DUXwv3t2qyJIcbuiCTyAPpiq8ACN4dHR8LDu1/xawObU80+aM39XM799v+bXwq1rm19Ncznz67uad2N+LYq6uvn1zUXnfs2vBUdXN7+tmZ983qQbdQ7r1/CEwCU9IbtiWzXzhFzx7CX+kCOfdzsyyl5R1Z73ZUdGxa5Bik2vFafv2E1ywI3hAXTyX+KsMT0jfOi46cHgh5E/F9RPCZ0HkOqWTx13YnPwVFDqne9QUFZ9JZi/ym4XQZ1GqiaSY05ZK0O1Rync5tQWQiE6vp9RTX1Fv136dgfs0+eJ5I0zSqY2PIGlrWuwdCenLs4VtzT8E1JrXKlBhlJDO0h3NtzaV5ld5E0Glc7dP9h9kyH0euLiSrZycMkIi8898XbC+W8d1B74D/H2nfq5tTh0Lujtih1fsbiDnPs10hf6W9oAllcPlAsRoOm5DkfbbhEqS49Xqjzm5rwAfY/3ajeOzAPjNPUcLKdZz+HgyAY35mKU9+DsbqcRF0Pr54DLYHXbV3AZ9N2+G71EdzoBmyaW/UV/5FRiqWhppy9afi9wCWJV3Ns7fM5CZ2Q+Xkb/5X0eq2RtYOmxq1OxajnHr1o8m93BTYDL7jmD4b8=&lt;/diagram&gt;&lt;/mxfile&gt;">
 <defs>
 <linearGradient x1="0%" y1="0%" x2="100%" y2="0%" id="gradient-grey">
 <stop offset="0%" style="stop-color: rgb(255, 255, 255); stop-opacity: 1;"/>
@@ -189,8 +209,8 @@ $(document).ready(function(){
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 118px; height: 1px; padding-top: 98px; margin-left: 51px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">
-<div id="mixer_liters">500L</div>
-<div id="mixer_minutes">30M<br />
+<div id="mixer_liters">----</div>
+<div id="mixer_minutes">---<br />
 </div>
 </div>
 </div>
@@ -206,8 +226,10 @@ $(document).ready(function(){
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 277px; margin-left: 21px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">
-<div id="pool1n">001</div>
-<div id="pool1w">002</div>
+  <div>קוב דשן</div>
+  <div id="pool1n">---</div>
+  <div>קוב מים</div>
+  <div id="pool1w">---</div>
 </div>
 </div>
 </div>
@@ -222,8 +244,10 @@ $(document).ready(function(){
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 277px; margin-left: 111px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">
-<div id="pool2n">001</div>
-<div id="pool2w">002</div>
+  <div>קוב דשן</div>
+  <div id="pool2n">---</div>
+  <div>קוב מים</div>
+  <div id="pool2w">---</div>
 </div>
 </div>
 </div>
@@ -238,8 +262,10 @@ $(document).ready(function(){
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 277px; margin-left: 201px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">
-  <div id="pool3n">001</div>
-  <div id="pool3w">002</div>
+  <div>קוב דשן</div>
+  <div id="pool3n">---</div>
+  <div>קוב מים</div>
+  <div id="pool3w">---</div>
 </div>
 </div>
 </div>
@@ -254,8 +280,10 @@ $(document).ready(function(){
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 277px; margin-left: 291px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">
-  <div id="pool4n">001</div>
-  <div id="pool4w">002</div>
+  <div>קוב דשן</div>
+  <div id="pool4n">---</div>
+  <div>קוב מים</div>
+  <div id="pool4w">---</div>
 </div>
 </div>
 </div>
@@ -298,7 +326,7 @@ $(document).ready(function(){
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 113px; margin-left: 221px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div id="bypass" style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">0010</div>
+<div id="bypass" style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">----</div>
 </div>
 </div>
 </foreignObject>
@@ -389,7 +417,7 @@ $(document).ready(function(){
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
 <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 40px; margin-left: 221px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
-<div id="state" style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">מושהה</div>
+<div id="state" style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">-----</div>
 </div>
 </div>
 </foreignObject>
@@ -444,6 +472,64 @@ $(document).ready(function(){
 <text x="20" y="89" fill="rgb(0, 0, 0)" font-family="Helvetica" font-size="12px" text-anchor="middle">מים</text>
 </switch>
 </g>
+
+<g transform="translate(-0.5 -0.5)">
+  <switch>
+  <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+  <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 361px; margin-left: 20px;">
+  <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
+  <div id="pool1r" style="display: inline-block; font-size: 12px; font-weight: 300; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">- -</div>
+  </div>
+  </div>
+  </foreignObject>
+  </switch>
+  </g>
+<rect id="btn1" x="20" y="350" width="60" height="20" rx="3" ry="3" fill="none"  stroke="rgb(200, 200, 200)" pointer-events="all"/>
+
+<g transform="translate(-0.5 -0.5)">
+  <switch>
+  <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+  <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 361px; margin-left: 110px;">
+  <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
+  <div id="pool1r" style="display: inline-block; font-size: 12px; font-weight: 300; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">+ +</div>
+  </div>
+  </div>
+  </foreignObject>
+  </switch>
+  </g>
+<rect id="btn2" x="110" y="350" width="60" height="20" rx="3" ry="3" fill="none"  stroke="rgb(200, 200, 200)" pointer-events="all"/>
+
+<g transform="translate(-0.5 -0.5)">
+  <switch>
+  <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+  <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 361px; margin-left: 200px;">
+  <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
+  <div id="pool1r" style="display: inline-block; font-size: 12px; font-weight: 300; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">הגדרות</div>
+  </div>
+  </div>
+  </foreignObject>
+  </switch>
+  </g>
+<rect id="btn3" x="200" y="350" width="60" height="20" rx="3" ry="3" fill="none"  stroke="rgb(200, 200, 200)" pointer-events="all"/>
+
+<g transform="translate(-0.5 -0.5)">
+  <switch>
+  <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+  <div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 361px; margin-left: 290px;">
+  <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
+  <div id="pool1r" style="display: inline-block; font-size: 12px; font-weight: 300; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">ידני</div>
+  </div>
+  </div>
+  </foreignObject>
+  </switch>
+  </g>
+<rect id="btn4" x="290" y="350" width="60" height="20" rx="3" ry="3" fill="none"  stroke="rgb(200, 200, 200)" pointer-events="all"/>
+
+
+
+
+
+
 </g>
 <switch>
 <g requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility"/>
@@ -452,5 +538,7 @@ $(document).ready(function(){
 </a>
 </switch>
 </svg>
+
+
 </body>
 </html>
