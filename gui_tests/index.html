@@ -13,7 +13,7 @@
 function ajaxGet(data,callback){
  $.ajax({
   type: "GET",
-  url: "http://192.168.1.23/settingsJSON",
+  url: "/settingsJSON",
   headers: {
       'Access-Control-Allow-Credentials' : true,
       'Access-Control-Allow-Origin':'*',
@@ -31,7 +31,7 @@ function ajaxGet(data,callback){
 function ajaxGetJSON(data,callback){
  $.ajax({
   type: "GET",
-  url: "http://192.168.1.23/json",
+  url: "/json",
   headers: {
       'Access-Control-Allow-Credentials' : true,
       'Access-Control-Allow-Origin':'*',
