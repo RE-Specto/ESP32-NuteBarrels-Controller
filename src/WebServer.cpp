@@ -24,6 +24,7 @@ void ServerClass::begin()
     //WiFiManager Local intialization. Once its business is done, there is no need to keep it around
     AsyncWiFiManager wifiManager(&server, &dns);
     //wifiManager.resetSettings();
+    //wifiManager.setSTAStaticIPConfig(IPAddress(192,168,1,25), IPAddress(192,168,1,1), IPAddress(255,255,255,0)); // set static ip,gw,sn
     wifiManager.setDebugOutput(false);
     wifiManager.setConfigPortalTimeout(180);  // 3 minutes
     wifiManager.autoConnect("AutoConnectAP"); // will stop here if no wifi connected
@@ -83,7 +84,7 @@ void ServerClass::begin()
         {
             response->print("<li>");
             response->printf("<button onclick=\"location=\'/del?f=/%s\'\">Delete</button><span>\t</span>", file.name());
-            response->printf("<a href=\"down?f=%s\"><b>%s</b></a> \t%u bytes \t %li timestamp</li>", file.name(), file.name(), file.size(), file.getLastWrite());
+            response->printf("<a href=\"down?f=/%s\"><b>%s</b></a> \t%u bytes \t %li timestamp</li>", file.name(), file.name(), file.size(), file.getLastWrite());
             file.close();
             file = dir.openNextFile();
         }
