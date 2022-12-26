@@ -97,7 +97,8 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
-        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
+        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
+        response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         if (Filesys.isSD())
         {
             response->print("<div>filesystem is: SD Card</div>");
@@ -249,7 +250,8 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/man?stop\'\">stop</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
-        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
+        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
+        response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
         request->send(response);
@@ -310,7 +312,8 @@ void ServerClass::begin()
         response->print("</ul>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
-        response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><br>");
+        response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
+        response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
         request->send(response);
@@ -722,7 +725,8 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
-        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><br>");
+        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
+        response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");
         request->send(response);
