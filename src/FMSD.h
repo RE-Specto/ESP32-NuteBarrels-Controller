@@ -7,8 +7,9 @@
 #define MIX_INTERNAL
 #define MIX_EXTERNAL
 
-void OpenTaps(byte drainBarrel, byte storeBarrel);
-void CloseTaps(byte drainBarrel, byte storeBarrel);
+#define FRESHWATER_RELAY 5
+#define NUTRIENTS_RELAY 6
+
 void ServiceManual();
 void StoppedWait();
 void fmsPause(byte Source, byte Destination);
