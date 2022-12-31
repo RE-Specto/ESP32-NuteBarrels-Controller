@@ -79,30 +79,11 @@ ajaxGetJSON('test', function(obj) {
 
   obj.Tap?$("#tap").attr('fill', 'url(#gradient-green)'):$("#tap").attr('fill', 'url(#gradient-grey)')
   obj.Pump?$("#pump").attr('fill', 'url(#gradient-green)'):$("#pump").attr('fill', 'url(#gradient-grey)')
+
+  $("#ok").attr('style', "stroke: black")
 })}
 
 $(document).ready(function(){
-
-// obj = {
-//   "MixTimer": 30,
-//   "StoreBarrel": 3,
-//   "FreshGet0": 22,
-//   "NutriGet0": 23,
-//   "FreshGet1": 0,
-//   "NutriGet1": 01,
-//   "FreshGet2": 0,
-//   "NutriGet2": 0,
-//   "FreshGet3": 33,
-//   "NutriGet3": 333,
-//   "FreshGet4": 44,
-//   "NutriGet4": 444,
-//   "BypassMore": 10,
-//   "Get": 17,
-//   "Errors": 0,
-//   "Pump": 1,
-//   "Tap": 0,
-//   "Uptime": 74
-// }
 
   $("#down").click(function(){
     $(this).attr('style', "stroke: red")
@@ -130,12 +111,8 @@ $(document).ready(function(){
 
   // attach click handler for ok button
   $("#ok").click(function(){
-    // $(this).attr('style', "stroke: red")
-    // ajaxGet("SetBypassReq="+parseInt($("#bypass").text()), function(ret){
-    //   $("#ok").attr('style', "stroke: black")
-    //   console.log(ret.SetBypassReq)
-       update();
-    // })
+    $(this).attr('style', "stroke: red")
+    update();
   })
 
   // attach click handler for bottom buttons
@@ -203,7 +180,9 @@ $(document).ready(function(){
 <path d="M 110 145 L 110 172 L 138.63 172" fill="none" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="stroke"/>
 <path d="M 143.88 172 L 136.88 175.5 L 138.63 172 L 136.88 168.5 Z" fill="rgb(0, 0, 0)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
 <path d="M 50 40 C 50 31.72 76.86 25 110 25 C 125.91 25 141.17 26.58 152.43 29.39 C 163.68 32.21 170 36.02 170 40 L 170 130 C 170 138.28 143.14 145 110 145 C 76.86 145 50 138.28 50 130 Z" fill="url(#gradient-grey)" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
-<path d="M 170 40 C 170 48.28 143.14 55 110 55 C 76.86 55 50 48.28 50 40" fill="none" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/>
+<!-- <path d="M 170 40 C 170 48.28 143.14 55 110 55 C 76.86 55 50 48.28 50 40" fill="none" stroke="rgb(0, 0, 0)" stroke-miterlimit="10" pointer-events="all"/> -->
+<rect x="220" y="30" width="130" height="20" rx="3" ry="3" fill="rgb(255, 255, 255)" stroke="rgb(0, 0, 0)" pointer-events="all"/>
+
 <g transform="translate(-0.5 -0.5)">
 <switch>
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
@@ -416,7 +395,7 @@ $(document).ready(function(){
 <g transform="translate(-0.5 -0.5)">
 <switch>
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
-<div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 58px; height: 1px; padding-top: 40px; margin-left: 221px;">
+<div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 73px; height: 1px; padding-top: 40px; margin-left: 216px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div id="state" style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">-----</div>
 </div>
@@ -429,7 +408,7 @@ $(document).ready(function(){
 <g transform="translate(-0.5 -0.5)">
 <switch>
 <foreignObject style="overflow: visible; text-align: left;" pointer-events="none" width="100%" height="100%" requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
-<div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 98px; height: 1px; padding-top: 40px; margin-left: 274px;">
+<div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center; justify-content: unsafe center; width: 98px; height: 1px; padding-top: 40px; margin-left: 264px;">
 <div style="box-sizing: border-box; font-size: 0px; text-align: center;" data-drawio-colors="color: rgb(0, 0, 0); ">
 <div style="display: inline-block; font-size: 12px; font-family: Helvetica; color: rgb(0, 0, 0); line-height: 1.2; pointer-events: all; white-space: normal; overflow-wrap: normal;">:מצב מערכת</div>
 </div>
@@ -525,7 +504,6 @@ $(document).ready(function(){
   </switch>
   </g>
 <rect id="btn4" x="290" y="350" width="60" height="20" rx="3" ry="3" fill="none"  stroke="rgb(200, 200, 200)" pointer-events="all"/>
-
 
 
 
