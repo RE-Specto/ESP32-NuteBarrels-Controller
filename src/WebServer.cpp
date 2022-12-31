@@ -161,8 +161,21 @@ void ServerClass::begin()
     });
 
     server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(404);
-        //request->send(*Filesys.disk, "/favicon.png", "image/png");
+        if(Filesys.disk -> exists("/favicon.png"))
+        {
+            request->send(*Filesys.disk, "/favicon.png", "image/png");
+        }
+        else if (Filesys.disk -> exists("/favicon.ico"))
+        {
+            request->send(*Filesys.disk, "/favicon.ico", "image/x-icon");
+        }
+        else
+        {
+            request->send(404);
+            // AsyncWebServerResponse *response = request->beginResponse_P(200, "image/x-icon", favicon_ico_gz, favicon_ico_gz_len);
+            // response->addHeader("Content-Encoding", "gzip");
+            // request->send(response);
+        }
     });
 
     server.on("/json", HTTP_GET, [](AsyncWebServerRequest *request) {
