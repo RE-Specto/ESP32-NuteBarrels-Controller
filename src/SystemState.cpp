@@ -134,16 +134,28 @@ uint16_t StatClass::Errors() { return iState._error_now; }
 bool StatClass::isError(uint16_t error) { return iState._error_now & error; }
 
 // set error using mask
-void StatClass::SetError(uint16_t error) { iState._error_now |= error; }
+void StatClass::SetError(uint16_t error) 
+{
+    iState._error_now |= error;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save SetError"); // just warn for now..
+}
 
 // unset error using mask
-void StatClass::UnsetError(uint16_t error) { iState._error_now &= ~error; }
+void StatClass::UnsetError(uint16_t error)
+{
+    iState._error_now &= ~error;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save UnsetError"); // just warn for now..
+}
 
 // Dangerous - override error state
 void StatClass::OverrideError(uint16_t error) 
 {
     LOG.printf("Overriding error state from:%u to:%u\r\n", iState._error_now, error);
     iState._error_now = error;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save OverrideError"); // just warn for now..
 }
 
 uint16_t StatClass::FillRequirement() {return iState._fill_req;}
@@ -152,6 +164,8 @@ void StatClass::SetFillReq(uint16_t req)
 {
     LOG.printf("Changing fill requirement from:%u to:%u\r\n", iState._fill_req, req);
     iState._fill_req = req;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save SetFillReq"); // just warn for now..
 }
 
 // byte StatClass::FillBarrel() {return iState._filling_barrel;}
@@ -168,6 +182,8 @@ void StatClass::SetMixReq(uint16_t req)
 {
     LOG.printf("Changing mix requirement from:%u to:%u\r\n", iState._mix_req, req);
     iState._mix_req = req;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save SetMixReq"); // just warn for now..
 }
 
 // returns time left to mix
@@ -197,6 +213,8 @@ void StatClass::MixReset()
 {
     LOG.printf("resetting mix timer from:%u to:%umin.\r\n", iState._mix_timer, iState._mix_req);  
     iState._mix_timer = iState._mix_req;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save MixReset"); // just warn for now..
 }
 
 byte StatClass::StoreBarrel() {return iState._storing_barrel;}
@@ -205,26 +223,28 @@ void StatClass::SetStoreBarrel(byte barrel)
 {
     LOG.printf("Changing store barrel from:%u to:%u\r\n", iState._storing_barrel, barrel);
     iState._storing_barrel = barrel;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save SetStoreBarrel"); // just warn for now..
 }
 
-void StatClass::MoveStoreUp() 
-{
-    iState._storing_barrel++;
-    LOG.printf("Storing barrel inc, now barrel#%u\r\n", iState._storing_barrel);
-}
+// void StatClass::MoveStoreUp() 
+// {
+//     iState._storing_barrel++;
+//     LOG.printf("Storing barrel inc, now barrel#%u\r\n", iState._storing_barrel);
+// }
 
-void StatClass::MoveStoreDown()
-{
-    if (iState._storing_barrel) // prevent integer overflow
-    {
-        iState._storing_barrel--;
-        LOG.printf("Storing barrel dec, now barrel#%u\r\n", iState._storing_barrel);
-    }
-    else
-    {
-        LOG.println("[e] trying to decrease store barrel below zero!!");
-    }
-}
+// void StatClass::MoveStoreDown()
+// {
+//     if (iState._storing_barrel) // prevent integer overflow
+//     {
+//         iState._storing_barrel--;
+//         LOG.printf("Storing barrel dec, now barrel#%u\r\n", iState._storing_barrel);
+//     }
+//     else
+//     {
+//         LOG.println("[e] trying to decrease store barrel below zero!!");
+//     }
+// }
 
 // void StatClass::SetDrainReq(uint16_t req) 
 // {

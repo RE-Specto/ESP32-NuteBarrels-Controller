@@ -24,16 +24,25 @@ void BarrClass::ErrorSet(byte barrel, byte mask)
 {
     iBarrel[barrel]._error_state |= mask;
     LOG.printf("[E] Barr%u:e%u\r\n", barrel, mask);
+    if (!SaveSD())
+        LOG.println("[E] unable to Save ErrorSet"); // just warn for now..
 }
 
 // unsets barrel error by mask
-void BarrClass::ErrorUnset(byte barrel, byte mask) { iBarrel[barrel]._error_state &= ~mask; }
+void BarrClass::ErrorUnset(byte barrel, byte mask)
+{
+    iBarrel[barrel]._error_state &= ~mask;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save ErrorUnset"); // just warn for now..
+}
 
 // removes error state from barrel
 void BarrClass::Reset(byte barrel) 
 { 
     LOG.printf("Barrel %u error state reset, from:%u to:0\r\n", barrel, iBarrel[barrel]._error_state);
     iBarrel[barrel]._error_state = 0; 
+    if (!SaveSD())
+        LOG.println("[E] unable to Save Reset"); // just warn for now..
 }
 
 // dangerous - override barrel error
@@ -41,6 +50,8 @@ void BarrClass::ErrorOverride(byte barrel, byte error)
 { 
     LOG.printf("Barrel %u error state overridden, from:%u to:%u\r\n", barrel, iBarrel[barrel]._error_state, error);
     iBarrel[barrel]._error_state = error; 
+    if (!SaveSD())
+        LOG.println("[E] unable to Save ErrorOverride"); // just warn for now..
 }
 
 // freshwater counted by flow for (barrel)
@@ -239,12 +250,16 @@ void BarrClass::VolumeMaxSet(byte barrel, uint16_t volume)
 {
     LOG.printf("Barrel %u changing max volume, from:%u to:%u\r\n", barrel, iBarrel[barrel]._volume_max, volume);
     iBarrel[barrel]._volume_max = volume;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save VolumeMaxSet"); // just warn for now..
 }
 
 void BarrClass::VolumeMinSet(byte barrel, uint16_t volume)
 {
     LOG.printf("Barrel %u changing min volume, from:%u to:%u\r\n", barrel, iBarrel[barrel]._volume_max, volume);
     iBarrel[barrel]._volume_min = volume;
+    if (!SaveSD())
+        LOG.println("[E] unable to Save VolumeMinSet"); // just warn for now..
 }
 
 
@@ -411,12 +426,16 @@ void BarrClass::SonicOffsetSet(byte barrel, uint16_t offs)
 { 
     LOG.printf("Barrel %u changing barrel length, from:%u to:%u\r\n", barrel, iBarrel[barrel]._barrel_height, offs);
     iBarrel[barrel]._barrel_height = offs; 
+    if (!SaveSD())
+        LOG.println("[E] unable to Save SonicOffsetSet"); // just warn for now..
 }
 
 void BarrClass::SonicMLinMMSet(byte barrel, uint16_t coef) 
 { 
     LOG.printf("Barrel %u changing litrage to height coefficient, from:%u to:%u\r\n", barrel, iBarrel[barrel]._ml_in_mm, coef);
     iBarrel[barrel]._ml_in_mm = coef; 
+    if (!SaveSD())
+        LOG.println("[E] unable to Save SonicMLinMMSet"); // just warn for now..
 }
 
 // sonic calculate liters of last measurement
@@ -442,6 +461,8 @@ void BarrClass::Save100LitersMark(byte barrel)
         // mL in mm = mL / (mm whole length - mm now)
         b->_ml_in_mm = 100000 / (b->_barrel_height - b->_sonic_last_value);
         LOG.printf("100L calibration - Barrel:%u, %umL in one mm\r\n", barrel, b->_ml_in_mm);
+        if (!SaveSD())
+            LOG.println("[E] unable to Save Save100LitersMark"); // just warn for now..
     }
     else
     {

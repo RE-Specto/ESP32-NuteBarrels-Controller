@@ -96,8 +96,8 @@ public:
     void MixReset();
     byte StoreBarrel();
     void SetStoreBarrel(byte barrel);
-    void MoveStoreUp();
-    void MoveStoreDown();
+    // void MoveStoreUp();
+    // void MoveStoreDown();
     // void SetDrainReq(uint16_t req);
     void SetBypassReq(uint16_t req);
     // uint16_t DrainMore();

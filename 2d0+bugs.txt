@@ -1,5 +1,4 @@
 bugs:
-!! calibration page as well as pool selection from webUI should trigger save!
 need to prevent bypass to pool0! (or limit until sonic? or until barr size?)
 
 isChanged will retriger SaveStructs over and over at each start press when Expanders.Protect is set
@@ -19,6 +18,8 @@ to implement:
 NutrientsTransferCalc use for nutes from mixer to pools
 FreshwaterFillCalc use for freshwater to mixer and pools
 
+SaveSD should fail the parent Setxxx func on failure
+search: // just warn for now..
 
 edit fmsd for new simple 1barrel system:
     * reuse storing barrel for pool selection?
