@@ -1,5 +1,6 @@
 bugs:
 !! calibration page as well as pool selection from webUI should trigger save!
+need to prevent bypass to pool0! (or limit until sonic? or until barr size?)
 
 isChanged will retriger SaveStructs over and over at each start press when Expanders.Protect is set
 if (request->hasArg("FullBarrel"))
