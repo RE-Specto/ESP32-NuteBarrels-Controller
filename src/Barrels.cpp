@@ -4,6 +4,7 @@
 #include "Filesystem.h"
 #include "FlowSensor.h"
 #include "Expanders.h"
+#include "SystemState.h"
 #include "Modem.h"
 #include "globals.h"
 
@@ -56,12 +57,12 @@ uint16_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._volume_nutri
 // }
 
 // add fresh flow couter to barrel, then Subtract it from flowsensor
+// decrease ammo if manual
+// decrease bypass req if filling pools not mixer
 void BarrClass::FreshwaterFillCalc(byte barrel)
 {
     sBarrel *b = &iBarrel[barrel];
-    if (b->_volume_freshwater_last != b->_volume_freshwater) // safeguard
-        b->_volume_freshwater = b->_volume_freshwater_last;
-
+    b->_volume_freshwater = b->_volume_freshwater_last; // safeguard
     uint32_t tempflow = Flow.Counted(FRESHWATER); // may be increased during calculation because flowsensor works on interrupts
     #ifdef DEBUG_FLOW
     if (tempflow)
@@ -70,6 +71,9 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
         tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
         LOG.printf("tempflow in liters: %u\r\n", tempflow);
         b->_volume_freshwater += tempflow;
+        State.DecreaseManual(tempflow); // checks if needed
+        if (barrel > 0) // if not mixer
+            State.DecreaseBypass(tempflow);
         tempflow *= Flow.Divider(FRESHWATER); // getting pulse count back - only the integral part
         LOG.printf("tempflow integral part: %u\r\n", tempflow);
         Flow.CounterSubtract(FRESHWATER, tempflow);              // counter 1 is freshwater
@@ -83,6 +87,9 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
     {
         tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
         b->_volume_freshwater += tempflow;
+        State.DecreaseManual(tempflow); // checks if needed
+        if (barrel > 0) // if not mixer
+            State.DecreaseBypass(tempflow);
         tempflow *= Flow.Divider(FRESHWATER); // getting pulse count back - only the integral part
         Flow.CounterSubtract(FRESHWATER, tempflow);
     }
@@ -125,25 +132,26 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
 //     }
 // }
 
-// checks if current barrel freshwater/nutrients level is at/above target
-// uses barrel current level + flow counted level
-// does not apply or decrease flow count!
-bool BarrClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
-{
-    sBarrel *b = &iBarrel[barrel];
-    uint16_t tempLiters = 0;
-    //check target barrel current state
-    if (type == FRESHWATER)
-        tempLiters += b->_volume_freshwater;
-    else
-        tempLiters += b->_volume_nutrients;
-    //add data from flowsensor
-    tempLiters += Flow.Counted(type) / Flow.Divider(type);
-    //check if target reached
-    return tempLiters >= target;
-}
+// // checks if current barrel freshwater/nutrients level is at/above target
+// // uses barrel current level + flow counted level
+// // does not apply or decrease flow count!
+// bool BarrClass::isFillTargetReached(byte barrel, byte type, uint16_t target)
+// {
+//     sBarrel *b = &iBarrel[barrel];
+//     uint16_t tempLiters = 0;
+//     //check target barrel current state
+//     if (type == FRESHWATER)
+//         tempLiters += b->_volume_freshwater;
+//     else
+//         tempLiters += b->_volume_nutrients;
+//     //add data from flowsensor
+//     tempLiters += Flow.Counted(type) / Flow.Divider(type);
+//     //check if target reached
+//     return tempLiters >= target;
+// }
 
 // Subtracting flowcount from source, adding to destination
+// decrease ammo if manual
 void BarrClass::NutrientsTransferCalc(byte from, byte to)
 {
     sBarrel *a = &iBarrel[from];
@@ -179,8 +187,25 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
         // // is "_Concen /100 * tflow" same as "_Concen * tflow /100" considering uneven float point calculation?
         // // "Do not use float to represent whole numbers." http://www.cplusplus.com/forum/general/67783/
 
-        a->_volume_nutrients -= tempflow;
-        b->_volume_nutrients += tempflow;
+        if (a->_volume_nutrients < tempflow)
+        {
+            LOG.printf("[E] trying to decrease barrel %u nute level below zero", from);
+            a->_volume_nutrients == 0;
+        }
+        else
+        {
+            a->_volume_nutrients -= tempflow;
+        }
+        if ((b->_volume_nutrients + tempflow) > UINT32_MAX)
+        {
+            LOG.printf("[E] trying to decrease barrel %u nute level above UINT32_MAX", to);
+            b->_volume_nutrients == UINT32_MAX;
+        }
+        else
+        {
+            b->_volume_nutrients += tempflow;
+        }
+        State.DecreaseManual(tempflow); // checks if needed
         tempflow *= Flow.Divider(NUTRIENTS);     // getting pulse count back - only the integral part
         Flow.CounterSubtract(NUTRIENTS, tempflow); // counter 2 is nutrients
     }
@@ -251,14 +276,14 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
     {
         // send data so sonic will reply
         Serial2.write(0x55);
-        // wait untill some data is received
+        // wait until some data is received
         while (!Serial2.available() && timeLeft)
         {
             vTaskDelay(1);
             if (timeLeft) // prevent integer overflow
                 timeLeft--;
         };
-        // discard data untill begin of packet (0xFF)
+        // discard data until begin of packet (0xFF)
         while (Serial2.read() != 0xFF && timeLeft)
         {
             vTaskDelay(1);

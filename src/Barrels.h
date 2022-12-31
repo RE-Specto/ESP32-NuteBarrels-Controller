@@ -5,7 +5,7 @@
 
 // load Object from Storage to Struct
 #define NUM_OF_BARRELS 6
-#define POOLS 6 // barrels from 0 to 5, pools out at number 6
+// #define POOLS 6 // barrels from 0 to 5, pools out at number 6
 
 #define BARREL_FLUSH_ERR 0X01
 #define BARREL_STORE_ERR 0X02
@@ -32,7 +32,7 @@ struct sBarrel
     uint16_t _sonic_last_value = 0;       // updated on every sonic measurement
     float _sonic_deviation = 0;          // +- percent error in measurement
     uint16_t _volume_min = 0; // for flow and sonic sensors - calibrate by filling and draining
-    uint16_t _volume_max = 500; // for flow and sonic sensors - calibrate by filling untill miscalculation
+    uint16_t _volume_max = 500; // for flow and sonic sensors - calibrate by filling until miscalculation
     uint16_t _ml_in_mm = 1130; // mililiters in 1 milimeter - calibrate by filling 100L, also can calculate by barrel diameter
     uint16_t _barrel_height = 1000; // mm to barrel's dry empty point - calibrate by dry barrel height
 };
@@ -56,7 +56,7 @@ public:
     void FreshwaterFillCalc(byte barrel);
     //float ConcentrationTotal(byte barrel);
     //void ConcentrationRecalc(byte barrel);
-    bool isFillTargetReached(byte barrel, byte type, uint16_t target);
+    // bool isFillTargetReached(byte barrel, byte type, uint16_t target);
     void NutrientsTransferCalc(byte from, byte to);
     uint16_t VolumeMax(byte barrel);
     uint16_t VolumeMin(byte barrel);
