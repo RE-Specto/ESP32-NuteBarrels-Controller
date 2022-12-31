@@ -154,13 +154,13 @@ void StatClass::SetFillReq(uint16_t req)
     iState._fill_req = req;
 }
 
-byte StatClass::FillBarrel() {return iState._filling_barrel;}
+// byte StatClass::FillBarrel() {return iState._filling_barrel;}
 
-void StatClass::SetFillBarrel(byte barrel) 
-{
-    LOG.printf("Changing fill barrel from:%u to:%u\r\n", iState._filling_barrel, barrel);
-    iState._filling_barrel = barrel;
-}
+// void StatClass::SetFillBarrel(byte barrel) 
+// {
+//     LOG.printf("Changing fill barrel from:%u to:%u\r\n", iState._filling_barrel, barrel);
+//     iState._filling_barrel = barrel;
+// }
 
 uint16_t StatClass::MixRequirement() {return iState._mix_req;}
 
@@ -226,11 +226,11 @@ void StatClass::MoveStoreDown()
     }
 }
 
-void StatClass::SetDrainReq(uint16_t req) 
-{
-    LOG.printf("Changing drain requirement from:%u to:%u\r\n", iState._drain_req, req);
-    iState._drain_req = req;
-}
+// void StatClass::SetDrainReq(uint16_t req) 
+// {
+//     LOG.printf("Changing drain requirement from:%u to:%u\r\n", iState._drain_req, req);
+//     iState._drain_req = req;
+// }
 
 void StatClass::SetBypassReq(uint16_t req) 
 {
@@ -238,14 +238,14 @@ void StatClass::SetBypassReq(uint16_t req)
     iState._bypass_req = req;
 }
 
-// returns how much to drain
-uint16_t StatClass::DrainMore()
-{
-    if (iState._manual_task)
-        return iState._manual_ammo;
-    else
-        return iState._drain_req;
-}
+// // returns how much to drain
+// uint16_t StatClass::DrainMore()
+// {
+//     if (iState._manual_task)
+//         return iState._manual_ammo;
+//     else
+//         return iState._drain_req;
+// }
 
 // returns how much to bypass
 uint16_t StatClass::BypassMore()
@@ -256,76 +256,23 @@ uint16_t StatClass::BypassMore()
         return iState._bypass_req;
 }
 
-// substract flow sensor counted liters from drain requirement
-// increase total counted drain
-// substract counted ammount from flow counter
-void StatClass::DrainRecalc(byte barrel)
+void StatClass::DecreaseManual(uint32_t  liters)
 {
-    #ifdef DEBUG_MORE
-    LOG.println(__FUNCTION__);
-    #endif
-    // flow counter may be increased during calculation 
-    // because flowsensor works on interrupts
-    // so capturing only the current state for count
-    uint32_t liters = Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS);
-    if (liters) // quotient only, remainder stays on sensor for next recalc
+    if (iState._manual_task)
     {
-        if (iState._manual_task)
-        {
-            if (iState._manual_ammo > liters) // prevent integer overflow
-                iState._manual_ammo -= liters;
-            else
-                iState._manual_ammo = 0;
-        }
+        if (iState._manual_ammo > liters) // prevent integer overflow
+            iState._manual_ammo -= liters;
         else
-        {
-            if (iState._drain_req > liters) // prevent integer overflow
-                iState._drain_req -= liters;
-            else
-                iState._drain_req = 0;
-        }
-        if ((iState._drain_total+liters)<UINT32_MAX) // prevent integer overflow
-            iState._drain_total += liters;
-        else
-            iState._drain_total = UINT32_MAX;
-        // Barrels.NutriLess(barrel, liters);
-        // decrement flow counter by "counted so far" pulses (liters times divider)
-        Flow.CounterSubtract(NUTRIENTS, liters * Flow.Divider(NUTRIENTS)); 
+            iState._manual_ammo = 0;
     }
 }
 
-// substract flow sensor counted liters from bypass requirement
-// increase total counted bypass
-// substract counted ammount from flow counter
-void StatClass::BypassRecalc()
+void StatClass::DecreaseBypass(uint32_t  liters)
 {
-    #ifdef DEBUG_MORE
-    LOG.println(__FUNCTION__);
-    #endif
-    uint32_t liters = Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER);
-    if (liters) // quotient only, remainder stays on sensor for next recalc
-    {
-        if (iState._manual_task)
-        {
-            if (iState._manual_ammo > liters) // prevent integer overflow
-                iState._manual_ammo -= liters;
-            else
-                iState._manual_ammo = 0;
-        }
-        else
-        {
-            if (iState._bypass_req > liters) // prevent integer overflow
-                iState._bypass_req -= liters;
-            else
-                iState._bypass_req = 0;
-        }
-        if ((iState._bypass_total+liters)<UINT32_MAX) // prevent integer overflow
-            iState._bypass_total += liters;
-        else
-            iState._bypass_total = UINT32_MAX;
-        // decrement flow counter by "counted so far" pulses (liters times divider)
-        Flow.CounterSubtract(FRESHWATER, liters * Flow.Divider(FRESHWATER));
-    }
+    if (iState._bypass_req > liters) // prevent integer overflow
+        iState._bypass_req -= liters;
+    else
+        iState._bypass_req = 0;
 }
 
 uint32_t StatClass::DrainTotal()

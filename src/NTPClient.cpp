@@ -39,7 +39,7 @@ void NTPClass::sendNTPpacket(IPAddress &address, byte (&packetBuffer)[NTP_PACKET
 
 time_t NTPClass::getNtpTime()
 {
-    isTimeSync = true;                  // prevent retrigger untill done
+    isTimeSync = true;                  // prevent retrigger until done
     byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
     IPAddress ntpServerIP;              // NTP server's ip address
     while (WebServer.UDP.parsePacket() > 0)

@@ -33,7 +33,7 @@ void ServerClass::begin()
     // Route for root / web page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
-        request->redirect("/manual"); //untill implemented
+        request->redirect("/manual"); //until implemented
         /*
         if(!SD.exists("/index.html")){
             SD.end();
@@ -347,11 +347,11 @@ void ServerClass::begin()
             State.OverrideError(OverrideError);
         }
 
-        if (request->hasArg("SetFillBarrel"))
-        {
-            int  SetFillBarrel = request->arg("SetFillBarrel").toInt();
-            State.SetFillBarrel(SetFillBarrel);
-        }
+        // if (request->hasArg("SetFillBarrel"))
+        // {
+        //     int  SetFillBarrel = request->arg("SetFillBarrel").toInt();
+        //     State.SetFillBarrel(SetFillBarrel);
+        // }
 
         if (request->hasArg("SetFillReq"))
         {
@@ -376,11 +376,11 @@ void ServerClass::begin()
             State.SetStoreBarrel(SetStoreBarrel);
         }
 
-        if (request->hasArg("SetDrainReq"))
-        {
-            int SetDrainReq = request->arg("SetDrainReq").toInt();
-            State.SetDrainReq(SetDrainReq);
-        }
+        // if (request->hasArg("SetDrainReq"))
+        // {
+        //     int SetDrainReq = request->arg("SetDrainReq").toInt();
+        //     State.SetDrainReq(SetDrainReq);
+        // }
 
         if (request->hasArg("SetBypassReq"))
         {
@@ -580,10 +580,10 @@ void ServerClass::begin()
         response->printf("<input id=\"OverrideError\" name=\"OverrideError\" value=\"%u\"><span> </span>", State.Errors());
         response->print("<input type=\"submit\" value=\"Go\"></form>");
 
-        response->print("<li>barrel to fill and mix</li>");
-        response->print("<form action=\"/settings\">");
-        response->printf("<input id=\"SetFillBarrel\" name=\"SetFillBarrel\" value=\"%u\"><span> </span>", State.FillBarrel());
-        response->print("<input type=\"submit\" value=\"Go\"></form>");
+        // response->print("<li>barrel to fill and mix</li>");
+        // response->print("<form action=\"/settings\">");
+        // response->printf("<input id=\"SetFillBarrel\" name=\"SetFillBarrel\" value=\"%u\"><span> </span>", State.FillBarrel());
+        // response->print("<input type=\"submit\" value=\"Go\"></form>");
 
         response->print("<li>next barrel to store to</li>");
         response->print("<form action=\"/settings\">");
@@ -604,10 +604,10 @@ void ServerClass::begin()
         response->print("<input type=\"hidden\" id=\"MixReset\" name=\"MixReset\" value=\"1\">");
         response->printf("<input type=\"submit\" value=\"Time left:%u, Reset\"></form>", State.MixTimer());        
 
-        response->print("<li>drain requirement</li>");
-        response->print("<form action=\"/settings\">");
-        response->printf("<input id=\"SetDrainReq\" name=\"SetDrainReq\" value=\"%u\"><span> </span>", State.DrainMore());
-        response->print("<input type=\"submit\" value=\"Go\"></form>");
+        // response->print("<li>drain requirement</li>");
+        // response->print("<form action=\"/settings\">");
+        // response->printf("<input id=\"SetDrainReq\" name=\"SetDrainReq\" value=\"%u\"><span> </span>", State.DrainMore());
+        // response->print("<input type=\"submit\" value=\"Go\"></form>");
 
         response->print("<li>Bypass requirement</li>");
         response->print("<form action=\"/settings\">");
@@ -765,12 +765,12 @@ void ServerClass::begin()
             response->printf("\"OverrideError\": %u,", State.Errors());
         }
 
-        if (request->hasArg("SetFillBarrel"))
-        {
-            int  SetFillBarrel = request->arg("SetFillBarrel").toInt();
-            State.SetFillBarrel(SetFillBarrel);
-            response->printf("\"SetFillBarrel\": %u,", State.FillBarrel());
-        }
+        // if (request->hasArg("SetFillBarrel"))
+        // {
+        //     int  SetFillBarrel = request->arg("SetFillBarrel").toInt();
+        //     State.SetFillBarrel(SetFillBarrel);
+        //     response->printf("\"SetFillBarrel\": %u,", State.FillBarrel());
+        // }
 
         if (request->hasArg("SetFillReq"))
         {
@@ -799,12 +799,12 @@ void ServerClass::begin()
             response->printf("\"SetStoreBarrel\": %u,", State.StoreBarrel());
         }
 
-        if (request->hasArg("SetDrainReq"))
-        {
-            int SetDrainReq = request->arg("SetDrainReq").toInt();
-            State.SetDrainReq(SetDrainReq);
-            response->printf("\"SetDrainReq\": %u,", State.DrainMore());
-        }
+        // if (request->hasArg("SetDrainReq"))
+        // {
+        //     int SetDrainReq = request->arg("SetDrainReq").toInt();
+        //     State.SetDrainReq(SetDrainReq);
+        //     response->printf("\"SetDrainReq\": %u,", State.DrainMore());
+        // }
 
         if (request->hasArg("SetBypassReq"))
         {
