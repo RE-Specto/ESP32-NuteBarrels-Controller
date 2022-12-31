@@ -114,7 +114,8 @@ bool StorageClass::Save(const char *fname, byte *stru_p, uint16_t len)
     count = file.write(stru_p, len); // save Logic
     LOG.printf("Saving %s\t%s\r\n", fname, count == len ? "successfully" : "failed");
     #ifdef DEBUG_SD
-    LOG.printf("%u out of %u Bytes writen. filesize %satch.\r\n", count, len, len == file.size() ? "M" : "Mism");
+    file.seek(0);
+    LOG.printf("%u out of %u Bytes writen. filesize %satch.\r\n", file.size(), len, len == file.size() ? "M" : "Mism");
     #endif
     file.close();
     return count == len;

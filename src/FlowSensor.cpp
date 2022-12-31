@@ -114,8 +114,7 @@ void FSClass::Reset(uint_fast8_t sens)
     {
         LOG.printf("Reseting flowsensor %u counter, from:%u to:0\r\n", sens+1, iFsens[sens]._counter);
         iFsens[sens]._counter = 0; 
-        if (!SaveSD())
-            LOG.println("[E] unable to Save Reset"); // just warn for now..
+        if (!SaveSD()) { LOG.println("[E] unable to Save Reset"); } // just warn for now..
     }
 }
 
@@ -136,8 +135,7 @@ void FSClass::DividerSet(byte sens, uint16_t div)
     {
         LOG.printf("Changing flowsensor %u divider, from:%u to:%u\r\n", sens+1, iFsens[sens]._conversion_divider, div);
         iFsens[sens]._conversion_divider = div; 
-        if (!SaveSD())
-            LOG.println("[E] unable to Save DividerSet"); // just warn for now..
+        if (!SaveSD()) { LOG.println("[E] unable to Save DividerSet"); } // just warn for now..
     }
     else
     {
@@ -160,9 +158,8 @@ void FSClass::Enable(byte sens)
     sens--;
     iFsens[sens]._enabled = true; 
     LOG.printf("flowsensor %u Enabled\r\n", sens+1);
-    if (!SaveSD())
-        LOG.println("[E] unable to Save Enable"); // just warn for now..
-}
+    if (!SaveSD()) { LOG.println("[E] unable to Save Enable"); } // just warn for now..
+    }
 
 // sets sensor checks off
 void FSClass::Disable(byte sens)
@@ -171,8 +168,7 @@ void FSClass::Disable(byte sens)
     sens--;
     iFsens[sens]._enabled = false; 
     LOG.printf("flowsensor %u Disabled\r\n", sens+1);
-    if (!SaveSD())
-        LOG.println("[E] unable to Save Disable"); // just warn for now..
+    if (!SaveSD()) { LOG.println("[E] unable to Save Disable"); } // just warn for now..
 }
 
 // request Calib() run for sensor

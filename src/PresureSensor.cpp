@@ -51,8 +51,7 @@ void PSClass::DividerSet(byte sens, byte div)
     {
         LOG.printf("Changing pressensor %u divider, from:%u to:%u\r\n", sens+1, iPsens[sens]._divider, div);
         iPsens[sens]._divider = div; 
-        if (!SaveSD())
-            LOG.println("[E] unable to Save DividerSet"); // just warn for now..
+        if (!SaveSD()) { LOG.println("[E] unable to Save DividerSet"); } // just warn for now..
     }
     else
     {
@@ -72,8 +71,7 @@ void PSClass::OffsetSet(byte sens, int16_t offs)
     // sensors now start from 1 (but arrays from 0)
     sens--;
     iPsens[sens]._offset = offs; 
-    if (!SaveSD())
-        LOG.println("[E] unable to Save OffsetSet"); // just warn for now..
+    if (!SaveSD()) { LOG.println("[E] unable to Save OffsetSet"); } // just warn for now..
 }
 
 // gets maximal normal pressure point
@@ -91,8 +89,7 @@ void PSClass::MaxSet(byte sens, byte max)
     sens--;
     LOG.printf("Changing pressensor %u max pressure point, from:%u to:%u\r\n", sens+1, iPsens[sens]._max_pressure, max);
     iPsens[sens]._max_pressure = max; 
-    if (!SaveSD())
-        LOG.println("[E] unable to Save MaxSet"); // just warn for now..
+    if (!SaveSD()) { LOG.println("[E] unable to Save MaxSet"); } // just warn for now..
 }
 
 // gets minimal normal pressure point
@@ -110,8 +107,7 @@ void PSClass::MinSet(byte sens, byte min)
     sens--;
     LOG.printf("Changing pressensor %u min pressure point, from:%u to:%u\r\n", sens+1, iPsens[sens]._min_pressure, min);
     iPsens[sens]._min_pressure = min;
-    if (!SaveSD())
-        LOG.println("[E] unable to Save MinSet"); // just warn for now.. 
+    if (!SaveSD()) { LOG.println("[E] unable to Save MinSet"); } // just warn for now.. 
 }
 
 // returns last value measured by pressure sensor (sens)
@@ -266,8 +262,7 @@ void PSClass::Enable(byte sens)
     sens--;
     iPsens[sens]._enabled = true; 
     LOG.printf("pressensor %u Enabled\r\n", sens+1);
-    if (!SaveSD())
-        LOG.println("[E] unable to Save Enable"); // just warn for now..
+    if (!SaveSD()) { LOG.println("[E] unable to Save Enable"); } // just warn for now..
 }
 
 // sets sensor checks off
@@ -277,8 +272,7 @@ void PSClass::Disable(byte sens)
     sens--;
     iPsens[sens]._enabled = false; 
     LOG.printf("pressensor %u Disabled\r\n", sens+1);
-    if (!SaveSD())
-        LOG.println("[E] unable to Save Disable"); // just warn for now..
+    if (!SaveSD()) { LOG.println("[E] unable to Save Disable"); } // just warn for now..
 }
 /*-------- PressureSensor END ----------*/
 PSClass Pressure;
