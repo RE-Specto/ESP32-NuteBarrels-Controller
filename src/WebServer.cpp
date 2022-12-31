@@ -166,7 +166,7 @@ void ServerClass::begin()
     });
 
     server.on("/json", HTTP_GET, [](AsyncWebServerRequest *request) {
-        LOG.printf("Requested: %s\r\n", request->url().c_str());
+        // LOG.printf("Requested: %s\r\n", request->url().c_str());
         AsyncResponseStream *response = request->beginResponseStream("application/json");
         response->print("{");
         response->printf("\"%s\":%u,", "MixTimer", State.MixTimer());
