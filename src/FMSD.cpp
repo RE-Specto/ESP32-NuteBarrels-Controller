@@ -319,7 +319,7 @@ void Drain()
     byte target = State.StoreBarrel();
     // Serial.println();
     uint16_t barrel_before = Barrels.NutriGet(0);
-    LOG.printf("Draining from barrel:%u (%uL)\r\n", 0, barrel_before);
+    LOG.printf("Draining to pool:%u (%uL)\r\n", target, barrel_before);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     // open pool x fill tap
     Expanders.FillingRelay(target, true);
@@ -395,6 +395,11 @@ void fmsTask(void * pvParameters)
     //LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
     while (true)
     {
+        // !! new fmdb here !!
+
+
+        
+        // !! old fmsd here !!
         // if (State.Check(FILLING_STATE)) // Filling
         // {
         //     LOG.print(F("system running auto - waiting for nutes\r\n"));
@@ -510,59 +515,63 @@ void fmsTask(void * pvParameters)
 
 void FillManual()
 {
-    // LOG.println("Manual Filling");
-    // byte barrel = State.ManualSource();
-    // Flow.Reset(FRESHWATER); 
-    // Expanders.FillingRelay(barrel, true);
-    // while (!Barrels.isFillTargetReached(barrel, FRESHWATER, State.ManualAmmount()))
-    // {
-    //     // LOGIC
-    //     Barrels.FreshwaterFillCalc(barrel); // apply flowcount to barrel         
-    //     if (Barrels.isFull(barrel))
-    //     {
-    //         LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
-    //         break;
-    //     }
-    //     // MAN Break
-    //     if (!State.ManualTask())
-    //         break;
-    //     blinkDelay(1000, LED_YELLOW);
-    // }
-    // Expanders.FillingRelay(barrel, false);
-    // Barrels.FreshwaterFillCalc(barrel);
-    // Flow.Reset(FRESHWATER);
-    // State.ResetManual(); // important - no double-run
-    // Expanders.setRGBLED(LED_WHITE);
+    LOG.println("Manual Filling");
+    byte barrel = State.ManualDestination();
+    Flow.Reset(FRESHWATER); 
+    Expanders.FillingRelay(barrel, true);
+    Expanders.FillingRelay(FRESHWATER_RELAY, true);
+    while (State.ManualAmmount())
+    {
+        // LOGIC
+        Barrels.FreshwaterFillCalc(barrel); // apply flowcount to barrel         
+        if (Barrels.isFull(barrel))
+        {
+            LOG.printf("[E] barrel:%u full. breaking..\r\n", barrel);
+            break;
+        }
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_YELLOW);
+    }
+    Expanders.FillingRelay(FRESHWATER_RELAY, true);
+    vTaskDelay(1000); // wait for pressure releif
+    Expanders.FillingRelay(barrel, false);
+    vTaskDelay(1000); // wait for pressure releif
+    Barrels.FreshwaterFillCalc(barrel);
+    Flow.Reset(FRESHWATER);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
 }
 
 void MixManual()
 {
-    // LOG.println("Manual Mixing");
-    // byte barrel = State.ManualSource();
-    // Flow.Reset(NUTRIENTS);
-    // Expanders.FillingRelay(0, true);
-    // Expanders.Pump(true);
-    // while (State.MixTimer())
-    // {
-    //     LOG.printf("barrel:%u manual %uMin remaining\r\n", barrel, State.MixTimer());
-    //     // LOGIC
-    //     for (byte s=0;s<60;s++)
-    //     {
-    //         // MAN Break
-    //         if (!State.ManualTask())
-    //             break;
-    //         blinkDelay(1000, LED_GREEN);
-    //     }
-    //     State.MixLess();// decrement counter every minute
-    // }
-    // // stop pump
-    // Expanders.Pump(false);
-    // // wait until pressure released
-    // vTaskDelay(100);
-    // Expanders.FillingRelay(0, false);
-    // Flow.Reset(NUTRIENTS);
-    // State.ResetManual(); // important - no double-run
-    // Expanders.setRGBLED(LED_WHITE);
+    LOG.println("Manual Mixing");
+    byte barrel = State.ManualDestination();
+    Flow.Reset(NUTRIENTS);
+    Expanders.FillingRelay(0, true);
+    Expanders.Pump(true);
+    while (State.MixTimer())
+    {
+        LOG.printf("barrel:%u manual %uMin remaining\r\n", barrel, State.MixTimer());
+        // LOGIC
+        for (byte s=0;s<60;s++)
+        {
+            // MAN Break
+            if (!State.ManualTask())
+                break;
+            blinkDelay(1000, LED_GREEN);
+        }
+        State.MixLess();// decrement counter every minute
+    }
+    // stop pump
+    Expanders.Pump(false);
+    // wait until pressure released
+    vTaskDelay(1000);
+    Expanders.FillingRelay(0, false);
+    Flow.Reset(NUTRIENTS);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
 }
 
 void StoreManual()
@@ -619,31 +628,56 @@ void DrainManual()
     // Flow.Reset(NUTRIENTS);
     // State.ResetManual(); // important - no double-run
     // Expanders.setRGBLED(LED_WHITE);
+    byte target = State.ManualDestination();
+    uint16_t barrel_before = Barrels.NutriGet(0);
+    LOG.printf("Manual Draining to pool:%u (%uL)\r\n", target, barrel_before);
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
+    Expanders.FillingRelay(target, true);
+    Expanders.Pump(true);
+    // loop while manual ammount > 0 and barrel 0 not empty
+    while (State.ManualAmmount() && !Barrels.isEmpty(0))
+    {
+        // LOGIC
+        Barrels.NutrientsTransferCalc(0, target);
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_BLUE);
+    }
+    Expanders.Pump(false);
+    vTaskDelay(1000);
+    Expanders.FillingRelay(target, false);
+    vTaskDelay(1000);
+    Barrels.NutrientsTransferCalc(0, target);
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
+    LOG.printf("END Manual Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
 }
 
 // bypass freshwater to pools
 void BypassManual()
 {
-    // LOG.println("Manual Water to pools");
-    // Flow.Reset(FRESHWATER); // reset flow counter 1
-    // Expanders.FillingRelay(1, true); // open barrel filling tap //!!! for now - bypass at barrel1 - reimplement later
-    // Expanders.StoringRelay(1, true);
-    // Expanders.StoringRelay(POOLS, true);
-    // while (State.BypassMore())
-    // {
-    //     // LOGIC
-    //     State.BypassRecalc();      
-    //     // MAN Break
-    //     if (!State.ManualTask())
-    //         break;
-    //     blinkDelay(1000, LED_MAGENTA);
-    // }
-    // Expanders.FillingRelay(1, false); // open barrel filling tap //!!! for now - bypass at barrel1 - reimplement later
-    // Expanders.StoringRelay(1, false);
-    // Expanders.StoringRelay(POOLS, false);
-    // State.BypassRecalc();      
-    // Flow.Reset(FRESHWATER);
-    // State.ResetManual(); // important - no double-run
-    // Expanders.setRGBLED(LED_WHITE);
+    LOG.println("Manual Water to pools");
+    byte target = State.ManualDestination();
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(target, true);
+    Expanders.FillingRelay(FRESHWATER_RELAY, true);
+    while (State.ManualAmmount()) // maybe need to stop at +1 if enertia?
+    {
+        // LOGIC
+        Barrels.FreshwaterFillCalc(target); // apply flowcount to barrel         
+        // MAN Break
+        if (!State.ManualTask())
+            break;
+        blinkDelay(1000, LED_MAGENTA);
+    }
+
+    Expanders.FillingRelay(FRESHWATER_RELAY, false);
+    vTaskDelay(1000);
+    Expanders.FillingRelay(target, false);
+    vTaskDelay(1000);
+    Barrels.FreshwaterFillCalc(target); // apply flowcount to barrel         
+    Flow.Reset(FRESHWATER);
+    State.ResetManual(); // important - no double-run
+    Expanders.setRGBLED(LED_WHITE);
 }
 

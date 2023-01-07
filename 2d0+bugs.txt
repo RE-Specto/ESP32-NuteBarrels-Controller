@@ -15,6 +15,7 @@ deviation always to high for sonic
 check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
+deprecate manual source?
 
 errorcheck:
     filling, no flow, pressure, try other (+1 or 0 ) solenoid
@@ -27,7 +28,7 @@ errorcheck:
         noflow, pressure - solenoid x error
         flow, nopressure - system leak
         noflow, nopressure - pump, power
-        
+
 NutrientsTransferCalc use for nutes from mixer to pools
 FreshwaterFillCalc use for freshwater to mixer and pools
 
