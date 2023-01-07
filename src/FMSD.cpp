@@ -354,34 +354,39 @@ void Drain()
     // Serial.println();
 }
 
+// bypass freshwater into selected pool (_storing_barrel)
+// until _bypass_req is 0
+// decrease _bypass_req using FreshwaterFillCalc
 void Bypass()
 {
-    // byte target = State.StoreBarrel();
-    // Serial.println();
-    // LOG.printf("filling pools with %uL\r\n", State.BypassMore());
-    // Flow.Reset(FRESHWATER); // reset flow counter 1
-    // Expanders.FillingRelay(target, true); // open pool filling tap
-    // Expanders.FillingRelay(FRESHWATER_RELAY, true); // open pool filling tap
-    // // fill, decrement requirement
-    // while (State.BypassMore()) // implement !Barrels.isFillTargetReached(POOLS, FRESHWATER, requirement) instead? + FreshwaterFillCalc...
-    // {
-    //     // LOGIC
-    //     State.BypassRecalc();      
-    //     // STOP-CHECK
-    //     if (State.Check(STOPPED_STATE))
-    //         fmsPause(0xff, 0xbb); //!!! for now - bypass at barrel1 - reimplement later
-    //     // SENSOR CHECK
-    //     if (Pressure.Enabled(FRESHWATER))
-    //         PressureCheck(FRESHWATER);
-    //     if (Flow.Enabled(FRESHWATER))
-    //         FlowCheck(FRESHWATER);
-    //     blinkDelay(1000, LED_MAGENTA);
-    // }
-    // Expanders.FillingRelay(FRESHWATER_RELAY, false); // close tap
-    // vTaskDelay(1000); // wait for pressure releif
+    byte target = State.StoreBarrel();
+    Serial.println();
+    LOG.printf("filling pools with %uL\r\n", State.BypassMore());
+    Flow.Reset(FRESHWATER); // reset flow counter 1
+    Expanders.FillingRelay(target, true); // open pool tap
+    Expanders.FillingRelay(FRESHWATER_RELAY, true); // open filling tap
+    // fill, decrement requirement
+    while (State.BypassMore()) // implement !Barrels.isFillTargetReached(POOLS, FRESHWATER, requirement) instead? + FreshwaterFillCalc...
+    {
+        // LOGIC
+        Barrels.FreshwaterFillCalc(target); // apply flowcount to pool freshwater count         
+        // State.BypassRecalc();      
+        // STOP-CHECK
+        if (State.Check(STOPPED_STATE))
+            fmsPause(0xff, target); // from filling to pool x
+        // SENSOR CHECK
+        if (Pressure.Enabled(FRESHWATER))
+            PressureCheck(FRESHWATER);
+        if (Flow.Enabled(FRESHWATER))
+            FlowCheck(FRESHWATER);
+        blinkDelay(1000, LED_MAGENTA);
+    }
+    Expanders.FillingRelay(FRESHWATER_RELAY, false); // close filling tap
+    vTaskDelay(1000); // wait for pressure releif
+    Expanders.FillingRelay(target, false); // close pool tap
     // Expanders.StoringRelay(target, false);
-    // LOG.printf("END filling pools with %uL\r\n", Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER)); // requirement
-    // Flow.Reset(FRESHWATER); // reset flow counter 1
+    LOG.printf("END filling pools with %uL\r\n", Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER)); // requirement
+    Flow.Reset(FRESHWATER); // reset flow counter 1
     // Serial.println();
 }
 
