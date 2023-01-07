@@ -157,6 +157,18 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
 //     return tempLiters >= target;
 // }
 
+
+// count mixed water as nutrients
+void BarrClass::WaterToNutrients(byte barrel)
+{
+    sBarrel *b = &iBarrel[barrel];
+    uint32_t tempflow = b->_volume_freshwater; // preserve so not changed by interrupts
+    b->_volume_nutrients += tempflow;
+    b->_volume_freshwater -= tempflow;
+    b->_volume_nutrients_last = b->_volume_nutrients;
+    b->_volume_freshwater_last = b->_volume_freshwater;
+}
+
 // Subtracting flowcount from source, adding to destination
 // decrease ammo if manual
 void BarrClass::NutrientsTransferCalc(byte from, byte to)

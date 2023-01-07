@@ -57,6 +57,7 @@ public:
     //float ConcentrationTotal(byte barrel);
     //void ConcentrationRecalc(byte barrel);
     // bool isFillTargetReached(byte barrel, byte type, uint16_t target);
+    void WaterToNutrients(byte barrel);
     void NutrientsTransferCalc(byte from, byte to);
     uint16_t VolumeMax(byte barrel);
     uint16_t VolumeMin(byte barrel);

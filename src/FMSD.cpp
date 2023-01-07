@@ -248,7 +248,8 @@ void Mix()
     }
     // counter reached zero
 
-    //!!!!!!!!! make freshwater into nutrients!!...
+    // make freshwater into nutrients
+    Barrels.WaterToNutrients(0);
 
     // MixerExternal(false); // turn off optional mixer motor at drain6
     // #ifdef MIX_INTERNAL
