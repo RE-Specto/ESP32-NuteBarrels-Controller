@@ -205,58 +205,61 @@ void Fill()
 // or before if state changed to stopped while we're not operating manual
 void Mix()
 {
-    // Serial.println();
-    // LOG.printf("mixing for %uMin.\r\n", State.MixTimer());
+    Serial.println();
+    LOG.printf("mixing for %uMin.\r\n", State.MixTimer());
     // #ifdef MIX_INTERNAL
-    // Flow.Reset(NUTRIENTS); // reset flow counter 2
-    // // open mixer fill tap
-    // Expanders.FillingRelay(0, true);
-    // Expanders.Pump(true);
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
+    // open mixer fill tap
+    Expanders.FillingRelay(0, true);
+    Expanders.Pump(true);
     // #endif
     // #ifdef MIX_EXTERNAL
     // MixerExternal(true); // turn on optional mixer motor at drain6
     // #endif
-    // // loop - while mix timer > 0
-    // while (State.MixTimer())
-    // {
-    //     // LOGIC
-    //     LOG.printf("mixing: %uMin remaining\r\n", State.MixTimer());
-    //     for (byte s=0;s<60;s++)
-    //     {
-    //         // STOP-CHECK
-    //         if (State.Check(STOPPED_STATE))
-    //             MixerExternal(false); // turn off optional mixer motor at drain6
-    //             #ifdef MIX_INTERNAL
-    //             fmsPause(0, 0);
-    //             #else
-    //             LOG.println(F("Status Stopped! auto paused\r\n"));
-    //             StoppedWait();
-    //             #endif
-    //             #ifdef MIX_EXTERNAL
-    //             MixerExternal(true); // turn on optional mixer motor at drain6
-    //             #endif
-    //         // SENSOR CHECK
-    //         if (Pressure.Enabled(NUTRIENTS))
-    //             PressureCheck(NUTRIENTS);
-    //         #ifdef MIX_INTERNAL
-    //         if (Flow.Enabled(NUTRIENTS))
-    //             FlowCheck(NUTRIENTS);
-    //         #endif
-    //         blinkDelay(1000, LED_GREEN);
-    //     }
-    //     State.MixLess();// decrement counter every minute
-    // }
-    // // counter reached zero
+    // loop - while mix timer > 0
+    while (State.MixTimer())
+    {
+        // LOGIC
+        LOG.printf("mixing: %uMin remaining\r\n", State.MixTimer());
+        for (byte s=0;s<60;s++)
+        {
+            // STOP-CHECK
+            if (State.Check(STOPPED_STATE))
+                // MixerExternal(false); // turn off optional mixer motor at drain6
+                // #ifdef MIX_INTERNAL
+                fmsPause(0, 0);
+                // #else
+                // LOG.println(F("Status Stopped! auto paused\r\n"));
+                // StoppedWait();
+                // #endif
+                // #ifdef MIX_EXTERNAL
+                // MixerExternal(true); // turn on optional mixer motor at drain6
+                // #endif
+            // SENSOR CHECK
+            if (Pressure.Enabled(NUTRIENTS))
+                PressureCheck(NUTRIENTS);
+            #ifdef MIX_INTERNAL
+            if (Flow.Enabled(NUTRIENTS))
+                FlowCheck(NUTRIENTS);
+            #endif
+            blinkDelay(1000, LED_GREEN);
+        }
+        State.MixLess();// decrement counter every minute
+    }
+    // counter reached zero
+
+    //!!!!!!!!! make freshwater into nutrients!!...
+
     // MixerExternal(false); // turn off optional mixer motor at drain6
     // #ifdef MIX_INTERNAL
-    // Expanders.Pump(false);
-    // Expanders.FillingRelay(0, false);
-    // // report mixed ammount
-    // LOG.printf("mixed %u liters\r\n", Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS));
-    // Flow.Reset(NUTRIENTS); // reset flow counter 2
+    Expanders.Pump(false);
+    Expanders.FillingRelay(0, false);
+    // report mixed ammount
+    LOG.printf("mixed %u liters\r\n", Flow.Counted(NUTRIENTS) / Flow.Divider(NUTRIENTS));
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
     // #endif
-    // State.MixReset(); // reset mix timer for next run
-    // LOG.println("END mixing.");
+    State.MixReset(); // reset mix timer for next run
+    LOG.println("END mixing.");
     // Serial.println();
 }
 
@@ -312,41 +315,41 @@ void Store(byte barrel, byte target)
 // or until state set to stopped except if state is also manual
 void Drain()
 {
-    // byte target = State.StoreBarrel();
+    byte target = State.StoreBarrel();
     // Serial.println();
-    // uint16_t barrel_before = Barrels.NutriGet(0);
-    // LOG.printf("Draining %uL from barrel:%u (%uL)\r\n", State.DrainMore(), 0, barrel_before);
-    // Flow.Reset(NUTRIENTS); // reset flow counter 2
-    // // open pool x fill tap
-    // Expanders.FillingRelay(target, true);
-    // Expanders.Pump(true);
-    // // loop while drain counter > 0 and barrel x not empty
-    // while (!Barrels.isEmpty(0))
-    // {
-    //     // LOGIC
-    //     //State.DrainRecalc(barrel);
-    //     if (Barrels.Errors(target))
-    //     {
-    //         LOG.printf("Barrel %u error state %u auto paused.\r\n", target, Barrels.Errors(target));
-    //         State.Set(STOPPED_STATE);
-    //     }
-    //     // STOP-CHECK
-    //     if (State.Check(STOPPED_STATE))
-    //         fmsPause(0, target);
-    //     // SENSOR CHECK
-    //     if (Pressure.Enabled(NUTRIENTS))
-    //         PressureCheck(NUTRIENTS);
-    //     if (Flow.Enabled(NUTRIENTS))
-    //         FlowCheck(NUTRIENTS);
-    //     blinkDelay(1000, LED_BLUE);
-    // }
-    // Expanders.Pump(false);
-    // vTaskDelay(1000);
-    // Expanders.FillingRelay(target, false);
-    // vTaskDelay(1000);
-    // // State.DrainRecalc(barrel); // decrease _drain_req by flow ammount
-    // Flow.Reset(NUTRIENTS); // reset flow counter 2
-    // LOG.printf("END Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
+    uint16_t barrel_before = Barrels.NutriGet(0);
+    LOG.printf("Draining from barrel:%u (%uL)\r\n", 0, barrel_before);
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
+    // open pool x fill tap
+    Expanders.FillingRelay(target, true);
+    Expanders.Pump(true);
+    // loop while drain counter > 0 and barrel x not empty
+    while (!Barrels.isEmpty(0))
+    {
+        // LOGIC
+        Barrels.NutrientsTransferCalc(0, target);
+        if (Barrels.Errors(target))
+        {
+            LOG.printf("Barrel %u error state %u auto paused.\r\n", target, Barrels.Errors(target));
+            State.Set(STOPPED_STATE);
+        }
+        // STOP-CHECK
+        if (State.Check(STOPPED_STATE))
+            fmsPause(0, target);
+        // SENSOR CHECK
+        if (Pressure.Enabled(NUTRIENTS))
+            PressureCheck(NUTRIENTS);
+        if (Flow.Enabled(NUTRIENTS))
+            FlowCheck(NUTRIENTS);
+        blinkDelay(1000, LED_BLUE);
+    }
+    Expanders.Pump(false);
+    vTaskDelay(1000);
+    Expanders.FillingRelay(target, false);
+    vTaskDelay(1000);
+    Barrels.NutrientsTransferCalc(0, target);
+    Flow.Reset(NUTRIENTS); // reset flow counter 2
+     LOG.printf("END Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
     // Serial.println();
 }
 
