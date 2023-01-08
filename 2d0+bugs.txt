@@ -1,9 +1,17 @@
 bugs:
+
+manual barrel flow water/nutri not saved on reset!!!!!
+
+manual fill not closing freshwater tap
+
+error reseting 1 below zero by 1??
+
 check All if else for brackets - manual fmdb bug!
 if \(.*\n *[a-zA-Z]
 
 manual mixing timer is shown as auto bypass ammount!!
     also not letting to increase auto bypass while in this state
+    also manual fill left is shown on barr0 minutes.. (kinda like it actually)
 
 need to prevent bypass to pool0! (or limit until sonic? or until barr size?)
 
@@ -24,6 +32,8 @@ deviation always to high for sonic
 check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
+default flow to 392pulse
+
 deprecate manual source?
 rename next barrel to store to - > pool 
 
