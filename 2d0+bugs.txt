@@ -2,7 +2,13 @@ bugs:
 check All if else for brackets - manual fmdb bug!
 if \(.*\n *[a-zA-Z]
 
+manual mixing timer is shown as auto bypass ammount!!
+    also not letting to increase auto bypass while in this state
+
 need to prevent bypass to pool0! (or limit until sonic? or until barr size?)
+
+each save on sdcard:
+     0 out of 216 Bytes writen. filesize Mismatch.
 
 isChanged will retriger SaveStructs over and over at each start press when Expanders.Protect is set
 if (request->hasArg("FullBarrel"))
@@ -19,6 +25,11 @@ check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
 deprecate manual source?
+rename next barrel to store to - > pool 
+
+any way to set/get barrel flow freshwater/nutrients level? not visible in auto ui..
+
+webui zoom in / out -> start/stop!
 
 add mid-progress prints to fmdb
 
