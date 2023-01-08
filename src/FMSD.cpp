@@ -264,11 +264,11 @@ void Mix()
     // Serial.println();
 }
 
-// transfers nutrients from "barrel" to "target"
-// until barrel is empty or until target is full
-// or until "stopped" state set, except if system state also set to manual
-void Store(byte barrel, byte target)
-{
+// // transfers nutrients from "barrel" to "target"
+// // until barrel is empty or until target is full
+// // or until "stopped" state set, except if system state also set to manual
+// void Store(byte barrel, byte target)
+// {
     // Serial.println();
     // LOG.printf("storing from barrel:%u to target %u\r\n", barrel, target);
     // Flow.Reset(NUTRIENTS); // reset flow counter 2
@@ -310,7 +310,7 @@ void Store(byte barrel, byte target)
     // Flow.Reset(NUTRIENTS); // reset flow counter 2
     // LOG.printf("END storing from barrel:%u to target %u\r\n", barrel, target);
     // Serial.println();
-}
+// }
 
 // draining from mixer, until barrel is empty
 // or until state set to stopped except if state is also manual
@@ -396,7 +396,7 @@ void fmsTask(void * pvParameters)
     while (true)
     {
         // !! new fmdb here !!
-
+        StoppedWait(); // !! temporary to enable manual fmdb!!
 
         
         // !! old fmsd here !!
