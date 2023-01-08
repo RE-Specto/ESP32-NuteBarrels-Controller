@@ -1,4 +1,7 @@
 bugs:
+check All if else for brackets - manual fmdb bug!
+if \(.*\n *[a-zA-Z]
+
 need to prevent bypass to pool0! (or limit until sonic? or until barr size?)
 
 isChanged will retriger SaveStructs over and over at each start press when Expanders.Protect is set
@@ -16,6 +19,8 @@ check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
 deprecate manual source?
+
+add mid-progress prints to fmdb
 
 errorcheck:
     filling, no flow, pressure, try other (+1 or 0 ) solenoid

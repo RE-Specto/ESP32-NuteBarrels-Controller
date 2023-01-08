@@ -210,7 +210,7 @@ void FSClass::Calib(byte sens, byte liters)
     }
     Expanders.FillingRelay(5, false); // f5 is bypass tap in new system
     Expanders.FillingRelay(0, false);
-    if(!timeLeft)
+    if (!timeLeft)
     {
         LOG.println("[E] timed out waiting for Calib flow");
     }

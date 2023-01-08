@@ -90,7 +90,7 @@ void BarrClass::FreshwaterFillCalc(byte barrel)
         LOG.println("0 flow so far. skipping");
     }
     #else
-    if (tempflow)
+    if (tempflow / Flow.Divider(FRESHWATER))
     {
         tempflow /= Flow.Divider(FRESHWATER); // integral part, fractional part discarded.
         b->_volume_freshwater += tempflow;
@@ -193,7 +193,7 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
     // b->_concentraion = b->_concentraion_last;
 
     uint32_t tempflow = Flow.Counted(NUTRIENTS); // may be increased during calculation because flowsensor works on interrupts
-    if (tempflow) // prevents DivideByZero below
+    if (tempflow / Flow.Divider(NUTRIENTS)) // prevents DivideByZero below
     {
         tempflow /= Flow.Divider(NUTRIENTS);         // integral part, fractional part discarded.
         LOG.printf("transfering %u liters from barrel %u to %u\r\n", tempflow, from, to);
@@ -341,8 +341,8 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
                 {
                     measure = x; // number of measurements so far (excluding the last "out of range" measurement)
                     distanceAvearge = 0;
-                    if(!ErrorCheck(barrel, BARREL_SONIC_OUTOFRANGE))
-                        ErrorSet(barrel, BARREL_SONIC_OUTOFRANGE);
+                    if (!ErrorCheck(barrel, BARREL_SONIC_OUTOFRANGE))
+                        ErrorSet(barrel, BARREL_SONIC_OUTOFRANGE); 
                     break;
                 }
                 else
@@ -525,7 +525,7 @@ bool BarrClass::isEmpty(byte barrel)
     // used mostly while draining now.. so its totoal litrage minus drained so far
     #else
     SonicMeasure(barrel);
-    if( !Errors(barrel) && (SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min) )
+    if (!Errors(barrel) && (SonicCalcLiters(barrel) <= iBarrel[barrel]._volume_min) )
         {
             LOG.printf("Barrel %u is empty\r\n", barrel);
         }
@@ -541,7 +541,7 @@ bool BarrClass::isFull(byte barrel)
     // used mostly while filling/storing now.. so its totoal litrage plus added so far
     #else
     SonicMeasure(barrel);
-    if(SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max)
+    if (SonicCalcLiters(barrel) >= iBarrel[barrel]._volume_max)
         {
             LOG.printf("Barrel %u is full\r\n", barrel);
         }

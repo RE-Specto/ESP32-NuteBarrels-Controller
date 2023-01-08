@@ -35,10 +35,10 @@ void ServerClass::begin()
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         request->redirect("/manual"); //until implemented
         /*
-        if(!SD.exists("/index.html")){
+        if (!SD.exists("/index.html")){
             SD.end();
             LOG.println("trying to restart SD");
-            if(!SD.begin(22)){
+            if (!SD.begin(22)){
             LOG.println("unable to read form SD card");
             request->send(200, "text/html", "<html><body><center><h1>check SD Card please</h1></center></body></html>");
             }
@@ -54,19 +54,19 @@ void ServerClass::begin()
 
     server.on(
         "/upload", HTTP_POST, [](AsyncWebServerRequest *request) {}, [](AsyncWebServerRequest *request, String filename, size_t index, byte *data, size_t len, bool final) {
-            if(!index)
+            if (!index)
             {
                 LOG.printf("\r\nUpload Started: %s\r\n", filename.c_str());
                 // open the file on first call and store the file handle in the request object
                 request->_tempFile = Filesys.disk->open("/"+filename, "w");
             }
-            if(len) 
+            if (len) 
             {
                 LOG.printf("received chunk [from %u to %u]\r\n", index, len);
                 // stream the incoming chunk to the opened file
                 request->_tempFile.write(data,len);
             }       
-            if(final)
+            if (final)
             {
                 LOG.printf("\r\nUpload Ended: %s, %u Bytes\r\n", filename.c_str(), index+len);
                 request->_tempFile.close();
@@ -161,7 +161,7 @@ void ServerClass::begin()
     });
 
     server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if(Filesys.disk -> exists("/favicon.png"))
+        if (Filesys.disk -> exists("/favicon.png"))
         {
             request->send(*Filesys.disk, "/favicon.png", "image/png");
         }
@@ -504,7 +504,7 @@ void ServerClass::begin()
         {
             int DryBarrel = request->arg("DryBarrel").toInt();
             Barrels.SonicMeasure(DryBarrel);
-            if(Barrels.Errors(DryBarrel))
+            if (Barrels.Errors(DryBarrel))
             {
                 LOG.printf("Dry point set: Barrel:%u at error state:%u, unable to measure dry point\r\n", DryBarrel, Barrels.Errors(DryBarrel));
             }
@@ -519,7 +519,7 @@ void ServerClass::begin()
         {
             int EmptyBarrel = request->arg("EmptyBarrel").toInt();
             Barrels.SonicMeasure(EmptyBarrel);
-            if(Barrels.Errors(EmptyBarrel))
+            if (Barrels.Errors(EmptyBarrel))
             {
                 LOG.printf("Empty point set: Barrel:%u at error state:%u, unable to measure Empty point\r\n", EmptyBarrel, Barrels.Errors(EmptyBarrel));
             }
@@ -534,7 +534,7 @@ void ServerClass::begin()
         {
             int FullBarrel = request->arg("FullBarrel").toInt();
             Barrels.SonicMeasure(FullBarrel);
-            if(Barrels.Errors(FullBarrel))
+            if (Barrels.Errors(FullBarrel))
             {
                 LOG.printf("Full point set: Barrel:%u at error state:%u, unable to measure Full point\r\n", FullBarrel, Barrels.Errors(FullBarrel));
             }
@@ -549,7 +549,7 @@ void ServerClass::begin()
         {
             int Save100LitersMark = request->arg("Save100LitersMark").toInt();
             Barrels.SonicMeasure(Save100LitersMark);
-            if(Barrels.Errors(Save100LitersMark))
+            if (Barrels.Errors(Save100LitersMark))
             {
                 LOG.printf("100L point set: Barrel:%u at error state:%u, unable to measure 100L point\r\n", Save100LitersMark, Barrels.Errors(Save100LitersMark));
             }
@@ -934,7 +934,7 @@ void ServerClass::begin()
         // {
         //     int DryBarrel = request->arg("DryBarrel").toInt();
         //     Barrels.SonicMeasure(DryBarrel);
-        //     if(Barrels.Errors(DryBarrel))
+        //     if (Barrels.Errors(DryBarrel))
         //     {
         //         LOG.printf("Dry point set: Barrel:%u at error state:%u, unable to measure dry point\r\n", DryBarrel, Barrels.Errors(DryBarrel));
         //     }
@@ -949,7 +949,7 @@ void ServerClass::begin()
         // {
         //     int EmptyBarrel = request->arg("EmptyBarrel").toInt();
         //     Barrels.SonicMeasure(EmptyBarrel);
-        //     if(Barrels.Errors(EmptyBarrel))
+        //     if (Barrels.Errors(EmptyBarrel))
         //     {
         //         LOG.printf("Empty point set: Barrel:%u at error state:%u, unable to measure Empty point\r\n", EmptyBarrel, Barrels.Errors(EmptyBarrel));
         //     }
@@ -964,7 +964,7 @@ void ServerClass::begin()
         // {
         //     int FullBarrel = request->arg("FullBarrel").toInt();
         //     Barrels.SonicMeasure(FullBarrel);
-        //     if(Barrels.Errors(FullBarrel))
+        //     if (Barrels.Errors(FullBarrel))
         //     {
         //         LOG.printf("Full point set: Barrel:%u at error state:%u, unable to measure Full point\r\n", FullBarrel, Barrels.Errors(FullBarrel));
         //     }
@@ -979,7 +979,7 @@ void ServerClass::begin()
         // {
         //     int Save100LitersMark = request->arg("Save100LitersMark").toInt();
         //     Barrels.SonicMeasure(Save100LitersMark);
-        //     if(Barrels.Errors(Save100LitersMark))
+        //     if (Barrels.Errors(Save100LitersMark))
         //     {
         //         LOG.printf("100L point set: Barrel:%u at error state:%u, unable to measure 100L point\r\n", Save100LitersMark, Barrels.Errors(Save100LitersMark));
         //     }
