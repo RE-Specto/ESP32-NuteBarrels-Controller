@@ -350,7 +350,7 @@ void Drain()
     vTaskDelay(1000);
     Barrels.NutrientsTransferCalc(0, target);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
-     LOG.printf("END Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
+    LOG.printf("END Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
     // Serial.println();
 }
 

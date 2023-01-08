@@ -276,8 +276,10 @@ void StatClass::DecreaseManual(uint32_t  liters)
         if (iState._manual_ammo > liters) // prevent integer overflow
             iState._manual_ammo -= liters;
         else
+        {
             LOG.printf("[E] trying to decrease manual ammo %u below zero (by %u)\r\n", iState._manual_ammo, liters);
             iState._manual_ammo = 0;
+        }
     }
 }
 
@@ -288,8 +290,10 @@ void StatClass::DecreaseBypass(uint32_t  liters)
         if (iState._bypass_req > liters) // prevent integer overflow
             iState._bypass_req -= liters;
         else
+        {
             LOG.printf("[E] trying to decrease bypass rec %u below zero (by %u)\r\n", iState._bypass_req, liters);
             iState._bypass_req = 0;
+        }
     }
 }
 
