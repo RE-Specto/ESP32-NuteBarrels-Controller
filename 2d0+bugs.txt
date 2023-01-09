@@ -2,8 +2,6 @@ bugs:
 
 manual barrel flow water/nutri not saved on reset!!!!!
 
-manual fill not closing freshwater tap
-
 error reseting 1 below zero by 1??
 
 check All if else for brackets - manual fmdb bug!

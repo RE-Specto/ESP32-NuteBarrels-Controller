@@ -345,9 +345,8 @@ void Drain()
         blinkDelay(1000, LED_BLUE);
     }
     Expanders.Pump(false);
-    vTaskDelay(1000);
+    vTaskDelay(500);
     Expanders.FillingRelay(target, false);
-    vTaskDelay(1000);
     Barrels.NutrientsTransferCalc(0, target);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     LOG.printf("END Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
@@ -382,10 +381,11 @@ void Bypass()
         blinkDelay(1000, LED_MAGENTA);
     }
     Expanders.FillingRelay(FRESHWATER_RELAY, false); // close filling tap
-    vTaskDelay(1000); // wait for pressure releif
+    vTaskDelay(500); // wait for pressure releif
     Expanders.FillingRelay(target, false); // close pool tap
     // Expanders.StoringRelay(target, false);
-    LOG.printf("END filling pools with %uL\r\n", Flow.Counted(FRESHWATER) / Flow.Divider(FRESHWATER)); // requirement
+    Barrels.FreshwaterFillCalc(target);
+    LOG.println("END filling pools"); // requirement
     Flow.Reset(FRESHWATER); // reset flow counter 1
     // Serial.println();
 }
@@ -534,10 +534,9 @@ void FillManual()
             break;
         blinkDelay(1000, LED_YELLOW);
     }
-    Expanders.FillingRelay(FRESHWATER_RELAY, true);
-    vTaskDelay(1000); // wait for pressure releif
+    Expanders.FillingRelay(FRESHWATER_RELAY, false);
+    vTaskDelay(500); // wait for pressure releif
     Expanders.FillingRelay(barrel, false);
-    vTaskDelay(1000); // wait for pressure releif
     Barrels.FreshwaterFillCalc(barrel);
     Flow.Reset(FRESHWATER);
     State.ResetManual(); // important - no double-run
@@ -567,7 +566,7 @@ void MixManual()
     // stop pump
     Expanders.Pump(false);
     // wait until pressure released
-    vTaskDelay(1000);
+    vTaskDelay(500);
     Expanders.FillingRelay(0, false);
     Flow.Reset(NUTRIENTS);
     State.ResetManual(); // important - no double-run
@@ -645,9 +644,8 @@ void DrainManual()
         blinkDelay(1000, LED_BLUE);
     }
     Expanders.Pump(false);
-    vTaskDelay(1000);
+    vTaskDelay(500);
     Expanders.FillingRelay(target, false);
-    vTaskDelay(1000);
     Barrels.NutrientsTransferCalc(0, target);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     LOG.printf("END Manual Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
@@ -672,9 +670,8 @@ void BypassManual()
     }
 
     Expanders.FillingRelay(FRESHWATER_RELAY, false);
-    vTaskDelay(1000);
+    vTaskDelay(500);
     Expanders.FillingRelay(target, false);
-    vTaskDelay(1000);
     Barrels.FreshwaterFillCalc(target); // apply flowcount to barrel         
     Flow.Reset(FRESHWATER);
     State.ResetManual(); // important - no double-run
