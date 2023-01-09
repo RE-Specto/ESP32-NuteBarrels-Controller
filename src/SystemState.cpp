@@ -315,14 +315,30 @@ void StatClass::SetManual(byte task, byte src, byte dest, uint16_t ammo)
     iState._manual_ammo=ammo;
 }
 
-void IRAM_ATTR StatClass::ResetManual(){iState._manual_task=0;}
+void IRAM_ATTR StatClass::ResetManual()
+{
+    iState._manual_task=0; 
+    SaveSD();
+}
 
-byte StatClass::ManualTask() {return iState._manual_task;}
+byte StatClass::ManualTask() 
+{
+    return iState._manual_task;
+}
 
-byte StatClass::ManualSource() {return iState._manual_src;}
+byte StatClass::ManualSource() 
+{
+    return iState._manual_src;
+}
 
-byte StatClass::ManualDestination() {return iState._manual_dest;}
+byte StatClass::ManualDestination() 
+{
+    return iState._manual_dest;
+}
 
-uint16_t StatClass::ManualAmmount() {return iState._manual_ammo;}
+uint16_t StatClass::ManualAmmount() 
+{
+    return iState._manual_ammo;
+}
 
 StatClass State;
