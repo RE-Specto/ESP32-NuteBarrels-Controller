@@ -273,7 +273,7 @@ void StatClass::DecreaseManual(uint32_t  liters)
 {
     if (iState._manual_task)
     {
-        if (iState._manual_ammo > liters) // prevent integer overflow
+        if (iState._manual_ammo >= liters) // prevent integer overflow
             iState._manual_ammo -= liters;
         else
         {
@@ -287,7 +287,7 @@ void StatClass::DecreaseBypass(uint32_t  liters)
 {
     if (!iState._manual_task) // only if auto
     {
-        if (iState._bypass_req > liters) // prevent integer overflow
+        if (iState._bypass_req >= liters) // prevent integer overflow
             iState._bypass_req -= liters;
         else
         {
