@@ -197,6 +197,7 @@ void Fill()
     Expanders.FillingRelay(0, false);
     Barrels.FreshwaterFillCalc(0);  // apply flowcount to barrel
     Flow.Reset(FRESHWATER); // reset flow counter 1
+    Barrels.SaveSD();
     LOG.printf("END filling barrel:%u to %uL\r\n", 0, State.FillRequirement());
     Serial.println();
 }
@@ -260,6 +261,8 @@ void Mix()
     Flow.Reset(NUTRIENTS); // reset flow counter 2
     // #endif
     State.MixReset(); // reset mix timer for next run
+    State.SaveSD();
+    Barrels.SaveSD();
     LOG.println("END mixing.");
     // Serial.println();
 }
@@ -349,6 +352,7 @@ void Drain()
     Expanders.FillingRelay(target, false);
     Barrels.NutrientsTransferCalc(0, target);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
+    Barrels.SaveSD();
     LOG.printf("END Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
     // Serial.println();
 }
@@ -385,8 +389,9 @@ void Bypass()
     Expanders.FillingRelay(target, false); // close pool tap
     // Expanders.StoringRelay(target, false);
     Barrels.FreshwaterFillCalc(target);
-    LOG.println("END filling pools"); // requirement
     Flow.Reset(FRESHWATER); // reset flow counter 1
+    Barrels.SaveSD();
+    LOG.println("END filling pools"); // requirement
     // Serial.println();
 }
 
@@ -540,7 +545,9 @@ void FillManual()
     Barrels.FreshwaterFillCalc(barrel);
     Flow.Reset(FRESHWATER);
     State.ResetManual(); // important - no double-run
+    Barrels.SaveSD();
     Expanders.setRGBLED(LED_WHITE);
+    LOG.printf("END Manual Fill into %u", barrel);
 }
 
 void MixManual()
@@ -570,7 +577,9 @@ void MixManual()
     Expanders.FillingRelay(0, false);
     Flow.Reset(NUTRIENTS);
     State.ResetManual(); // important - no double-run
+    Barrels.SaveSD();
     Expanders.setRGBLED(LED_WHITE);
+    LOG.printf("END Manual mix into %u", barrel);
 }
 
 void StoreManual()
@@ -648,6 +657,9 @@ void DrainManual()
     Expanders.FillingRelay(target, false);
     Barrels.NutrientsTransferCalc(0, target);
     Flow.Reset(NUTRIENTS); // reset flow counter 2
+    State.ResetManual();
+    Barrels.SaveSD();
+    Expanders.setRGBLED(LED_WHITE);
     LOG.printf("END Manual Draining. Drained %uL to pool:%u\r\n", barrel_before - Barrels.NutriGet(0), target);
 }
 
@@ -675,6 +687,8 @@ void BypassManual()
     Barrels.FreshwaterFillCalc(target); // apply flowcount to barrel         
     Flow.Reset(FRESHWATER);
     State.ResetManual(); // important - no double-run
+    Barrels.SaveSD();
     Expanders.setRGBLED(LED_WHITE);
+    LOG.printf("END Manual Bypass into %u", target);
 }
 

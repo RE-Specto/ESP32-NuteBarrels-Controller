@@ -1,7 +1,5 @@
 bugs:
 
-manual barrel flow water/nutri not saved on reset!!!!!
-
 check All if else for brackets - manual fmdb bug!
 if \(.*\n *[a-zA-Z]
 
