@@ -63,6 +63,8 @@ void fmsPause(byte Source, byte Destination)
         Expanders.FillingRelay(FRESHWATER_RELAY, false);
         vTaskDelay(500);
         Expanders.FillingRelay(Destination, false);
+        Barrels.SaveSD();
+        State.SaveSD();
         StoppedWait();
         Expanders.FillingRelay(FRESHWATER_RELAY, true);
         Expanders.FillingRelay(Destination, true);
@@ -74,6 +76,8 @@ void fmsPause(byte Source, byte Destination)
         // wait until pressure released
         vTaskDelay(500);
         Expanders.FillingRelay(Destination, false);
+        Barrels.SaveSD();
+        State.SaveSD();
         StoppedWait();
         // open pool x fill tap
         Expanders.FillingRelay(Destination, true);
