@@ -172,10 +172,18 @@ void Fill()
     Expanders.FillingRelay(FRESHWATER_RELAY, true);
     // fill until requirement OR barrel_high_level
     // while (!Barrels.isFillTargetReached(barrel, FRESHWATER, requirement))
+    bool printAmmount = true;
     while (Barrels.FreshGet(0) < State.FillRequirement())
     { 
         // LOGIC
         Barrels.FreshwaterFillCalc(0); // apply flowcount to barrel         
+        if (Barrels.FreshGet(0) % 50 == 0) // print status each 50 Liters
+        {
+            LOG.printf("filled %u liters so far..\r\n", Barrels.FreshGet(0));
+            printAmmount = false;
+        }
+        else
+            printAmmount = true;
         if (Barrels.isFull(0) && !Barrels.Errors(0)) // if barrel ammount is Full then stop
         {
             LOG.printf("[E] barrel:%u full. breaking..\r\n", 0);
@@ -332,10 +340,18 @@ void Drain()
     Expanders.FillingRelay(target, true);
     Expanders.Pump(true);
     // loop while drain counter > 0 and barrel x not empty
+    bool printAmmount = true;
     while (!Barrels.isEmpty(0))
     {
         // LOGIC
         Barrels.NutrientsTransferCalc(0, target);
+        if (Barrels.NutriGet(target) % 50 == 0) // print status each 50 Liters
+        {
+            LOG.printf("draining.. %u liters left.\r\n", Barrels.NutriGet(target));
+            printAmmount = false;
+        }
+        else
+            printAmmount = true;
         if (Barrels.Errors(target))
         {
             LOG.printf("Pool %u error state %u auto paused.\r\n", target, Barrels.Errors(target));
@@ -373,10 +389,18 @@ void Bypass()
     Expanders.FillingRelay(target, true); // open pool tap
     Expanders.FillingRelay(FRESHWATER_RELAY, true); // open filling tap
     // fill, decrement requirement
+    bool printAmmount = true;
     while (State.BypassMore()) // implement !Barrels.isFillTargetReached(POOLS, FRESHWATER, requirement) instead? + FreshwaterFillCalc...
     {
         // LOGIC
         Barrels.FreshwaterFillCalc(target); // apply flowcount to pool freshwater count
+        if (Barrels.FreshGet(target) % 50 == 0) // print status each 50 Liters
+        {
+            LOG.printf("filling freshwater. %u liters so far..\r\n", Barrels.FreshGet(target));
+            printAmmount = false;
+        }
+        else
+            printAmmount = true;
         #ifndef USE_FLOW_INSTEAD
         if (Barrels.isFull(target) && !Barrels.Errors(target)) // if barrel ammount is Full then stop
         { // Disabled until pool sonics installed and reliable + USE_FLOW_INSTEAD disabled
