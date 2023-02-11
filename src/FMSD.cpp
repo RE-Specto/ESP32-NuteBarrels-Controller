@@ -338,7 +338,7 @@ void Drain()
         Barrels.NutrientsTransferCalc(0, target);
         if (Barrels.Errors(target))
         {
-            LOG.printf("Barrel %u error state %u auto paused.\r\n", target, Barrels.Errors(target));
+            LOG.printf("Pool %u error state %u auto paused.\r\n", target, Barrels.Errors(target));
             State.Set(STOPPED_STATE);
         }
         // STOP-CHECK
@@ -376,7 +376,19 @@ void Bypass()
     while (State.BypassMore()) // implement !Barrels.isFillTargetReached(POOLS, FRESHWATER, requirement) instead? + FreshwaterFillCalc...
     {
         // LOGIC
-        Barrels.FreshwaterFillCalc(target); // apply flowcount to pool freshwater count         
+        Barrels.FreshwaterFillCalc(target); // apply flowcount to pool freshwater count
+        #ifndef USE_FLOW_INSTEAD
+        if (Barrels.isFull(target) && !Barrels.Errors(target)) // if barrel ammount is Full then stop
+        { // Disabled until pool sonics installed and reliable + USE_FLOW_INSTEAD disabled
+            LOG.printf("[E] barrel:%u full. breaking..\r\n", 0);
+            break;
+        }
+        #endif
+        if (Barrels.Errors(target))
+        {
+            LOG.printf("Pool %u error state %u auto paused.\r\n", 0, Barrels.Errors(0));
+            State.Set(STOPPED_STATE);
+        }
         // State.BypassRecalc();      
         // STOP-CHECK
         if (State.Check(STOPPED_STATE))
