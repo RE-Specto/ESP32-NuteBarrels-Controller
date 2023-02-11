@@ -500,6 +500,18 @@ void ServerClass::begin()
             Pressure.Disable(Disable);
         }
 
+        if (request->hasArg("EnableBarrel"))
+        {
+            int EnableBarrel = request->arg("EnableBarrel").toInt();
+            Barrels.ErrorUnset(EnableBarrel, BARREL_DISABLED);
+        }
+
+        if (request->hasArg("DisableBarrel"))
+        {
+            int DisableBarrel = request->arg("DisableBarrel").toInt();
+            Barrels.ErrorSet(DisableBarrel, BARREL_DISABLED);
+        }
+
         if (request->hasArg("DryBarrel"))
         {
             int DryBarrel = request->arg("DryBarrel").toInt();
@@ -664,6 +676,11 @@ void ServerClass::begin()
             response->printf("<input type=\"hidden\" id=\"VolumeMinSet\" name=\"VolumeMinSet\" value=\"%u\"><span> </span>", x);
             response->printf("<input id=\"VolumeMinSetData\" name=\"VolumeMinSetData\" value=\"%u\"><span> </span>", Barrels.VolumeMin(x));
             response->print("<input type=\"submit\" value=\"Go\"></form>");
+
+            bool bEnabled = !Barrels.ErrorCheck(x, BARREL_DISABLED);
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"%sBarrel\" name=\"%sBarrel\" value=\"%u\"><span> </span>", bEnabled?"Disable":"Enable", bEnabled?"Disable":"Enable", x);
+            response->printf("<input type=\"submit\" value=\"%s\"></form>", bEnabled?"Disable":"Enable");
 
             response->print("<br>");
         }
