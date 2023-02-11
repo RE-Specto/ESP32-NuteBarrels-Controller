@@ -265,7 +265,7 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
         response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
         response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
-        response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
+        response->printf("<span>uptime: %lli seconds. build: %s. system state:%u</span><br>", esp_timer_get_time() / 1000000, __DATE__, State.Get());
         response->print("</body></html>");
         request->send(response);
     });

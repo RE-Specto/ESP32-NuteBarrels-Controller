@@ -23,8 +23,6 @@ deviation always to high for sonic
 check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
-add version string
-
 add SaveStructs button to calibration
 
 start-stop in webui instead of ++ --
@@ -151,6 +149,10 @@ optional: doser on expander x20 pin A7? serial scale mux#14?
 
 
 optional:
+ in serial: "No core dump partition found"
+    create coredump part to remove the error
+    https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/core_dump.html#save-core-dump-to-flash
+
 check all uint values never go below zero!!
     expected in sensor measurements
     anywhere else?
