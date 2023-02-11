@@ -29,6 +29,7 @@ void SendSMS(const char *message, byte item)
     Expanders.LockMUX(7);                          // modem is at port 7
     vTaskDelay(10);                                 // wait until expander + mux did their job
     Serial2.println("AT+CMGS=\"+972524373724\""); //change ZZ with country code and xxxxxxxxxxx with phone number to sms
+    // check AT+OK needed here!
     Serial2.print(message);                       //text content
     if (item != 0xFF)
         Serial2.print(item);

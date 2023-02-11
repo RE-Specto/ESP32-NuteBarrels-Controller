@@ -193,12 +193,10 @@ int16_t PSClass::measure(byte sens)
 
     //1  no pressure
     if (pres < p->_min_pressure)
-        //if (p->_error_state == PRESSURE_NORMAL)
         p->_error_state = PRESSURE_NOPRESSURE;
 
     //0  normal pressure range is here
     if (pres > p->_min_pressure && pres < p->_max_pressure)
-        //if (p->_error_state == PRESSURE_NOPRESSURE)
         p->_error_state = PRESSURE_NORMAL;
 
     // set system-wide pressure error if critical error

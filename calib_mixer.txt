@@ -1,0 +1,15 @@
+
+what needed for barrel sonic calibration?
+    dry barrel height - SonicOffsetSet
+        measure at start
+            SonicOffsetSet(barrX,SonicLastMM(barrX));
+    how many mililiters is in one milimeter - SonicMLinMM
+        fill with exact 100L (from dry point)
+            Save100LitersMark
+    full  barrel litrage - VolumeMaxSet
+        fill until sonic error
+        drain safeguard value
+            VolumeMaxSet(barrX, SonicCalcLiters(barrX))
+    empty barrel litrage - VolumeMinSet
+        drain barrel fully (what left is between drain point and dry)
+            VolumeMinSet(barrX, SonicCalcLiters(barrX))

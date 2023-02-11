@@ -1,8 +1,5 @@
 bugs:
 
-check All if else for brackets - manual fmdb bug!
-if \(.*\n *[a-zA-Z]
-
 manual mixing timer is shown as auto bypass ammount!!
     also not letting to increase auto bypass while in this state
     also manual fill left is shown on barr0 minutes.. (kinda like it actually)
@@ -26,6 +23,14 @@ deviation always to high for sonic
 check if (b->_barrel_height - b->_sonic_last_value) for integer overflow
 
 to implement:
+add version string
+
+add SaveStructs button to calibration
+
+start-stop in webui instead of ++ --
+
+manual mux unlock via webUI
+
 default flow to 392pulse
 
 deprecate manual source?
@@ -56,18 +61,10 @@ SaveSD should fail the parent Setxxx func on failure
 search: // just warn for now..
 
 edit fmsd for new simple 1barrel system:
-    * reuse storing barrel for pool selection?
 
-    changes:
-    1 flow sensor for all
-    1 pressure sensor (disabled for now)
-    1 sonic (5 'barrels')
 
     need f5 together with every fill
     need f6 with every drain
-    store instead of drain now? 
-    reuse store barrel for pool selection?
-        SetFillBarrel already in webserver
 
     cleanwater pressure vs pump pressure on the same sensor (_min_pressure _max_pressure)
 
@@ -75,48 +72,14 @@ edit fmsd for new simple 1barrel system:
     Relay( usage search
 
 rewrite system to use concentrate from mixer barrel
-    [ ] edit drain to drain fully!!
-    [ ] drain by ammount of barrels not liters??
-    [ ] add Fill 5 Liters, Store 5 Liters for flow calibration!!
-    [ ] add 'state bitmap to human readable string' translator function
     [ ]add proper barrel_disabled webui
-    [ ]move pump to drain6? a7?
-    [ ]reimplement bypass at fill(POOLS) (f7)
-    [ ]bypass separately from drain
-    [ ]separate calib for nutes flowsensor - using separate calib5L func?
-
     [ ] add DrainTotal BypassTotal to webUI + add DrainTotalSet BypassTotalSet
-    [ ] ignore drain requirement - allways drain until empty
-
-    [ ] separate total drain and total bypass into 5 pools (4 + 1spare
     [ ] if bypass is via manual, how to pause without clearing? via interface?
             edit ResetManual to save value aside instead of clearing
 
-    [ ] check if I can use barrels 1-4 as pool1-4
-    [ ] use store instead of drain? _storing_barrel for target pool?
-
-interface:
-- [ ] 4 pools:
-total drain cycles
-total bypass cubic meters
-select pool
-- [ ] mixing barrel:
-ammount
-state (f,m,s,d)
-- [ ] bypass in liters
-
-
-system mods:
-- [ ] install new sonic?
-- [ ] swith external mixer from F6 to A7spare @Expander0x20 + add separate relay to A7spare
-- [ ] use stor1-4 as pools1-4?
-
-check for unused functions and methods
-
-add SaveStructs button to calibration
 manual setting of water+nutri for flow
-reuse sonic calib methods for flow calibration?
-add version string
+
+***************^^ checked below here
 
 implement proper logging: https://thingpulse.com/esp32-logging/
     or manually add log levels to serial prints + shorten output format
@@ -125,20 +88,30 @@ implement proper logging: https://thingpulse.com/esp32-logging/
         [W][T000012][SonicMeasure:1732] message
         split define LOG into LOGERROR LOGWARN .....
 
-upgrade spiffs to littlefs
+check what modem returns if error - if valid check - implement SMS error
+sendSMS needs to read AT+OK from Serial2
+    if not - cache msg aside to send later??
+    cache to file with timestamp
+    send later in one message if size < max sms size
+    later at what point? check in loop? in event change? in next sendsms?
 
-separate code into header files and modules
+--------------
+upgrade spiffs to littlefs
+//#include "SPIFFS.h"
+#include <LITTLEFS.h>
+#define SPIFFS LITTLEFS
+
+All instances of SPIFFS.read() SPIFFS.write() SPIFFS.close() SPIFFS.open()
+are now
+LITTLEFS.read() LITTLEFS.write() LITTLEFS.close() LITTLEFS.open()
+-------------
 
 any way to check for Expander connectivity?
     +hardware check for mux - loopback on leg 14?
         test by serial.write + serial.read ?
 
-check: State.SetStoreBarrel(State.FillBarrel()); for bugs
-
 change error64 from high sonic measurement error, to high deviation from flow sensor
 
-add barrel enable disable
-add FreshGet NutriGet to webUI at each barrel
 add flowsetmin flowsetmax at each barrel at webUI 
 
 check & print error states the same way as system states?
@@ -151,40 +124,11 @@ serial print to telnet or to webui directly or via another board (esp8266?).
 
 -solder dummy pressure sensor
 
-work on system hardware - implement all changes to schematic!!
-
-check what modem returns if error - if valid check - implement SMS error
-
-add barrel disable enable WebUI
-    skip barrel only if disabled, or if solenoid error - skip BARREL_SONIC_*
-
-manual mux unlock via webUI
-
 manual apply sonic value to flow barrel volume on request.
 
 limit all data from webUI to valid range - ie. no "measure barrel 27"
 
-what needed for barrel sonic calibration?
-    dry barrel height - SonicOffsetSet
-        measure at start
-            SonicOffsetSet(barrX,SonicLastMM(barrX));
-    how many mililiters is in one milimeter - SonicMLinMM
-        fill with exact 100L
-            Save100LitersMark
-    full  barrel litrage - VolumeMaxSet
-        fill until sonic error
-        drain safeguard value
-            VolumeMaxSet(barrX, SonicCalcLiters(barrX))
-    empty barrel litrage - VolumeMinSet
-        drain barrel fully
-            VolumeMinSet(barrX, SonicCalcLiters(barrX))
-    
-
-WebUI from "1-pump idea test (1).png" file with overlays and jQuery
-    https://forum.jquery.com/topic/how-to-change-text-dynamically-svg
 telnet server to send LOG.prints + telnet client inside webui?
-allow to manually disable a barrel
-    barrels.ErrorSet(barrel, BARREL_DISABLED)
 
 uint16_t DTS = 0;                                              //mySettings.DTS?3600UL:0;
 uint16_t timeZone = 3;    
@@ -205,27 +149,6 @@ add to schematic:
 12v line add polyfuze
 optional: doser on expander x20 pin A7? serial scale mux#14?
 
-how flow freshwater becames nutes?
-    ConcentrationRecalc
-        NutrientsTransferCalc
-            Store
-            StoreManual
-    should i recalc at barrel 0 at start of mixing,
-     so we have flow ammount in nutes and not in freshwater even before storing
-
-can we work with bad flow sensor?
-    fill works by flow, protects from overfill by sonic
-    mix works by timer
-    store works by sonic
-    drain works by flow, protects from overdrain by sonic 
-
-
-
-
-
-
-
-
 
 optional:
 check all uint values never go below zero!!
@@ -236,11 +159,6 @@ change sonic 10555  to retry--
     BARREL_SONIC_OUTOFRANGE only if all 10555
 drain_log file
     needs accurate clock
-
-make pressure sensor check constantly so i can turn off the pump on overpressure
-    task loop inside other cpu core? or inside filling loop itself?
-    ps2 only when pump working?
-    ps1 only once before sol open + once if no flow + once at system start?
 
 set Overpressure global error only if error occurs with multiple solenoids
 

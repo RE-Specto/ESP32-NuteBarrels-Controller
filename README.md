@@ -8,6 +8,7 @@ all source files are under src/
 ![the system](/1-pump%20system.png)
 
 ## 2do:
- - [ ] implement GUI via webUI
+ - [ ] 1 barrel new small system - write auto workflow
+ - [x] implement GUI via webUI
  - [x] split main.cpp into separate units by functionality
  - [x] add schematic and photos
