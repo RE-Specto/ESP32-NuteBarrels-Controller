@@ -16,7 +16,7 @@ void IRAM_ATTR StopButtonInterrupt();
 struct sFlow
 {
     volatile uint32_t _counter = 0;
-    uint16_t _conversion_divider = 450;
+    uint16_t _conversion_divider = 392;
     volatile uint32_t _flow = 0;
     volatile uint32_t _lastMilis = 0;
     bool _enabled = false;

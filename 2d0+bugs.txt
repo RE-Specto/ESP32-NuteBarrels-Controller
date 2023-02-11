@@ -29,8 +29,6 @@ start-stop in webui instead of ++ --
 
 manual mux unlock via webUI
 
-default flow to 392pulse
-
 any way to set/get barrel flow freshwater/nutrients level? not visible in auto ui..
 
 webui zoom in / out -> start/stop!
