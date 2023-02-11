@@ -31,9 +31,6 @@ manual mux unlock via webUI
 
 default flow to 392pulse
 
-deprecate manual source?
-rename next barrel to store to - > pool 
-
 any way to set/get barrel flow freshwater/nutrients level? not visible in auto ui..
 
 webui zoom in / out -> start/stop!

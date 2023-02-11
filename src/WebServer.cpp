@@ -97,7 +97,7 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><br><br>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
-        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
+        response->print("<button onclick=\"location=\'/fmdb\'\">manual fmdb</button><span> </span>");
         response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         if (Filesys.isSD())
         {
@@ -263,14 +263,14 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/man?stop\'\">stop</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/settings\'\">calibration</button><span> </span>");
-        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
+        response->print("<button onclick=\"location=\'/fmdb\'\">manual fmdb</button><span> </span>");
         response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         response->printf("<span>uptime: %lli seconds. build: %s. system state:%u</span><br>", esp_timer_get_time() / 1000000, __DATE__, State.Get());
         response->print("</body></html>");
         request->send(response);
     });
 
-    server.on("/fmsd", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/fmdb", HTTP_GET, [](AsyncWebServerRequest *request) {
         LOG.printf("Requested: %s\r\n", request->url().c_str());
         byte status = 0; // for parameter out of range error
         if (request->hasArg("task"))
@@ -281,7 +281,7 @@ void ServerClass::begin()
             int src = request->arg("src").toInt();
             int dest = request->arg("dest").toInt();
             // printing message
-            LOG.printf("[man]fmsd task received: task%i ammo%i src%i dest%i\r\n", task, ammo, src, dest);
+            LOG.printf("[man]fmdb task received: task%i ammo%i src%i dest%i\r\n", task, ammo, src, dest);
             // checking input is valid
             if (src > -1 && src < NUM_OF_BARRELS && task > -1 && task < 6 && ammo > -1 && ammo < 32768 && dest > -1 && dest < NUM_OF_BARRELS)
             {
@@ -298,15 +298,15 @@ void ServerClass::begin()
             }
         }
         AsyncResponseStream *response = request->beginResponseStream("text/html");
-        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>manual F.M.S.D.B.</h3><ul>");
-        response->print("<form action=\"/fmsd\">");
-        response->print("<li>fill-1 mix-2 store-3 drain-4 bypass-5</li>");
+        response->print("<html><body style=\"transform: scale(1.5);transform-origin: 0 0;\"><h3>manual F.M.D.B.</h3><ul>");
+        response->print("<form action=\"/fmdb\">");
+        response->print("<li>fill-1 mix-2 drain-3 bypass-4</li>");
         response->printf("<li><input id=\"task\" name=\"task\" value=\"%u\"></li>", State.ManualTask());
-        response->print("<li>how much</li>");
+        response->print("<li>liters/minutes</li>");
         response->printf("<li><input id=\"ammo\" name=\"ammo\" value=\"%u\"></li>", State.ManualAmmount());
-        response->print("<li>from</li>");
-        response->printf("<li><input id=\"src\" name=\"src\" value=\"%u\"></li>", State.ManualSource());
-        response->print("<li>to</li>");
+        // response->print("<li>from</li>");
+        // response->printf("<li><input id=\"src\" name=\"src\" value=\"%u\"></li>", State.ManualSource());
+        response->print("<li>barrel/pool</li>");
         response->printf("<li><input id=\"dest\" name=\"dest\" value=\"%u\"></li>", State.ManualDestination());
         switch (status)
         {
@@ -320,7 +320,7 @@ void ServerClass::begin()
             response->print("<li>out of range data, try again!</li>");
             break;
         }
-        response->print("<li><input type=\"submit\" value=\"Go\"><span> </span><button type=\"reset\" onclick=\"location=\'/fmsd?task=0\'\">cancel fmsd</button>");
+        response->print("<li><input type=\"submit\" value=\"Go\"><span> </span><button type=\"reset\" onclick=\"location=\'/fmdb?task=0\'\">cancel fmdb</button>");
         response->print("</form>");
         response->print("</ul>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
@@ -597,7 +597,7 @@ void ServerClass::begin()
         // response->printf("<input id=\"SetFillBarrel\" name=\"SetFillBarrel\" value=\"%u\"><span> </span>", State.FillBarrel());
         // response->print("<input type=\"submit\" value=\"Go\"></form>");
 
-        response->print("<li>next barrel to store to</li>");
+        response->print("<li>select pool to drain to</li>");
         response->print("<form action=\"/settings\">");
         response->printf("<input id=\"SetStoreBarrel\" name=\"SetStoreBarrel\" value=\"%u\"><span> </span>", State.StoreBarrel());
         response->print("<input type=\"submit\" value=\"Go\"></form>");
@@ -755,7 +755,7 @@ void ServerClass::begin()
         response->print("<button onclick=\"location=\'/reset\'\">reset</button><span> </span>");
         response->print("<button onclick=\"location=\'/list\'\">list filesystem</button><span> </span>");
         response->print("<button onclick=\"location=\'/manual\'\">manual controls</button><span> </span>");
-        response->print("<button onclick=\"location=\'/fmsd\'\">manual fmsd</button><span> </span>");
+        response->print("<button onclick=\"location=\'/fmdb\'\">manual fmdb</button><span> </span>");
         response->print("<button onclick=\"location=\'/index\'\">Auto</button><br>");
         response->printf("<span>uptime: %lli seconds. system state:%u</span><br><br>", esp_timer_get_time() / 1000000, State.Get());
         response->print("</body></html>");

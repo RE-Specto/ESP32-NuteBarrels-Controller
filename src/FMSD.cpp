@@ -29,13 +29,13 @@ void ServiceManual()
             case 2:
             MixManual();
             break;
+            // case 3:
+            // StoreManual();
+            // break;
             case 3:
-            StoreManual();
-            break;
-            case 4:
             DrainManual();
             break;
-            case 5:
+            case 4:
             BypassManual();
             break;
         }
@@ -413,7 +413,7 @@ void Bypass()
 
 void fmsTask(void * pvParameters)
 { // Filling Mixing Storing Draining
-    //LOG.printf(" fmsd begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
+    //LOG.printf(" fmdb begin  system state:%u  watermark:%u\r\n", State.Get(), uxTaskGetStackHighWaterMark(loop1));
     while (true)
     {
         // !! new fmdb here !!
