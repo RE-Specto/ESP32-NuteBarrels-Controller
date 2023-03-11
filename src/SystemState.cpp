@@ -80,8 +80,10 @@ void StatClass::Print()
         Serial.print(F("MIXING "));
     if (Check(STORING_STATE))
         Serial.print(F("STORING "));
-    if (Check(DRAINIG_STATE))
-        Serial.print(F("DRAINIG "));
+    if (Check(DRAINING_STATE))
+        Serial.print(F("DRAINING "));
+    if (Check(BYPASS_STATE))
+        Serial.print(F("BYPASS "));
     if (Check(STOPPED_STATE))
         Serial.print(F("STOPPED "));
     Serial.println();

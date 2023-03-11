@@ -450,9 +450,44 @@ void fmsTask(void * pvParameters)
     while (true)
     {
         // !! new fmdb here !!
-        StoppedWait(); // !! temporary to enable manual fmdb!!
 
-        
+        if (State.BypassMore())
+        {
+            State.Set(BYPASS_STATE); // for now useful only for webUI?
+            Bypass();
+            State.Unset(BYPASS_STATE);
+        }
+
+        if (State.Check(FILLING_STATE))
+        {
+            LOG.print(F("system running auto - waiting for nutes\r\n"));
+            State.Set(STOPPED_STATE); // wait until nutes loaded before filling+mixing
+            StoppedWait(); // stay here while system is waiting
+            Fill();
+            State.Set(MIXING_STATE);
+            State.Unset(FILLING_STATE);
+        }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS); // good idea to wait after each state change
+
+        if (State.Check(MIXING_STATE)) // Mixing
+        {
+            Mix();
+            State.Set(DRAINING_STATE);
+            State.Unset(MIXING_STATE);
+        }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+        if (State.Check(DRAINING_STATE))
+        {
+            Drain();
+            State.Set(FILLING_STATE);
+            State.Unset(DRAINING_STATE);
+        }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+
         // !! old fmsd here !!
         // if (State.Check(FILLING_STATE)) // Filling
         // {
@@ -485,7 +520,7 @@ void fmsTask(void * pvParameters)
         //         // first we drain if neccesery
         //         if (State.DrainMore())
         //         {
-        //             State.Set(DRAINIG_STATE);
+        //             State.Set(DRAINING_STATE);
         //             vTaskDelay(1000 / portTICK_PERIOD_MS);
         //             // drain until empty or requirement satisfied.
         //             Drain(State.FillBarrel(), State.DrainMore());
@@ -497,7 +532,7 @@ void fmsTask(void * pvParameters)
         //         }
         //         else // no drain requirement
         //         {
-        //             State.Unset(DRAINIG_STATE);                    
+        //             State.Unset(DRAINING_STATE);                    
         //         }
 
         //         // then we store what is left
@@ -523,7 +558,7 @@ void fmsTask(void * pvParameters)
         //             // wait for drain request
         //             while (!State.DrainMore())
         //                 ServiceManual();
-        //             State.Set(DRAINIG_STATE);
+        //             State.Set(DRAINING_STATE);
         //             // drain the mixer first
         //             State.SetStoreBarrel(State.FillBarrel());
         //             // drain until empty or requirement satisfied.
@@ -537,7 +572,7 @@ void fmsTask(void * pvParameters)
 
         //     while (State.DrainMore())
         //     {
-        //         State.Set(DRAINIG_STATE);
+        //         State.Set(DRAINING_STATE);
         //         vTaskDelay(1000 / portTICK_PERIOD_MS);
         //         // storing_barrel not empty? not errorous? drain it
         //         if (!Barrels.isEmpty(State.StoreBarrel()) && !Barrels.Errors(State.StoreBarrel()))
@@ -558,7 +593,7 @@ void fmsTask(void * pvParameters)
         //         }
         //     }
         //     if (!State.DrainMore())
-        //         State.Unset(DRAINIG_STATE);
+        //         State.Unset(DRAINING_STATE);
         //     // repeat the fms cycle if no draining required, or all barrels empty
         //     State.Set(FILLING_STATE);
         //     State.Unset(STORING_STATE);
