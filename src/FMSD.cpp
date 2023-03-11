@@ -179,8 +179,11 @@ void Fill()
         Barrels.FreshwaterFillCalc(0); // apply flowcount to barrel         
         if (Barrels.FreshGet(0) % 50 == 0) // print status each 50 Liters
         {
-            LOG.printf("filled %u liters so far..\r\n", Barrels.FreshGet(0));
-            printAmmount = false;
+            if (printAmmount)
+            {
+                LOG.printf("filled %u liters so far..\r\n", Barrels.FreshGet(0));
+                printAmmount = false;
+            }
         }
         else
             printAmmount = true;
@@ -347,8 +350,11 @@ void Drain()
         Barrels.NutrientsTransferCalc(0, target);
         if (Barrels.NutriGet(target) % 50 == 0) // print status each 50 Liters
         {
-            LOG.printf("draining.. %u liters left.\r\n", Barrels.NutriGet(target));
-            printAmmount = false;
+            if (printAmmount)
+            {
+                LOG.printf("draining.. %u liters left.\r\n", Barrels.NutriGet(target));
+                printAmmount = false;
+            }
         }
         else
             printAmmount = true;
@@ -396,8 +402,11 @@ void Bypass()
         Barrels.FreshwaterFillCalc(target); // apply flowcount to pool freshwater count
         if (Barrels.FreshGet(target) % 50 == 0) // print status each 50 Liters
         {
-            LOG.printf("filling freshwater. %u liters so far..\r\n", Barrels.FreshGet(target));
-            printAmmount = false;
+            if (printAmmount)
+            {
+                LOG.printf("filling freshwater. %u liters so far..\r\n", Barrels.FreshGet(target));
+                printAmmount = false;
+            }
         }
         else
             printAmmount = true;
