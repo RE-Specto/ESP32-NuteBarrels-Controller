@@ -73,6 +73,6 @@ void loop()
     ArduinoOTA.handle();
     State.isChanged();
     Flow.CheckNeedCalib();
-    vTaskDelay(1);
+    vTaskDelay(10);
     //vTaskDelay(portMAX_DELAY); // wait as much as posible ...
 }
