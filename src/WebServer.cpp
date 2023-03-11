@@ -415,6 +415,20 @@ void ServerClass::begin()
             Barrels.VolumeMinSet(VolumeMinSet, VolumeMinSetData);
         }
 
+        if (request->hasArg("VolumeFreshwater"))
+        {
+            int VolumeFreshwater = request->arg("VolumeFreshwater").toInt();
+            int VolumeFreshwaterData = request->arg("VolumeFreshwaterData").toInt();
+            Barrels.FreshOverride(VolumeFreshwater, VolumeFreshwaterData);
+        }
+
+        if (request->hasArg("VolumeNutrients"))
+        {
+            int VolumeNutrients = request->arg("VolumeNutrients").toInt();
+            int VolumeNutrientsData = request->arg("VolumeNutrientsData").toInt();
+            Barrels.NutriOverride(VolumeNutrients, VolumeNutrientsData);
+        }
+
         if (request->hasArg("SonicOffsetSet"))
         {
             int SonicOffsetSet = request->arg("SonicOffsetSet").toInt();
@@ -681,6 +695,16 @@ void ServerClass::begin()
             response->print("<form action=\"/settings\">");
             response->printf("<input type=\"hidden\" id=\"%sBarrel\" name=\"%sBarrel\" value=\"%u\"><span> </span>", bEnabled?"Disable":"Enable", bEnabled?"Disable":"Enable", x);
             response->printf("<input type=\"submit\" value=\"%s\"></form>", bEnabled?"Disable":"Enable");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"VolumeFreshwater\" name=\"VolumeFreshwater\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"VolumeFreshwaterData\" name=\"VolumeFreshwaterData\" value=\"%u\"><span> </span>", Barrels.FreshGet(x));
+            response->print("<input type=\"submit\" value=\"Set Water\"></form>");
+
+            response->print("<form action=\"/settings\">");
+            response->printf("<input type=\"hidden\" id=\"VolumeNutrients\" name=\"VolumeNutrients\" value=\"%u\"><span> </span>", x);
+            response->printf("<input id=\"VolumeNutrientsData\" name=\"VolumeNutrientsData\" value=\"%u\"><span> </span>", Barrels.NutriGet(x));
+            response->print("<input type=\"submit\" value=\"Set Nutes\"></form>");
 
             response->print("<br>");
         }
