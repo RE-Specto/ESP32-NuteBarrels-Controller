@@ -1,5 +1,9 @@
 bugs:
 
+some barrel values are still uint16_t but pools are uint32_t - need to evaluate
+
+all functions that adds uint32_t + something and return uint32_t should use UINT32_MAX
+
 manual mixing timer is shown as auto bypass ammount!!
     also not letting to increase auto bypass while in this state
     also manual fill left is shown on barr0 minutes.. (kinda like it actually)
@@ -66,8 +70,6 @@ rewrite system to use concentrate from mixer barrel
     [ ] add DrainTotal BypassTotal to webUI + add DrainTotalSet BypassTotalSet
     [ ] if bypass is via manual, how to pause without clearing? via interface?
             edit ResetManual to save value aside instead of clearing
-
-manual setting of water+nutri for flow
 
 ***************^^ checked below here
 

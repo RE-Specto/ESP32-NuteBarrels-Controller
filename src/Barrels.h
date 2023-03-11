@@ -29,11 +29,11 @@ struct sBarrel
     uint32_t _volume_freshwater_last = 0; // data from flow sensor
     uint32_t _volume_nutrients = 0;      // data from flow sensor
     uint32_t _volume_nutrients_last = 0;  // data from flow sensor
-    uint16_t _sonic_last_value = 0;       // updated on every sonic measurement
+    uint32_t _sonic_last_value = 0;       // updated on every sonic measurement
     float _sonic_deviation = 0;          // +- percent error in measurement
     uint16_t _volume_min = 0; // for flow and sonic sensors - calibrate by filling and draining
-    uint16_t _volume_max = 500; // for flow and sonic sensors - calibrate by filling until miscalculation
-    uint16_t _ml_in_mm = 1130; // mililiters in 1 milimeter - calibrate by filling 100L, also can calculate by barrel diameter
+    uint32_t _volume_max = 500; // for flow and sonic sensors - calibrate by filling until miscalculation
+    uint32_t _ml_in_mm = 1130; // mililiters in 1 milimeter - calibrate by filling 100L, also can calculate by barrel diameter
     uint16_t _barrel_height = 1000; // mm to barrel's dry empty point - calibrate by dry barrel height
 };
 
@@ -50,8 +50,10 @@ public:
     void ErrorUnset(byte barrel, byte mask);
     void Reset(byte barrel);
     void ErrorOverride(byte barrel, byte error);
-    uint16_t FreshGet(byte barrel);
-    uint16_t NutriGet(byte barrel);
+    uint32_t FreshGet(byte barrel);
+    uint32_t NutriGet(byte barrel);
+    void FreshOverride(byte barrel, uint32_t volume);
+    void NutriOverride(byte barrel, uint32_t volume);
     //void NutriLess(byte barrel, uint32_t liters);
     void FreshwaterFillCalc(byte barrel);
     //float ConcentrationTotal(byte barrel);
@@ -59,7 +61,7 @@ public:
     // bool isFillTargetReached(byte barrel, byte type, uint16_t target);
     void WaterToNutrients(byte barrel);
     void NutrientsTransferCalc(byte from, byte to);
-    uint16_t VolumeMax(byte barrel);
+    uint32_t VolumeMax(byte barrel);
     uint16_t VolumeMin(byte barrel);
     void VolumeMaxSet(byte barrel, uint16_t volume);
     void VolumeMinSet(byte barrel, uint16_t volume);
@@ -67,14 +69,14 @@ public:
     uint16_t SonicLastMM(byte barrel);
     int16_t SonicLastMMfromEmpty(byte barrel);
     uint16_t SonicOffset(byte barrel);
-    uint16_t SonicMLinMMGet(byte barrel);
+    uint32_t SonicMLinMMGet(byte barrel);
     void SonicOffsetSet(byte barrel, uint16_t offs);
     void SonicMLinMMSet(byte barrel, uint16_t coef);
-    int16_t SonicCalcLiters(byte barrel);
+    uint32_t SonicCalcLiters(byte barrel);
     void Save100LitersMark(byte barrel);
     int8_t BarrelPercents(byte barrel);
-    int16_t SonicLitersTotal();
-    int16_t SonicLitersUsable();
+    uint32_t SonicLitersTotal();
+    uint32_t SonicLitersUsable();
     bool isDry(byte barrel);
     bool isEmpty(byte barrel);
     bool isFull(byte barrel);

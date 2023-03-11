@@ -51,10 +51,24 @@ void BarrClass::ErrorOverride(byte barrel, byte error)
 }
 
 // freshwater counted by flow for (barrel)
-uint16_t BarrClass::FreshGet(byte barrel) { return iBarrel[barrel]._volume_freshwater; }
+uint32_t BarrClass::FreshGet(byte barrel) { return iBarrel[barrel]._volume_freshwater; }
 
 // nutrients counted by flow for (barrel)
-uint16_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._volume_nutrients; }
+uint32_t BarrClass::NutriGet(byte barrel) { return iBarrel[barrel]._volume_nutrients; }
+
+// not recommended - use with caution
+void BarrClass::FreshOverride(byte barrel, uint32_t volume)
+{
+    iBarrel[barrel]._volume_freshwater_last = volume;
+    iBarrel[barrel]._volume_freshwater = volume;
+}
+
+// not recommended - use with caution
+void BarrClass::NutriOverride(byte barrel, uint32_t volume)
+{
+    iBarrel[barrel]._volume_nutrients_last = volume;
+    iBarrel[barrel]._volume_nutrients = volume;
+}
 
 // // decrease barrel by drained ammount
 // void BarrClass::NutriLess(byte barrel, uint32_t liters)
@@ -244,7 +258,7 @@ void BarrClass::NutrientsTransferCalc(byte from, byte to)
     }
 }
 
-uint16_t BarrClass::VolumeMax(byte barrel)
+uint32_t BarrClass::VolumeMax(byte barrel)
 {
     return iBarrel[barrel]._volume_max;
 }
@@ -263,7 +277,7 @@ void BarrClass::VolumeMaxSet(byte barrel, uint16_t volume)
 
 void BarrClass::VolumeMinSet(byte barrel, uint16_t volume)
 {
-    LOG.printf("Barrel %u changing min volume, from:%u to:%u\r\n", barrel, iBarrel[barrel]._volume_max, volume);
+    LOG.printf("Barrel %u changing min volume, from:%u to:%u\r\n", barrel, iBarrel[barrel]._volume_min, volume);
     iBarrel[barrel]._volume_min = volume;
     if (!SaveSD()) { LOG.println("[E] unable to Save VolumeMinSet"); }  // just warn for now..
 }
@@ -425,7 +439,7 @@ void BarrClass::SonicMeasure(byte barrel, byte measure, uint16_t timeLeft, byte 
 uint16_t BarrClass::SonicLastMM(byte barrel) { return iBarrel[barrel]._sonic_last_value; }
 int16_t BarrClass::SonicLastMMfromEmpty(byte barrel) { return iBarrel[barrel]._barrel_height - iBarrel[barrel]._sonic_last_value; }
 uint16_t BarrClass::SonicOffset(byte barrel) { return iBarrel[barrel]._barrel_height; }
-uint16_t BarrClass::SonicMLinMMGet(byte barrel) { return iBarrel[barrel]._ml_in_mm; }
+uint32_t BarrClass::SonicMLinMMGet(byte barrel) { return iBarrel[barrel]._ml_in_mm; }
 
 // empty barrel (full barrel length) in mm
 void BarrClass::SonicOffsetSet(byte barrel, uint16_t offs) 
@@ -443,7 +457,7 @@ void BarrClass::SonicMLinMMSet(byte barrel, uint16_t coef)
 }
 
 // sonic calculate liters of last measurement
-int16_t BarrClass::SonicCalcLiters(byte barrel)
+uint32_t BarrClass::SonicCalcLiters(byte barrel)
 {
     // _barrel_height = empty barrel (full barrel length) in mm
     // "full barrel length" - SonicMeasure = water level from empty in mm
@@ -486,7 +500,7 @@ int8_t BarrClass::BarrelPercents(byte barrel)
 
 // total liters in all barrels excluding mixing barrel and barrels with errors
 // should I remeasure all sonics before?
-int16_t BarrClass::SonicLitersTotal()
+uint32_t BarrClass::SonicLitersTotal()
 {
     int16_t result = 0;
     for (byte x = 1; x < NUM_OF_BARRELS; x++)
@@ -497,7 +511,7 @@ int16_t BarrClass::SonicLitersTotal()
 
 // same as above but exclude unusable liters from below draining point.
 // should I remeasure all sonics before?
-int16_t BarrClass::SonicLitersUsable()
+uint32_t BarrClass::SonicLitersUsable()
 {
     int16_t result = 0;
     for (byte x = 1; x < NUM_OF_BARRELS; x++)
