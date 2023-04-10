@@ -1,5 +1,10 @@
 bugs:
 
+sonic 0 integer overflow 
+[4294948L] [1017mm] [1130ml/mm] [1000mm barrel] [problem:0] [water:0] [nutri:0]
+
+drain webui 0L 30M not displaying barrel ammount (but visible in manual under mutri:303)
+
 some barrel values are still uint16_t but pools are uint32_t - need to evaluate
 
 all functions that adds uint32_t + something and return uint32_t should use UINT32_MAX
